@@ -94,7 +94,11 @@ app.get("/api/cron-match", async (req, res) => {
     if (process.env.TURSO_DATABASE_URL) {
       console.log("[cron] TURSO_DATABASE_URL is defined. Running database-backed runDigest workflow...");
       const slotParam = req.query.slot as "am" | "pm" | undefined;
-      const result = await runDigest(slotParam ? { slot: slotParam } : undefined);
+      const modeParam = req.query.mode as "scrape" | "email" | "all" | undefined;
+      const result = await runDigest({
+        slot: slotParam,
+        mode: modeParam
+      });
       res.json({ success: true, database: true, ...result });
       return;
     }
