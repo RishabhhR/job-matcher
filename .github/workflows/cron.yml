@@ -1,10 +1,14 @@
 name: Job Match Digest Cron
 
+# Schedule intentionally disabled: daily-scrape.yml is the single active twice-daily
+# cron (runs the pipeline directly in Actions, already verified end-to-end with
+# real DB writes + a sent email). This workflow pings a Vercel endpoint instead,
+# but Vercel is missing TURSO_DATABASE_URL/TURSO_AUTH_TOKEN env vars and has no
+# access to data/cv.txt or profile.json (gitignored, never deployed), so it would
+# currently fail. Running both on the same schedule also doubles Groq/Gemini
+# free-tier quota usage, which is what caused today's rate-limit failures.
+# Left as workflow_dispatch-only so it can still be triggered/fixed manually later.
 on:
-  schedule:
-    # Runs at 9:30 AM IST (4:00 UTC) and 9:30 PM IST (16:00 UTC)
-    # GitHub Action schedules can occasionally be delayed by 5-15 mins, so we target 3:30 UTC (9:00 AM IST)
-    - cron: '30 3,15 * * *'
   workflow_dispatch: # Enables manual run from the GitHub Actions tab
 
 jobs:
