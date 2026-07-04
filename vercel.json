@@ -5,7 +5,8 @@
       "src": "src/server.ts",
       "use": "@vercel/node",
       "config": {
-        "maxDuration": 60
+        "maxDuration": 60,
+        "includeFiles": ["data/**"]
       }
     },
     {
@@ -21,6 +22,12 @@
     {
       "src": "/(.*)",
       "dest": "public/$1"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-match",
+      "schedule": "30 3,15 * * *"
     }
   ]
 }
