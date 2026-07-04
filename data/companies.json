@@ -1,0 +1,5 @@
+{
+  "greenhouse": ["stripe", "airbnb", "affirm", "gitlab", "coinbase", "figma", "webflow", "groww"],
+  "lever": ["netflix", "palantir"],
+  "ashby": ["ramp", "vercel", "linear", "notion", "openai", "deel"]
+}

@@ -1,0 +1,49 @@
+name: Daily job scrape and match
+
+on:
+  schedule:
+    # 03:30 UTC = 09:00 IST
+    - cron: "30 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-match:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reconstruct private data files from secrets
+        env:
+          CV_TEXT: ${{ secrets.CV_TEXT }}
+          PROFILE_JSON: ${{ secrets.PROFILE_JSON }}
+        run: |
+          mkdir -p data
+          printf '%s' "$CV_TEXT" > data/cv.txt
+          printf '%s' "$PROFILE_JSON" > data/profile.json
+
+      - name: Run scrape + match pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm start
+
+      - name: Remove reconstructed private data files
+        run: rm -f data/cv.txt data/profile.json
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add results/latest.md
+          git diff --staged --quiet || git commit -m "Update job matches ($(date -u +%Y-%m-%d))"
+          git push
