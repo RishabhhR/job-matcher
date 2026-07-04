@@ -116,7 +116,11 @@ async function callCerebras(messages: Message[], timeoutMs = 60000): Promise<LLM
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.3-70b",
+        // "llama-3.3-70b" doesn't exist on Cerebras's free tier for this account -
+        // confirmed via GET /v1/models the actual available models are gpt-oss-120b,
+        // zai-glm-4.7, gemma-4-31b. gpt-oss-120b matches Cerebras's documented free
+        // tier (1M tokens/day) and is the strongest of the three for this task.
+        model: "gpt-oss-120b",
         messages,
         temperature: 0.2,
         response_format: { type: "json_object" },
