@@ -2,6 +2,7 @@ import { callLLM, parseJSON, type Message } from "./ai.js";
 import type { RawPosting } from "./scrapers.js";
 
 export interface Profile {
+  notifyEmail?: string;
   targetDesignation: string;
   currentEmployer: string;
   currentTitle: string;

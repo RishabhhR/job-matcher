@@ -1,6 +1,6 @@
 import type { RawPosting } from "./scrapers.js";
 
-function canonicalizeUrl(url: string): string {
+export function canonicalizeUrl(url: string): string {
   try {
     const u = new URL(url);
     return `${u.hostname}${u.pathname}`.toLowerCase().replace(/\/$/, "");

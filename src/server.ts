@@ -5,6 +5,7 @@ import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runJobMatcher } from "./runner.js";
+import { runDigest } from "./digest.js";
 
 // Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
 if (typeof (global as any).DOMMatrix === "undefined") {
@@ -89,6 +90,14 @@ app.get("/api/cron-match", async (req, res) => {
   }
 
   try {
+    if (process.env.TURSO_DATABASE_URL) {
+      console.log("[cron] TURSO_DATABASE_URL is defined. Running database-backed runDigest workflow...");
+      const slotParam = req.query.slot as "am" | "pm" | undefined;
+      const result = await runDigest(slotParam ? { slot: slotParam } : undefined);
+      res.json({ success: true, database: true, ...result });
+      return;
+    }
+
     const cvPath = path.join(dataDir, "cv.txt");
     const profilePath = path.join(dataDir, "profile.json");
     const companiesPath = path.join(dataDir, "companies.json");
