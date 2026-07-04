@@ -3,3 +3,4 @@ node_modules
 data/cv.txt
 data/profile.json
 .vercel
+.env*

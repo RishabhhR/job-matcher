@@ -109,6 +109,10 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
         companies,
         linkedin: { location: "India", maxResults: 25 },
         onProgress: (status, message) => console.log(`[${status.toUpperCase()}] ${message}`),
+        // Scheduled scrape runs have a full hour before the separate email cron
+        // fires, so it's worth patiently riding out rate limits (see match.ts's
+        // PATIENT_RETRY) instead of giving up after a few quick retries.
+        patient: mode === "scrape",
       });
     } catch (err) {
       await finishScrapeRun(scrapeRunId, 0, 0, (err as Error).message);

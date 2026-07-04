@@ -78,12 +78,25 @@ Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score":
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export interface RetryOptions {
+  retries?: number;
+  baseBackoffMs?: number;
+  maxBackoffMs?: number;
+}
+
+const FAST_RETRY: Required<RetryOptions> = { retries: 3, baseBackoffMs: 5000, maxBackoffMs: 20000 };
+// "Patient" mode is for the scheduled scrape-and-score cron, which has a whole hour
+// before the separate email-send cron fires - worth riding out rate limits with long
+// waits instead of giving up fast, since nothing is blocking on this in real time.
+export const PATIENT_RETRY: Required<RetryOptions> = { retries: 8, baseBackoffMs: 10000, maxBackoffMs: 120000 };
+
 async function scoreBatchWithRetry(
   cvText: string,
   profile: Profile,
   batch: RawPosting[],
-  retries = 3
+  retryOptions: RetryOptions = {}
 ): Promise<{ results: LLMScoreItem[]; provider: string; warning?: string }> {
+  const { retries, baseBackoffMs, maxBackoffMs } = { ...FAST_RETRY, ...retryOptions };
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await scoreBatch(cvText, profile, batch);
@@ -92,7 +105,7 @@ async function scoreBatchWithRetry(
         console.warn(`[match] batch failed after ${retries} retries, skipping: ${(err as Error).message}`);
         return { results: [], provider: "none" };
       }
-      const backoffMs = 5000 * 2 ** attempt;
+      const backoffMs = Math.min(baseBackoffMs * 2 ** attempt, maxBackoffMs);
       console.warn(`[match] all providers failed/rate-limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);
       await sleep(backoffMs);
     }
@@ -104,14 +117,15 @@ export async function scoreAll(
   cvText: string,
   profile: Profile,
   postings: RawPosting[],
-  batchSize = 6
+  batchSize = 6,
+  retryOptions: RetryOptions = {}
 ): Promise<{ results: ScoredMatch[]; provider: string }> {
   const batches = chunk(postings, batchSize);
   const matches: ScoredMatch[] = [];
   let lastProvider = "none";
 
   for (const batch of batches) {
-    const { results, provider, warning } = await scoreBatchWithRetry(cvText, profile, batch);
+    const { results, provider, warning } = await scoreBatchWithRetry(cvText, profile, batch, retryOptions);
     lastProvider = provider;
     if (warning) console.warn(`[match] provider=${provider} warning=${warning}`);
     for (const r of results) {

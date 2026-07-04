@@ -1,7 +1,7 @@
 import { fetchAllPostings } from "./scrapers.js";
 import { fetchLinkedInPublic } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
-import { keywordPrefilter, scoreAll, type Profile, type ScoredMatch } from "./match.js";
+import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
 
 export interface RunnerOptions {
   cvText: string;
@@ -16,10 +16,15 @@ export interface RunnerOptions {
     maxResults?: number;
   };
   onProgress?: (status: string, message: string) => void;
+  // Scheduled scrape-only crons have a whole hour before the separate email cron
+  // fires, so it's worth riding out rate limits with long waits instead of giving
+  // up fast - interactive/SSE callers (the web UI) should leave this off.
+  patient?: boolean;
 }
 
 export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch[]> {
-  const { cvText, profile, companies, linkedin, onProgress = () => {} } = options;
+  const { cvText, profile, companies, linkedin, onProgress = () => {}, patient = false } = options;
+  const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
   onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
   const atsPostings = await fetchAllPostings(companies);
@@ -64,11 +69,12 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     const batch = shortlisted.slice(i, i + batchSize);
     onProgress("scoring", `Scoring batch ${currentBatchNum}/${totalBatches} (${batch.length} postings)...`);
     
-    const { results: batchResults, provider } = await scoreAll(cvText, profile, batch, batch.length);
+    const { results: batchResults, provider } = await scoreAll(cvText, profile, batch, batch.length, retryOptions);
     scoredMatches.push(...batchResults);
 
     if (i + batchSize < totalPostings) {
-      const sleepTime = provider === "gemini" ? 8000 : 4000;
+      const baseSleep = provider === "gemini" ? 8000 : 4000;
+      const sleepTime = patient ? baseSleep * 2 : baseSleep;
       onProgress("scoring", `Sleeping ${sleepTime / 1000}s to respect LLM rate limits (active provider: ${provider})...`);
       await new Promise((resolve) => setTimeout(resolve, sleepTime));
     }
