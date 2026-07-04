@@ -52,7 +52,16 @@ export async function scoreBatch(
     )
     .join("\n\n---\n\n");
 
-  const system = `You are a career-matching assistant. Score how well a candidate's CV fits each job posting, considering their current employer and salary (to judge whether a move would be a comp upgrade, lateral, or downgrade). Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score": number (0-100), "comp_fit_label": "upgrade"|"lateral"|"downgrade"|"unknown", "reasoning_text": string (1-2 sentences)}]}. Include one entry per job index provided.`;
+  const system = `You are a career-matching assistant. Score how well a candidate's CV fits each job posting, considering their current employer, title, and salary.
+
+Apply these rules when deciding comp_fit_label (estimate the posting's likely compensation from its title, seniority, company, and location if salary isn't stated explicitly):
+- "downgrade": estimated total comp is more than ~10% below the candidate's current total comp (fixed + ESOPs), OR the role is a clear step down in seniority/title with no offsetting comp increase.
+- "lateral": estimated total comp is within roughly -10% to +20% of current, OR the move is a same-level title switch without a strong (30%+) comp jump.
+- "upgrade": estimated total comp is 20%+ above current (30-40%+ is a strong/typical "good move" benchmark in Indian tech/product hiring; 40-60%+ is exceptional), OR the role is one level above the candidate's current title (e.g. APM -> PM, PM -> Senior PM) even at a roughly similar comp band.
+- Flag role jumps of two or more levels above the candidate's current title (e.g. APM -> Senior/Group PM) as a stretch in the reasoning text, even if you still label it "upgrade" - don't treat it as a routine next step.
+- ESOP-heavy offers should be discounted versus fixed cash when estimating comp, since equity is illiquid and vesting-dependent - don't treat quoted ESOP value at full face value unless the company is late-stage/pre-IPO.
+
+Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score": number (0-100), "comp_fit_label": "upgrade"|"lateral"|"downgrade"|"unknown", "reasoning_text": string (1-2 sentences, note explicitly if this is a level-up, lateral, or stretch move)}]}. Include one entry per job index provided.`;
 
   const user = `CANDIDATE CV:\n${cvText}\n\nCANDIDATE CONTEXT:\nCurrent employer: ${profile.currentEmployer}\nCurrent title: ${profile.currentTitle}\nCurrent salary: ${profile.currentSalaryFixedLPA} LPA fixed + ${profile.currentSalaryEsopLPA} LPA ESOPs (${profile.currentSalaryCurrency})\nTarget designation: ${profile.targetDesignation}\n\nJOB POSTINGS:\n${jobsBlock}`;
 
