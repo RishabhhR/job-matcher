@@ -88,13 +88,22 @@ async function callOpenRouter(messages: Message[], timeoutMs = 30000): Promise<L
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistralai/mistral-7b-instruct",
+        // "mistralai/mistral-7b-instruct" isn't a free model - would fail (or charge)
+        // on a $0-balance account. Confirmed via GET /v1/models that this is a current
+        // ":free" model with declared JSON-mode support. qwen3-next-80b was tried
+        // first but its upstream provider (Venice) was persistently 429-ing as
+        // oversubscribed; nemotron-3-super's upstream (Nvidia) responded cleanly.
+        model: "nvidia/nemotron-3-super-120b-a12b:free",
         messages,
         temperature: 0.2,
+        response_format: { type: "json_object" },
       }),
     });
     clearTimeout(timer);
-    if (!res.ok) return { offline: true, content: "", warning: `OpenRouter HTTP ${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { offline: true, content: "", warning: `OpenRouter HTTP ${res.status}: ${body.slice(0, 300)}` };
+    }
     const data = await res.json();
     return { offline: false, content: data.choices[0].message.content };
   } catch {
