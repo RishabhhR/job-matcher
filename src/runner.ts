@@ -1,7 +1,22 @@
-import { fetchAllPostings } from "./scrapers.js";
+import { fetchAllPostings, type RawPosting } from "./scrapers.js";
 import { fetchLinkedInPublic } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
+
+// Location patterns to match India / Bengaluru postings (case-insensitive)
+const INDIA_LOCATION_PATTERNS = [
+  /bengaluru/i, /bangalore/i, /india/i, /remote/i,
+  /\bhybrid\b/i, /anywhere/i,
+];
+
+function filterByLocation(postings: RawPosting[]): RawPosting[] {
+  return postings.filter((p) => {
+    const loc = p.location || "";
+    // If location is empty (some ATS boards don't set it), keep the posting
+    if (!loc) return true;
+    return INDIA_LOCATION_PATTERNS.some((re) => re.test(loc));
+  });
+}
 
 export interface RunnerOptions {
   cvText: string;
@@ -27,8 +42,9 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
   onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
-  const atsPostings = await fetchAllPostings(companies);
-  onProgress("scraping_ats_complete", `Fetched ${atsPostings.length} ATS postings from job boards.`);
+  const atsPostingsRaw = await fetchAllPostings(companies);
+  const atsPostings = filterByLocation(atsPostingsRaw);
+  onProgress("scraping_ats_complete", `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched India/Bengaluru location filter.`);
 
   const linkedinKeywords = profile.targetDesignation;
   const linkedinLocation = linkedin?.location || "India";
