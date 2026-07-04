@@ -1,7 +1,16 @@
 import { Resend } from "resend";
 import type { Row } from "@libsql/client";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY environment variable is missing.");
+    }
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 
 export interface DigestMatchRow {
   title: string;
@@ -45,6 +54,7 @@ export async function sendDigestEmail(
   slot: "am" | "pm"
 ): Promise<string> {
   const slotLabel = slot === "am" ? "Morning" : "Evening";
+  const resend = getResend();
   const { data, error } = await resend.emails.send({
     from: "Job Matcher <onboarding@resend.dev>",
     to: toEmail,
