@@ -285,3 +285,47 @@ export async function finishScrapeRun(
     args: [errorText ? "failed" : "complete", postingsFound, postingsNew, errorText ?? null, id],
   });
 }
+
+// Read-path used when local data/cv.txt + profile.json aren't available (e.g. the
+// Vercel deployment, which never has the gitignored data files) - lets a deployment
+// with only Turso credentials configured still run the digest end-to-end.
+export interface UserRow {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+export async function getUserByEmail(email: string): Promise<UserRow | null> {
+  const result = await client.execute({ sql: "SELECT id, email, name FROM jm_users WHERE email = ?", args: [email] });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return { id: row.id as string, email: row.email as string, name: row.name as string | null };
+}
+
+export async function getActiveCvText(userId: string): Promise<string | null> {
+  const result = await client.execute({
+    sql: "SELECT extracted_text FROM jm_cvs WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1",
+    args: [userId],
+  });
+  if (result.rows.length === 0) return null;
+  return result.rows[0].extracted_text as string;
+}
+
+export async function getUserProfileRow(userId: string): Promise<DbProfile | null> {
+  const result = await client.execute({
+    sql: `SELECT target_designation, current_employer, current_title, current_salary_fixed_lpa,
+                 current_salary_esop_lpa, current_salary_currency
+          FROM jm_user_profiles WHERE user_id = ?`,
+    args: [userId],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    targetDesignation: row.target_designation as string,
+    currentEmployer: row.current_employer as string,
+    currentTitle: row.current_title as string,
+    currentSalaryFixedLPA: row.current_salary_fixed_lpa as number,
+    currentSalaryEsopLPA: row.current_salary_esop_lpa as number,
+    currentSalaryCurrency: row.current_salary_currency as string,
+  };
+}

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { runJobMatcher } from "./runner.js";
@@ -17,6 +17,9 @@ import {
   logEmailSend,
   startScrapeRun,
   finishScrapeRun,
+  getUserByEmail,
+  getActiveCvText,
+  getUserProfileRow,
 } from "./db.js";
 import { sendDigestEmail } from "./mailer.js";
 
@@ -38,17 +41,50 @@ export async function runDigest(options?: { slot?: "am" | "pm" }) {
   console.log(`[digest] Running ${slot} digest for ${today}`);
   await migrate();
 
-  const cvText = readFileSync(path.join(dataDir, "cv.txt"), "utf-8");
-  const profile: Profile = JSON.parse(readFileSync(path.join(dataDir, "profile.json"), "utf-8"));
+  const cvPath = path.join(dataDir, "cv.txt");
+  const profilePath = path.join(dataDir, "profile.json");
   const companies = JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
 
-  if (!profile.notifyEmail) {
-    throw new Error("profile.json is missing notifyEmail - nowhere to send the digest.");
+  let cvText: string;
+  let profile: Profile;
+  let userId: string;
+
+  if (existsSync(cvPath) && existsSync(profilePath)) {
+    // Local dev, or CI where GitHub secrets were reconstructed into data/ before this ran.
+    cvText = readFileSync(cvPath, "utf-8");
+    profile = JSON.parse(readFileSync(profilePath, "utf-8"));
+
+    if (!profile.notifyEmail) {
+      throw new Error("profile.json is missing notifyEmail - nowhere to send the digest.");
+    }
+
+    userId = await upsertUser(profile.notifyEmail, profile.currentTitle, "Asia/Kolkata");
+    await upsertUserProfile(userId, profile);
+    await upsertCv(userId, cvText);
+  } else {
+    // No local data files (e.g. Vercel, which never has the gitignored data/ files) -
+    // read everything already-seeded from a previous local/CI run instead.
+    const email = process.env.DIGEST_USER_EMAIL;
+    if (!email) {
+      throw new Error(
+        "No local data/cv.txt + profile.json, and DIGEST_USER_EMAIL is not set - can't resolve which user to run the digest for."
+      );
+    }
+    const userRow = await getUserByEmail(email);
+    if (!userRow) throw new Error(`No jm_users row for DIGEST_USER_EMAIL=${email}. Run the digest locally/via CI once first to seed it.`);
+
+    const dbProfile = await getUserProfileRow(userRow.id);
+    const dbCvText = await getActiveCvText(userRow.id);
+    if (!dbProfile || !dbCvText) {
+      throw new Error(`User ${email} exists but has no profile/CV persisted yet - run the digest locally/via CI once first.`);
+    }
+
+    userId = userRow.id;
+    cvText = dbCvText;
+    profile = { ...dbProfile, notifyEmail: userRow.email };
   }
 
-  const userId = await upsertUser(profile.notifyEmail, profile.currentTitle, "Asia/Kolkata");
-  await upsertUserProfile(userId, profile);
-  await upsertCv(userId, cvText);
+  const notifyEmail = profile.notifyEmail as string;
 
   if (await hasEmailBeenSent(userId, today, slot)) {
     console.log(`[digest] Already sent ${slot} digest for ${today}, skipping.`);
@@ -97,9 +133,9 @@ export async function runDigest(options?: { slot?: "am" | "pm" }) {
   }
 
   try {
-    const messageId = await sendDigestEmail(profile.notifyEmail, topMatches as any, slot);
+    const messageId = await sendDigestEmail(notifyEmail, topMatches as any, slot);
     await logEmailSend(userId, today, slot, "sent", messageId);
-    console.log(`[digest] Sent ${slot} digest to ${profile.notifyEmail} (${topMatches.length} matches, message ${messageId})`);
+    console.log(`[digest] Sent ${slot} digest to ${notifyEmail} (${topMatches.length} matches, message ${messageId})`);
     return { skipped: false, count: topMatches.length, sent: true, messageId };
   } catch (err) {
     await logEmailSend(userId, today, slot, "failed", undefined, (err as Error).message);
