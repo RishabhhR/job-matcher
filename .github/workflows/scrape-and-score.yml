@@ -1,0 +1,62 @@
+name: Daily Scrape and Score (8 AM / 8 PM IST)
+
+on:
+  schedule:
+    # 02:30 UTC = 08:00 IST
+    - cron: "30 2 * * *"
+    # 14:30 UTC = 20:00 IST
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Digest slot (am/pm) for manual runs"
+        required: false
+        default: "am"
+
+jobs:
+  scrape-and-score:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reconstruct private data files from secrets
+        env:
+          CV_TEXT: ${{ secrets.CV_TEXT }}
+          PROFILE_JSON: ${{ secrets.PROFILE_JSON }}
+        run: |
+          mkdir -p data
+          printf '%s' "$CV_TEXT" > data/cv.txt
+          printf '%s' "$PROFILE_JSON" > data/profile.json
+
+      - name: Determine digest slot
+        id: slot
+        run: |
+          if [ "${{ github.event.schedule }}" = "30 2 * * *" ]; then
+            echo "slot=am" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 14 * * *" ]; then
+            echo "slot=pm" >> "$GITHUB_OUTPUT"
+          else
+            echo "slot=${{ github.event.inputs.slot || 'am' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Scraper & Scoring
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_SLOT: ${{ steps.slot.outputs.slot }}
+          DIGEST_MODE: scrape
+        run: npm run digest
+
+      - name: Remove reconstructed private data files
+        if: always()
+        run: rm -f data/cv.txt data/profile.json

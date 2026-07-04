@@ -34,11 +34,18 @@ function resolveSlot(): "am" | "pm" {
   return istHour % 24 < 12 ? "am" : "pm";
 }
 
-export async function runDigest(options?: { slot?: "am" | "pm" }) {
+function resolveMode(): "scrape" | "email" | "all" {
+  const explicit = process.env.DIGEST_MODE;
+  if (explicit === "scrape" || explicit === "email" || explicit === "all") return explicit;
+  return "all";
+}
+
+export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" | "email" | "all" }) {
   const slot = options?.slot || resolveSlot();
+  const mode = options?.mode || resolveMode();
   const today = new Date().toISOString().slice(0, 10);
 
-  console.log(`[digest] Running ${slot} digest for ${today}`);
+  console.log(`[digest] Running ${slot} digest for ${today} in mode: ${mode}`);
   await migrate();
 
   const cvPath = path.join(dataDir, "cv.txt");
@@ -91,38 +98,46 @@ export async function runDigest(options?: { slot?: "am" | "pm" }) {
     return { skipped: true, count: 0 };
   }
 
-  const scrapeRunId = await startScrapeRun();
-  let scored;
-  try {
-    scored = await runJobMatcher({
-      cvText,
-      profile,
-      companies,
-      linkedin: { location: "India", maxResults: 25 },
-      onProgress: (status, message) => console.log(`[${status.toUpperCase()}] ${message}`),
-    });
-  } catch (err) {
-    await finishScrapeRun(scrapeRunId, 0, 0, (err as Error).message);
-    throw err;
+  let scoredCount = 0;
+  if (mode === "all" || mode === "scrape") {
+    const scrapeRunId = await startScrapeRun();
+    let scored;
+    try {
+      scored = await runJobMatcher({
+        cvText,
+        profile,
+        companies,
+        linkedin: { location: "India", maxResults: 25 },
+        onProgress: (status, message) => console.log(`[${status.toUpperCase()}] ${message}`),
+      });
+    } catch (err) {
+      await finishScrapeRun(scrapeRunId, 0, 0, (err as Error).message);
+      throw err;
+    }
+
+    let newCount = 0;
+    for (const match of scored) {
+      const dedupHash = canonicalizeUrl(match.posting.applyUrl);
+      const jobPostingId = await upsertJobPosting({
+        source: match.posting.source,
+        sourceJobId: match.posting.sourceJobId,
+        company: match.posting.company,
+        title: match.posting.title,
+        location: match.posting.location,
+        applyUrl: match.posting.applyUrl,
+        descriptionText: match.posting.descriptionText,
+        dedupHash,
+      });
+      await upsertUserMatch(userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
+      newCount++;
+    }
+    await finishScrapeRun(scrapeRunId, scored.length, newCount);
+    scoredCount = scored.length;
   }
 
-  let newCount = 0;
-  for (const match of scored) {
-    const dedupHash = canonicalizeUrl(match.posting.applyUrl);
-    const jobPostingId = await upsertJobPosting({
-      source: match.posting.source,
-      sourceJobId: match.posting.sourceJobId,
-      company: match.posting.company,
-      title: match.posting.title,
-      location: match.posting.location,
-      applyUrl: match.posting.applyUrl,
-      descriptionText: match.posting.descriptionText,
-      dedupHash,
-    });
-    await upsertUserMatch(userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
-    newCount++;
+  if (mode === "scrape") {
+    return { success: true, mode, count: scoredCount };
   }
-  await finishScrapeRun(scrapeRunId, scored.length, newCount);
 
   const topMatches = await getTopMatchesForUser(userId, 15);
 

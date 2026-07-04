@@ -68,7 +68,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     scoredMatches.push(...batchResults);
 
     if (i + batchSize < totalPostings) {
-      const sleepTime = provider === "gemini" ? 4000 : 1500;
+      const sleepTime = provider === "gemini" ? 8000 : 4000;
       onProgress("scoring", `Sleeping ${sleepTime / 1000}s to respect LLM rate limits (active provider: ${provider})...`);
       await new Promise((resolve) => setTimeout(resolve, sleepTime));
     }
