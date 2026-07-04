@@ -61,12 +61,16 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const linkedinMaxResults = linkedin?.maxResults || 25;
 
   onProgress("scraping_linkedin", `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...`);
-  const linkedinPostings = await fetchLinkedInPublic({
+  const linkedinPostingsRaw = await fetchLinkedInPublic({
     keywords: linkedinKeywords,
     location: linkedinLocation,
     maxResults: linkedinMaxResults,
   });
-  onProgress("scraping_linkedin_complete", `Fetched ${linkedinPostings.length} LinkedIn postings.`);
+  // The location string above is only a loose search hint to LinkedIn's own guest
+  // endpoint - it doesn't reliably restrict results, so apply the same explicit
+  // regex filter used for ATS postings to keep filtering consistent across sources.
+  const linkedinPostings = filterByLocation(linkedinPostingsRaw, profile);
+  onProgress("scraping_linkedin_complete", `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched ${locationLabel} location filter.`);
 
   const rawPostings = [...atsPostings, ...linkedinPostings];
   onProgress("processing", `Total raw postings collected: ${rawPostings.length}. Running deduplication...`);
