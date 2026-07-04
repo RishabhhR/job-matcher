@@ -112,3 +112,17 @@ After the scrape/email split, this is much less risky: **only `scrape-and-score.
 ## Not built yet
 
 No multi-tenant auth/CV-upload-per-user wiring the DB schema was built for (schema supports it, but only one `jm_users` row exists — the app itself doesn't yet let a second person sign up and use it). No hosted dashboard reading from Turso (data's there, but only queryable via script/CLI right now). See the original plan file for the full Phase 3–4 roadmap if resuming that track.
+
+## Confirmed: both Vercel's native cron and GitHub Actions cron running is fine (2026-07-05)
+
+User explicitly confirmed running both is acceptable, not a bug to fix further. Recap of why it's safe: Vercel's native cron (`vercel.json`, `mode=email`, once daily at 9am IST) and GitHub's `send-digest.yml` (9am **and** 9pm IST) can both fire for the "am" slot — but `mode=email` never calls the LLM, it's just a DB read + Resend send gated by `jm_email_send_log`'s unique constraint on `(user_id, send_date, slot)`. Whichever fires first sends; the other sees "already sent" and no-ops. No wasted quota, no duplicate email. **Do not re-flag this as redundant/needs-fixing in future sessions** — it's a deliberately accepted final state, not leftover cleanup.
+
+## Session log (running notes, kept up to date so context can be cleared)
+
+Per user's request, this file is being kept current as a substitute for conversation history — read this section plus the rest of the file before assuming anything about current state, rather than relying on chat scrollback.
+
+- **2026-07-04**: Phase 1 built (scrape + match CLI), deployed via GitHub Actions cron. LinkedIn solved via logged-out guest endpoint (no login/account risk). Groq/Gemini fallback chain reused from `contextual-labs` per user's explicit rejection of Anthropic API.
+- **2026-07-05 early**: User + a parallel Gemini session (same repo) independently built a full web app (Express + CV upload + Vercel deploy) on top of Phase 1. Found and fixed a git-identity bug breaking Vercel deploys, and confirmed an ESM import-hoisting bug in PDF parsing was already fixed by the time it was checked.
+- **2026-07-05 midday**: Built Turso DB (multi-tenant schema, `jm_`-prefixed, shares fittrack's database per user's instruction), Resend mailer, and twice-daily cron. Found and resolved a triple-redundant-cron situation (mine + Gemini's GH-Actions-pings-Vercel + a native Vercel cron), fixed Vercel's missing DB/CV access (DB-fallback read path + env vars), and documented (unresolved by design, not by me) Vercel's Deployment Protection blocking external pings.
+- **2026-07-05 later**: User asked to avoid rate limits by splitting into two crons an hour apart ("8am scrape, wait, 9am send"). Found the parallel Gemini session had already built exactly this split (`scrape-and-score.yml` + `send-digest.yml`, `DIGEST_MODE` env var) — added the missing piece, actual patient-retry logic (`PATIENT_RETRY` in `match.ts`: 8 retries/2min-capped-backoff vs. the fast path's 3 retries/20s). User then confirmed running both Vercel's native cron and GitHub's cron simultaneously is fine (see section above) — not something to consolidate further.
+- **Open/unresolved**: Vercel Deployment Protection still blocks any *external* ping to `/api/cron-match` (would matter if `cron.yml`'s schedule is ever re-enabled) — needs a manual dashboard change by the user, not resolvable via CLI or code. No multi-tenant auth/dashboard built yet (Phase 3+ of the original plan).
