@@ -45,7 +45,7 @@ interface LinkedInSearchOptions {
 }
 
 export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promise<RawPosting[]> {
-  const { keywords, location = "India", maxResults = 25, fetchDescriptions = true, requestDelayMs = 1500 } = options;
+  const { keywords, location = "India", maxResults = 100, fetchDescriptions = true, requestDelayMs = 1500 } = options;
 
   const postings: RawPosting[] = [];
   let start = 0;

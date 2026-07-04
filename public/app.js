@@ -9,6 +9,8 @@ const currentTitleInput = document.getElementById("currentTitle");
 const currentSalaryFixedInput = document.getElementById("currentSalaryFixed");
 const currentSalaryEsopInput = document.getElementById("currentSalaryEsop");
 const currentSalaryCurrencyInput = document.getElementById("currentSalaryCurrency");
+const preferredCountryInput = document.getElementById("preferredCountry");
+const preferredCityInput = document.getElementById("preferredCity");
 const greenhouseInput = document.getElementById("greenhouseCompanies");
 const leverInput = document.getElementById("leverCompanies");
 const ashbyInput = document.getElementById("ashbyCompanies");
@@ -41,6 +43,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       currentSalaryFixedInput.value = data.profile.currentSalaryFixedLPA || "";
       currentSalaryEsopInput.value = data.profile.currentSalaryEsopLPA || "";
       currentSalaryCurrencyInput.value = data.profile.currentSalaryCurrency || "INR";
+      preferredCountryInput.value = data.profile.preferredCountry || "";
+      preferredCityInput.value = data.profile.preferredCity || "";
     }
     if (data.companies) {
       greenhouseInput.value = Array.isArray(data.companies.greenhouse) ? data.companies.greenhouse.join(", ") : "";
@@ -192,6 +196,8 @@ form.addEventListener("submit", async (e) => {
       currentSalaryFixedLPA: parseFloat(currentSalaryFixedInput.value),
       currentSalaryEsopLPA: parseFloat(currentSalaryEsopInput.value),
       currentSalaryCurrency: currentSalaryCurrencyInput.value,
+      preferredCountry: preferredCountryInput.value || undefined,
+      preferredCity: preferredCityInput.value || undefined,
     },
     companies: {
       greenhouse: parseList(greenhouseInput.value),
@@ -200,7 +206,7 @@ form.addEventListener("submit", async (e) => {
     },
     linkedin: {
       location: linkedinLocationInput.value || "India",
-      maxResults: parseInt(linkedinMaxResultsInput.value) || 25,
+      maxResults: parseInt(linkedinMaxResultsInput.value) || 100,
     }
   };
 
