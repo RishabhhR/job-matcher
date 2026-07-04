@@ -90,9 +90,17 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
   const trimmed = postings.slice(0, maxResults);
 
   if (fetchDescriptions) {
-    for (const posting of trimmed) {
-      posting.descriptionText = await fetchDescription(posting.applyUrl);
-      await sleep(jitter(requestDelayMs));
+    const batchSize = 3;
+    for (let i = 0; i < trimmed.length; i += batchSize) {
+      const batch = trimmed.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (posting) => {
+          posting.descriptionText = await fetchDescription(posting.applyUrl);
+        })
+      );
+      if (i + batchSize < trimmed.length) {
+        await sleep(jitter(requestDelayMs));
+      }
     }
   }
 

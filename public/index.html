@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Job Matcher & Scraper</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glass-bg"></div>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="logo-icon">🎯</span>
+        <h1>Job<span class="text-gradient">Matcher</span></h1>
+      </div>
+      <p class="header-subtitle">Autonomously scrape public boards, target LinkedIn listings, and rank roles via LLM evaluation.</p>
+    </header>
+
+    <main class="app-main">
+      <!-- Input Panel (Left Column) -->
+      <section class="panel input-panel">
+        <h2 class="panel-title">1. Candidate Configuration</h2>
+        <form id="matcher-form">
+          <div class="form-group">
+            <label for="cvText">Resume / CV Text</label>
+            <textarea id="cvText" placeholder="Paste your complete plain text resume or CV here..." required></textarea>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="targetDesignation">Target Job Title</label>
+              <input type="text" id="targetDesignation" placeholder="e.g. Product Manager" required>
+            </div>
+            <div class="form-group">
+              <label for="currentEmployer">Current Employer</label>
+              <input type="text" id="currentEmployer" placeholder="e.g. Zepto" required>
+            </div>
+            <div class="form-group">
+              <label for="currentTitle">Current Title</label>
+              <input type="text" id="currentTitle" placeholder="e.g. Associate PM 2" required>
+            </div>
+            <div class="form-group">
+              <label for="currentSalaryFixed">Fixed Salary (LPA)</label>
+              <input type="number" id="currentSalaryFixed" placeholder="e.g. 22" step="any" required>
+            </div>
+            <div class="form-group">
+              <label for="currentSalaryEsop">ESOPs Salary (LPA)</label>
+              <input type="number" id="currentSalaryEsop" placeholder="e.g. 5.5" step="any" required>
+            </div>
+            <div class="form-group">
+              <label for="currentSalaryCurrency">Currency</label>
+              <input type="text" id="currentSalaryCurrency" placeholder="e.g. INR" required>
+            </div>
+          </div>
+
+          <h2 class="panel-title section-break">2. Scraping Configuration</h2>
+          <div class="form-group">
+            <label>ATS Board Tokens (Comma-separated)</label>
+            <div class="ats-grid">
+              <div class="ats-input">
+                <span class="ats-badge greenhouse">Greenhouse</span>
+                <input type="text" id="greenhouseCompanies" placeholder="stripe, airbnb, groww">
+              </div>
+              <div class="ats-input">
+                <span class="ats-badge lever">Lever</span>
+                <input type="text" id="leverCompanies" placeholder="netflix, palantir">
+              </div>
+              <div class="ats-input">
+                <span class="ats-badge ashby">Ashby</span>
+                <input type="text" id="ashbyCompanies" placeholder="vercel, notion,deel">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="linkedinLocation">LinkedIn Location</label>
+              <input type="text" id="linkedinLocation" placeholder="e.g. India" value="India">
+            </div>
+            <div class="form-group">
+              <label for="linkedinMaxResults">LinkedIn Max Jobs</label>
+              <input type="number" id="linkedinMaxResults" placeholder="e.g. 25" min="5" max="100" value="25">
+            </div>
+          </div>
+
+          <button type="submit" id="submit-btn" class="btn btn-primary">
+            <span class="btn-text">Start Job Matching Pipeline</span>
+            <span class="btn-loader"></span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Runner Panel (Right Column) -->
+      <section class="panel runner-panel">
+        <div class="runner-header">
+          <h2 class="panel-title">Match Execution & Results</h2>
+          <div id="status-badge" class="status-badge idle">Idle</div>
+        </div>
+
+        <!-- Terminal Output -->
+        <div class="terminal-container">
+          <div class="terminal-header">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">system_logs</span>
+          </div>
+          <div id="terminal-body" class="terminal-body">
+            <div class="log-line system">Waiting to start job matching pipeline...</div>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-bar-container hidden" id="progress-container">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress-bar"></div>
+          </div>
+          <span class="progress-percent" id="progress-percent">0%</span>
+        </div>
+
+        <!-- Scored Results Grid -->
+        <div class="results-container">
+          <div class="results-header hidden" id="results-count-container">
+            <h3>Top Matches Found (<span id="results-count">0</span>)</h3>
+          </div>
+          <div id="results-grid" class="results-grid">
+            <!-- Results will be dynamically populated here -->
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>

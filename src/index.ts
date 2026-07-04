@@ -2,10 +2,8 @@ import "dotenv/config";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { fetchAllPostings } from "./scrapers.js";
-import { fetchLinkedInPublic } from "./scrapers/linkedin.js";
-import { dedupePostings } from "./normalize.js";
-import { keywordPrefilter, scoreAll, type Profile } from "./match.js";
+import { runJobMatcher } from "./runner.js";
+import { type Profile } from "./match.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
@@ -15,34 +13,20 @@ async function main() {
   const profile: Profile = JSON.parse(readFileSync(path.join(dataDir, "profile.json"), "utf-8"));
   const companies = JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
 
-  console.log(`Scraping ATS boards for companies: ${JSON.stringify(companies)}`);
-  const atsPostings = await fetchAllPostings(companies);
-  console.log(`Fetched ${atsPostings.length} ATS postings`);
-
-  console.log(`Scraping LinkedIn (logged-out, public search) for "${profile.targetDesignation}"...`);
-  const linkedinPostings = await fetchLinkedInPublic({
-    keywords: profile.targetDesignation,
-    location: "India",
-    maxResults: 25,
+  console.log("Starting local Job Matcher runner...");
+  
+  const scored = await runJobMatcher({
+    cvText,
+    profile,
+    companies,
+    linkedin: {
+      location: "India",
+      maxResults: 25
+    },
+    onProgress: (status, message) => {
+      console.log(`[${status.toUpperCase()}] ${message}`);
+    }
   });
-  console.log(`Fetched ${linkedinPostings.length} LinkedIn postings`);
-
-  const rawPostings = [...atsPostings, ...linkedinPostings];
-  console.log(`${rawPostings.length} total raw postings`);
-
-  const deduped = dedupePostings(rawPostings);
-  console.log(`${deduped.length} postings after dedup`);
-
-  const shortlisted = keywordPrefilter(deduped, profile.targetDesignation);
-  console.log(`${shortlisted.length} postings matched target designation "${profile.targetDesignation}"`);
-
-  if (shortlisted.length === 0) {
-    console.log("No postings matched the target designation. Try a broader title or expand the seed company list.");
-    return;
-  }
-
-  console.log(`Scoring ${shortlisted.length} postings against CV via Groq/Gemini fallback chain...`);
-  const scored = await scoreAll(cvText, profile, shortlisted);
 
   console.log("\n=== Top Job Matches ===\n");
   const top = scored.slice(0, 20);
@@ -58,7 +42,7 @@ async function main() {
   writeResultsMarkdown(top, profile);
 }
 
-function writeResultsMarkdown(matches: Awaited<ReturnType<typeof scoreAll>>, profile: Profile) {
+function writeResultsMarkdown(matches: any[], profile: Profile) {
   const resultsDir = path.join(__dirname, "..", "results");
   mkdirSync(resultsDir, { recursive: true });
 

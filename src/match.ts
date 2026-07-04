@@ -82,8 +82,8 @@ async function scoreBatchWithRetry(
         console.warn(`[match] batch failed after ${retries} retries, skipping: ${(err as Error).message}`);
         return { results: [], provider: "none" };
       }
-      const backoffMs = 2000 * 2 ** attempt;
-      console.warn(`[match] all providers failed, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})`);
+      const backoffMs = 5000 * 2 ** attempt;
+      console.warn(`[match] all providers failed/rate-limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);
       await sleep(backoffMs);
     }
   }
@@ -95,12 +95,14 @@ export async function scoreAll(
   profile: Profile,
   postings: RawPosting[],
   batchSize = 6
-): Promise<ScoredMatch[]> {
+): Promise<{ results: ScoredMatch[]; provider: string }> {
   const batches = chunk(postings, batchSize);
   const matches: ScoredMatch[] = [];
+  let lastProvider = "none";
 
   for (const batch of batches) {
     const { results, provider, warning } = await scoreBatchWithRetry(cvText, profile, batch);
+    lastProvider = provider;
     if (warning) console.warn(`[match] provider=${provider} warning=${warning}`);
     for (const r of results) {
       const posting = batch[r.job_index];
@@ -112,8 +114,12 @@ export async function scoreAll(
         reasoningText: r.reasoning_text,
       });
     }
-    await sleep(1500);
+    const sleepMs = provider === "gemini" ? 4000 : 1500;
+    await sleep(sleepMs);
   }
 
-  return matches.sort((a, b) => b.fitScore - a.fitScore);
+  return {
+    results: matches.sort((a, b) => b.fitScore - a.fitScore),
+    provider: lastProvider
+  };
 }

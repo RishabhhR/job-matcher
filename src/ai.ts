@@ -63,7 +63,10 @@ async function callGemini(systemPrompt: string, userPrompt: string, timeoutMs = 
       }),
     });
     clearTimeout(timer);
-    if (!res.ok) return { offline: true, content: "", warning: `Gemini HTTP ${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { offline: true, content: "", warning: `Gemini HTTP ${res.status}: ${body.slice(0, 300)}` };
+    }
     const data = await res.json();
     const content = data.candidates[0].content.parts[0].text;
     return { offline: false, content };
