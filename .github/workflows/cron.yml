@@ -1,0 +1,16 @@
+name: Job Match Digest Cron
+
+on:
+  schedule:
+    # Runs at 9:30 AM IST (4:00 UTC) and 9:30 PM IST (16:00 UTC)
+    # GitHub Action schedules can occasionally be delayed by 5-15 mins, so we target 3:30 UTC (9:00 AM IST)
+    - cron: '30 3,15 * * *'
+  workflow_dispatch: # Enables manual run from the GitHub Actions tab
+
+jobs:
+  trigger-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Job Matcher Vercel API
+        run: |
+          curl -s -f -X GET "https://job-matcher-rishabhs-projects-8310fc71.vercel.app/api/cron-match"
