@@ -3,18 +3,25 @@ import { fetchLinkedInPublic } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
 
-// Location patterns to match India / Bengaluru postings (case-insensitive)
-const INDIA_LOCATION_PATTERNS = [
-  /bengaluru/i, /bangalore/i, /india/i, /remote/i,
-  /\bhybrid\b/i, /anywhere/i,
-];
+// Build location filter patterns from a user's profile preferences.
+// Always includes remote/hybrid/anywhere. If no country or city is set, returns
+// null to skip filtering entirely (keeps all postings).
+function buildLocationPatterns(profile: Profile): RegExp[] | null {
+  const patterns: RegExp[] = [/remote/i, /\bhybrid\b/i, /anywhere/i];
+  if (!profile.preferredCountry && !profile.preferredCity) return null;
+  if (profile.preferredCountry) patterns.push(new RegExp(profile.preferredCountry, "i"));
+  if (profile.preferredCity) patterns.push(new RegExp(profile.preferredCity, "i"));
+  return patterns;
+}
 
-function filterByLocation(postings: RawPosting[]): RawPosting[] {
+function filterByLocation(postings: RawPosting[], profile: Profile): RawPosting[] {
+  const patterns = buildLocationPatterns(profile);
+  if (!patterns) return postings; // no location prefs → keep everything
   return postings.filter((p) => {
     const loc = p.location || "";
     // If location is empty (some ATS boards don't set it), keep the posting
     if (!loc) return true;
-    return INDIA_LOCATION_PATTERNS.some((re) => re.test(loc));
+    return patterns.some((re) => re.test(loc));
   });
 }
 
@@ -43,11 +50,14 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
 
   onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
   const atsPostingsRaw = await fetchAllPostings(companies);
-  const atsPostings = filterByLocation(atsPostingsRaw);
-  onProgress("scraping_ats_complete", `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched India/Bengaluru location filter.`);
+  const atsPostings = filterByLocation(atsPostingsRaw, profile);
+  const locationLabel = profile.preferredCity || profile.preferredCountry || "all locations";
+  onProgress("scraping_ats_complete", `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched ${locationLabel} location filter.`);
 
   const linkedinKeywords = profile.targetDesignation;
-  const linkedinLocation = linkedin?.location || "India";
+  // Build LinkedIn location from profile prefs, falling back to explicit option or worldwide
+  const defaultLinkedinLocation = [profile.preferredCity, profile.preferredCountry].filter(Boolean).join(", ") || "worldwide";
+  const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
   const linkedinMaxResults = linkedin?.maxResults || 25;
 
   onProgress("scraping_linkedin", `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...`);

@@ -9,6 +9,23 @@ export interface Profile {
   currentSalaryFixedLPA: number;
   currentSalaryEsopLPA: number;
   currentSalaryCurrency: string;
+  // ISO date (YYYY-MM-DD) the candidate started their first professional role.
+  // Used to compute years of experience deterministically rather than relying on
+  // the LLM to parse dates out of CV prose, which is what caused postings requiring
+  // e.g. 8 years to get scored as good fits for a ~2-year-experience candidate.
+  careerStartDate?: string;
+  // Location preferences for filtering job postings (e.g. "India", "Bengaluru").
+  // If omitted, no location filtering is applied.
+  preferredCountry?: string;
+  preferredCity?: string;
+}
+
+export function computeYearsOfExperience(careerStartDate: string | undefined): number | null {
+  if (!careerStartDate) return null;
+  const start = new Date(careerStartDate);
+  if (isNaN(start.getTime())) return null;
+  const years = (Date.now() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  return Math.round(years * 10) / 10;
 }
 
 export interface ScoredMatch {
@@ -53,13 +70,16 @@ export async function scoreBatch(
     )
     .join("\n\n---\n\n");
 
+  const yearsOfExperience = computeYearsOfExperience(profile.careerStartDate);
+
   const system = `You are a career-matching assistant. Score how well a candidate's CV fits each job posting, considering their current employer, title, and salary.
 
 Apply these experience matching rules:
-- Extract the candidate's total years of professional experience (YoE) from their CV (e.g. based on graduation year or work history start date).
+- The candidate's total years of professional experience (YoE) is given explicitly below as a computed number - use that number, don't re-derive it from CV prose (CVs often list multiple roles/projects with overlapping or ambiguous dates, which is unreliable to parse).
 - Identify the minimum years of experience required by each job posting in its description.
-- If a job posting explicitly requires a minimum years of experience (e.g. 5+ years, 8+ years) and the candidate has significantly fewer years of experience (e.g. candidate has 2 years of YoE, but the job requires 5+ or 8+ years), you MUST penalize the fit_score heavily (limit fit_score to 30 or lower) and state the experience mismatch clearly in the reasoning_text.
-- Do not match senior/lead/staff/principal roles requiring high experience to junior or mid-level candidates.
+- If a job posting explicitly requires a minimum years of experience (e.g. 5+ years, 8+ years) and the candidate's given YoE is significantly lower (e.g. candidate has 2 years, job requires 5+ or 8+), you MUST penalize the fit_score heavily (cap fit_score at 30 or lower) and state the experience gap explicitly in the reasoning_text (e.g. "requires 8+ years, candidate has ~2").
+- Do not match senior/lead/staff/principal roles requiring high experience to junior or mid-level candidates, even if the title itself matches the target designation.
+- If YoE is not provided (null) or a posting doesn't state an experience requirement, don't penalize for this.
 
 Apply these rules when deciding comp_fit_label (estimate the posting's likely compensation from its title, seniority, company, and location if salary isn't stated explicitly):
 - "downgrade": estimated total comp is more than ~10% below the candidate's current total comp (fixed + ESOPs), OR the role is a clear step down in seniority/title with no offsetting comp increase.
@@ -70,7 +90,7 @@ Apply these rules when deciding comp_fit_label (estimate the posting's likely co
 
 Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score": number (0-100), "comp_fit_label": "upgrade"|"lateral"|"downgrade"|"unknown", "reasoning_text": string (1-2 sentences, note explicitly if this is a level-up, lateral, or stretch move)}]}. Include one entry per job index provided.`;
 
-  const user = `CANDIDATE CV:\n${cvText}\n\nCANDIDATE CONTEXT:\nCurrent employer: ${profile.currentEmployer}\nCurrent title: ${profile.currentTitle}\nCurrent salary: ${profile.currentSalaryFixedLPA} LPA fixed + ${profile.currentSalaryEsopLPA} LPA ESOPs (${profile.currentSalaryCurrency})\nTarget designation: ${profile.targetDesignation}\n\nJOB POSTINGS:\n${jobsBlock}`;
+  const user = `CANDIDATE CV:\n${cvText}\n\nCANDIDATE CONTEXT:\nCurrent employer: ${profile.currentEmployer}\nCurrent title: ${profile.currentTitle}\nCurrent salary: ${profile.currentSalaryFixedLPA} LPA fixed + ${profile.currentSalaryEsopLPA} LPA ESOPs (${profile.currentSalaryCurrency})\nTarget designation: ${profile.targetDesignation}\nTotal years of professional experience: ${yearsOfExperience !== null ? `${yearsOfExperience} years (career started ${profile.careerStartDate})` : "not provided - don't penalize on experience"}\n\nJOB POSTINGS:\n${jobsBlock}`;
 
   const messages: Message[] = [
     { role: "system", content: system },

@@ -40,6 +40,7 @@ const SCHEMA = [
     current_salary_fixed_lpa REAL,
     current_salary_esop_lpa REAL,
     current_salary_currency TEXT DEFAULT 'INR',
+    career_start_date TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS jm_cvs (
@@ -103,6 +104,20 @@ export async function migrate() {
   for (const stmt of SCHEMA) {
     await client.execute(stmt);
   }
+  // jm_user_profiles already existed before these columns were added — CREATE TABLE
+  // IF NOT EXISTS won't add them to a pre-existing table, so patch them in separately.
+  const addColumns = [
+    "ALTER TABLE jm_user_profiles ADD COLUMN career_start_date TEXT",
+    "ALTER TABLE jm_user_profiles ADD COLUMN preferred_country TEXT",
+    "ALTER TABLE jm_user_profiles ADD COLUMN preferred_city TEXT",
+  ];
+  for (const sql of addColumns) {
+    try {
+      await client.execute(sql);
+    } catch (err) {
+      if (!/duplicate column/i.test((err as Error).message)) throw err;
+    }
+  }
 }
 
 export async function upsertUser(email: string, name: string, timezone = "Asia/Kolkata"): Promise<string> {
@@ -130,13 +145,16 @@ export interface DbProfile {
   currentSalaryFixedLPA: number;
   currentSalaryEsopLPA: number;
   currentSalaryCurrency: string;
+  careerStartDate?: string;
+  preferredCountry?: string;
+  preferredCity?: string;
 }
 
 export async function upsertUserProfile(userId: string, profile: DbProfile): Promise<void> {
   await client.execute({
     sql: `INSERT INTO jm_user_profiles
-      (user_id, target_designation, current_employer, current_title, current_salary_fixed_lpa, current_salary_esop_lpa, current_salary_currency, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      (user_id, target_designation, current_employer, current_title, current_salary_fixed_lpa, current_salary_esop_lpa, current_salary_currency, career_start_date, preferred_country, preferred_city, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(user_id) DO UPDATE SET
         target_designation = excluded.target_designation,
         current_employer = excluded.current_employer,
@@ -144,6 +162,9 @@ export async function upsertUserProfile(userId: string, profile: DbProfile): Pro
         current_salary_fixed_lpa = excluded.current_salary_fixed_lpa,
         current_salary_esop_lpa = excluded.current_salary_esop_lpa,
         current_salary_currency = excluded.current_salary_currency,
+        career_start_date = excluded.career_start_date,
+        preferred_country = excluded.preferred_country,
+        preferred_city = excluded.preferred_city,
         updated_at = datetime('now')`,
     args: [
       userId,
@@ -153,6 +174,9 @@ export async function upsertUserProfile(userId: string, profile: DbProfile): Pro
       profile.currentSalaryFixedLPA,
       profile.currentSalaryEsopLPA,
       profile.currentSalaryCurrency,
+      profile.careerStartDate ?? null,
+      profile.preferredCountry ?? null,
+      profile.preferredCity ?? null,
     ],
   });
 }
@@ -314,7 +338,8 @@ export async function getActiveCvText(userId: string): Promise<string | null> {
 export async function getUserProfileRow(userId: string): Promise<DbProfile | null> {
   const result = await client.execute({
     sql: `SELECT target_designation, current_employer, current_title, current_salary_fixed_lpa,
-                 current_salary_esop_lpa, current_salary_currency
+                 current_salary_esop_lpa, current_salary_currency, career_start_date,
+                 preferred_country, preferred_city
           FROM jm_user_profiles WHERE user_id = ?`,
     args: [userId],
   });
@@ -327,5 +352,8 @@ export async function getUserProfileRow(userId: string): Promise<DbProfile | nul
     currentSalaryFixedLPA: row.current_salary_fixed_lpa as number,
     currentSalaryEsopLPA: row.current_salary_esop_lpa as number,
     currentSalaryCurrency: row.current_salary_currency as string,
+    careerStartDate: (row.career_start_date as string) ?? undefined,
+    preferredCountry: (row.preferred_country as string) ?? undefined,
+    preferredCity: (row.preferred_city as string) ?? undefined,
   };
 }
