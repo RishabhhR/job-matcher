@@ -9,9 +9,8 @@ interface LLMResult {
   warning?: string;
 }
 
-async function callGroq(messages: Message[], timeoutMs = 60000): Promise<LLMResult> {
+async function callGroq(messages: Message[], model: string, timeoutMs = 60000): Promise<LLMResult> {
   const apiKey = process.env.GROQ_API_KEY;
-  const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   if (!apiKey) return { offline: true, content: "" };
 
   const controller = new AbortController();
@@ -171,10 +170,20 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
 }
 
 export async function callLLM(messages: Message[]): Promise<{ content: string; provider: string; warning?: string }> {
-  // Fallback chain: Groq → Gemini → Cerebras → Mistral → OpenRouter
-  const groq = await callGroq(messages);
+  // Fallback chain: Groq (70b) → Groq (8b, separate per-model quota - 14,400 req/day
+  // and 500K tokens/day vs the 70b model's 1K req/day/100K tokens/day, same API key,
+  // no new signup) → Gemini → Cerebras → Mistral → OpenRouter
+  const primaryModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  const groq = await callGroq(messages, primaryModel);
   if (!groq.offline) return { content: groq.content, provider: "groq" };
-  if (groq.warning) console.warn(`[ai] groq: ${groq.warning}`);
+  if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
+
+  const groqFallbackModel = "llama-3.1-8b-instant";
+  if (primaryModel !== groqFallbackModel) {
+    const groqSmall = await callGroq(messages, groqFallbackModel);
+    if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-8b", warning: "Used Groq 8B fallback model" };
+    if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
+  }
 
   const systemPrompt = messages.find((m) => m.role === "system")?.content || "";
   const userPrompt = messages.find((m) => m.role === "user")?.content || "";
