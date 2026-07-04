@@ -55,6 +55,12 @@ export async function scoreBatch(
 
   const system = `You are a career-matching assistant. Score how well a candidate's CV fits each job posting, considering their current employer, title, and salary.
 
+Apply these experience matching rules:
+- Extract the candidate's total years of professional experience (YoE) from their CV (e.g. based on graduation year or work history start date).
+- Identify the minimum years of experience required by each job posting in its description.
+- If a job posting explicitly requires a minimum years of experience (e.g. 5+ years, 8+ years) and the candidate has significantly fewer years of experience (e.g. candidate has 2 years of YoE, but the job requires 5+ or 8+ years), you MUST penalize the fit_score heavily (limit fit_score to 30 or lower) and state the experience mismatch clearly in the reasoning_text.
+- Do not match senior/lead/staff/principal roles requiring high experience to junior or mid-level candidates.
+
 Apply these rules when deciding comp_fit_label (estimate the posting's likely compensation from its title, seniority, company, and location if salary isn't stated explicitly):
 - "downgrade": estimated total comp is more than ~10% below the candidate's current total comp (fixed + ESOPs), OR the role is a clear step down in seniority/title with no offsetting comp increase.
 - "lateral": estimated total comp is within roughly -10% to +20% of current, OR the move is a same-level title switch without a strong (30%+) comp jump.
