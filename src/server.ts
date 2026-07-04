@@ -53,13 +53,16 @@ app.post("/api/upload-cv", async (req, res) => {
     let text = "";
 
     if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
-      const pdfParseModule = await import("pdf-parse");
-      const parsePdf = typeof pdfParseModule === "function"
-        ? pdfParseModule
-        : (pdfParseModule as any).PDFParse || (pdfParseModule as any).default;
-
-      const data = await parsePdf(buffer);
-      text = data.text || "";
+      // pdf-parse v2 exports a class (PDFParse), not a callable function like v1 did -
+      // must be instantiated with `new` and read via .getText().
+      const { PDFParse } = await import("pdf-parse");
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const result = await parser.getText();
+        text = result.text || "";
+      } finally {
+        await parser.destroy();
+      }
     } else if (
       fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       fileName.endsWith(".docx")
