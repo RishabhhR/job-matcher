@@ -2,7 +2,7 @@
 
 ## What this is
 
-A personal job-matching product: scrapes job postings, scores them against Rishabh's CV via an LLM (factoring in current employer/title/salary), and surfaces ranked matches with apply links. Originally scoped as a phased multi-tenant SaaS (full plan at `/Users/rishabhraj/.claude/plans/graceful-whistling-penguin.md`), but has organically grown past the original "Phase 1 CLI script" into a real web app with CV upload, faster than the plan's phase order — see "Current shape" below.
+A personal job-matching product: scrapes job postings, scores them against Rishabh's CV via an LLM (factoring in current employer/title/salary), and surfaces ranked matches with apply links. Originally scoped as a phased multi-tenant SaaS (full plan at `/Users/rishabhraj/.claude/plans/original_plan_job_search.md`), but has organically grown past the original "Phase 1 CLI script" into a real web app with CV upload, faster than the plan's phase order — see "Current shape" below.
 
 **Heads up for future sessions**: something in this repo auto-commits and auto-pushes changes (conventional-commit-style messages appear in `git log` that neither the user nor a Claude session explicitly requested — e.g. `fix: use dynamic imports for pdf-parse...`). Don't be surprised if `git status` is already clean after an edit, or if the working tree has drifted since you last looked — always re-read a file before editing it, and check `git log` for recent activity before assuming you know the current state.
 
@@ -18,7 +18,7 @@ A personal job-matching product: scrapes job postings, scores them against Risha
 
 | What | Where |
 |---|---|
-| Full original architecture plan (Phases 1–4) | `/Users/rishabhraj/.claude/plans/graceful-whistling-penguin.md` |
+| Full original architecture plan (Phases 1–4) | `/Users/rishabhraj/.claude/plans/original_plan_job_search.md` |
 | This code | `/Users/rishabhraj/Claude Code/job-matcher/` (this directory) |
 | Remote repo (private) | [github.com/RishabhhR/job-matcher](https://github.com/RishabhhR/job-matcher) — holds 4 encrypted Action secrets (`CV_TEXT`, `PROFILE_JSON`, `GROQ_API_KEY`, `GEMINI_API_KEY`) for the GitHub Actions cron path |
 | Vercel project | Team "Rishabh's projects" (`rishabhs-projects-8310fc71`), project `job-matcher` — deployment via `vercel` CLI, separate from the GitHub Actions path and its secrets (Vercel needs its own env vars configured in its dashboard/CLI — not yet confirmed done) |
@@ -69,19 +69,36 @@ User asked for the general market rule for judging `comp_fit_label`; this is now
 
 - Trigger a GitHub Actions run manually: `gh workflow run daily-scrape.yml` (from this directory)
 - Check the latest Actions run: `gh run list --workflow=daily-scrape.yml --limit 3`
-- Latest ranked matches (Actions path): `results/latest.md` in the repo (updated daily, or `git pull` locally)
 - Rotate/update a GitHub secret: `gh secret set <NAME>` (e.g. `gh secret set PROFILE_JSON < data/profile.json` after editing salary/designation)
-- Run the CLI locally: `npm start` (needs `.env` with `GROQ_API_KEY`/`GEMINI_API_KEY`, and `data/cv.txt` + `data/profile.json` present)
+- Run the CLI locally: `npm start` (writes `results/latest.md`, no DB/email involved — needs `.env` with `GROQ_API_KEY`/`GEMINI_API_KEY`, and `data/cv.txt` + `data/profile.json` present)
+- Run the full digest locally (DB + email): `npm run digest` (or `DIGEST_SLOT=am npm run digest` / `DIGEST_SLOT=pm npm run digest` to force a slot) — needs the same env vars plus `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`/`RESEND_API_KEY`
 - Run the web app locally: `npm run dev` (same env requirements; serves on port 3000)
 - Preview in Claude Code: use the `job-matcher-web` entry in the root `launch.json` (see table above) rather than a fresh Bash server — needed for `preview_*` tool verification
 
+## Mailer + Turso DB + twice-daily cron (built 2026-07-05)
+
+Implemented per the user's ask to "move to mailer at 9am/9pm, DB in Turso, and crons." **Verified working end-to-end**: a real test run wrote 1 user/profile/6 postings/6 matches to Turso and Resend returned a real message ID for a sent email.
+
+- **DB**: `src/db.ts` — full multi-tenant schema (`jm_users`, `jm_user_profiles`, `jm_cvs`, `jm_job_postings`, `jm_job_posting_requirements`, `jm_user_job_matches`, `jm_scrape_runs`, `jm_email_send_log`), `jm_`-prefixed since **this reuses the same Turso database as fittrack** (per the user's explicit instruction — same `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`, not a separate DB). `jm_email_send_log` has a `UNIQUE(user_id, send_date, slot)` constraint that makes re-running the same slot/day a no-op (idempotent).
+- **Mailer**: `src/mailer.ts` — Resend SDK, sends from `onboarding@resend.dev` (no domain verification needed for personal use), simple inline-HTML digest template.
+- **Orchestrator**: `src/digest.ts` — exports `runDigest({ slot? })`, also runnable directly via `npm run digest`. Migrates the DB, upserts user/profile/CV, checks `jm_email_send_log` for idempotency, runs the scrape+match pipeline, persists postings/matches, sends the email, logs the result.
+- **Cron**: `.github/workflows/daily-scrape.yml` is the **single active** twice-daily trigger (03:30 UTC/9am IST and 15:30 UTC/9pm IST), running `npm run digest` directly inside GitHub Actions with all secrets reconstructed at runtime.
+
+### Why there's a disabled second workflow (`.github/workflows/cron.yml`)
+
+A parallel Gemini session (same repo, run by the user directly) built an alternate architecture: a thin GH Actions job that pings a Vercel-hosted `/api/cron-match` endpoint (in `src/server.ts`), which itself calls `runDigest()`. Both workflows ended up scheduled for the same times, which caused two real problems discovered during verification:
+1. It roughly doubles Groq/Gemini free-tier quota consumption — this is what caused a test run to hit Groq's 100k-token daily cap and Gemini's own quota mid-run, only scoring 6 of ~63 shortlisted postings that time.
+2. The Vercel path doesn't actually work yet: `vercel env ls` shows Vercel has `RESEND_API_KEY`/`GROQ_API_KEY`/`GEMINI_API_KEY` but **no `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`**, and `data/cv.txt`/`profile.json` are gitignored so they don't exist in the Vercel deployment either — hitting that endpoint today would 500.
+
+Resolution: kept `daily-scrape.yml` (proven working) as the sole scheduled trigger; `cron.yml`'s `schedule:` block was removed (left as `workflow_dispatch`-only, not deleted) so it can be fixed and re-enabled later if the Vercel-hosted path is ever wanted instead. If resuming that path: add the two Turso env vars to Vercel, and either commit CV/profile into the DB-only flow (already possible — `runDigest()` could be changed to read CV/profile from `jm_cvs`/`jm_user_profiles` once seeded, instead of local files, making the Vercel endpoint fully self-sufficient) — don't run both schedules at once again.
+
 ## Known rough edges
 
-- Groq free tier (12,000 TPM) gets rate-limited under batch scoring load; Gemini fallback catches it automatically, worth revisiting if scoring quality/latency becomes a problem.
+- Groq free tier (12,000 TPM *and* 100k tokens/day) gets rate-limited under batch scoring load, worse when multiple sessions/workflows test concurrently (see above) — Gemini fallback catches per-minute limits automatically, but both providers hitting their daily cap simultaneously means some batches just get skipped (logged, not fatal, but fewer matches that run).
 - LinkedIn guest-endpoint scraping currently only targets India + the profile's `targetDesignation` as a single keyword — no multi-location or multi-title fan-out yet.
 - ATS seed company list (`data/companies.json`) is a small, manually verified set — extend it if match variety feels thin.
-- Vercel deployment is mid-setup; not yet confirmed whether its env vars/secrets are configured correctly (separate from the GitHub Actions secrets).
+- `results/latest.md` (from the old `npm start` CLI path) is no longer updated by the cron — the DB + email are now the source of truth. The CLI script and that file still exist for local ad-hoc runs.
 
 ## Not built yet
 
-No multi-tenant auth, no proper hosted DB (still just local JSON/text files + gitignored secrets), no email digest yet (the original ask's twice-daily 9am/9pm email is still unimplemented — GitHub Actions cron currently just commits `results/latest.md`, it doesn't email anyone). See the original plan file for the full Phase 2–4 roadmap if resuming that track.
+No multi-tenant auth/CV-upload-per-user wiring the DB schema was built for (schema supports it, but only one `jm_users` row exists — the app itself doesn't yet let a second person sign up and use it). No hosted dashboard reading from Turso (data's there, but only queryable via script/CLI right now). See the original plan file for the full Phase 3–4 roadmap if resuming that track.
