@@ -28,8 +28,15 @@
         <h2 class="panel-title">1. Candidate Configuration</h2>
         <form id="matcher-form">
           <div class="form-group">
-            <label for="cvText">Resume / CV Text</label>
-            <textarea id="cvText" placeholder="Paste your complete plain text resume or CV here..." required></textarea>
+            <div class="label-header">
+              <label for="cvText">Resume / CV Text</label>
+              <button type="button" class="btn-secondary btn-sm" id="upload-cv-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                Upload File (PDF/DOCX/TXT)
+              </button>
+              <input type="file" id="cv-file-input" accept=".pdf,.docx,.txt" style="display: none;">
+            </div>
+            <textarea id="cvText" placeholder="Paste your plain text resume or upload a file using the button above..." required></textarea>
           </div>
 
           <div class="form-grid">

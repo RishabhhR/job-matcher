@@ -4,7 +4,20 @@ import cors from "cors";
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+// Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
+if (typeof (global as any).DOMMatrix === "undefined") {
+  (global as any).DOMMatrix = class DOMMatrix {};
+}
+import * as pdfParseModule from "pdf-parse";
+import mammoth from "mammoth";
+
 import { runJobMatcher } from "./runner.js";
+
+// Helper to support flexible ESM/CJS interop for pdf-parse
+const parsePdf = typeof pdfParseModule === "function"
+  ? pdfParseModule
+  : (pdfParseModule as any).PDFParse || (pdfParseModule as any).default;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
@@ -31,6 +44,40 @@ app.get("/api/initial-data", (req, res) => {
     res.json({ cvText, profile, companies });
   } catch (error) {
     res.status(500).json({ error: "Failed to read initial config files: " + (error as Error).message });
+  }
+});
+
+// CV parsing endpoint to handle PDF, DOCX, and TXT files
+app.post("/api/upload-cv", async (req, res) => {
+  try {
+    const { fileName, fileType, fileData } = req.body;
+    if (!fileData) {
+      res.status(400).json({ error: "Missing file data" });
+      return;
+    }
+
+    const buffer = Buffer.from(fileData, "base64");
+    let text = "";
+
+    if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
+      const data = await parsePdf(buffer);
+      text = data.text || "";
+    } else if (
+      fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      fileName.endsWith(".docx")
+    ) {
+      const result = await mammoth.extractRawText({ buffer });
+      text = result.value || "";
+    } else if (fileType === "text/plain" || fileName.endsWith(".txt")) {
+      text = buffer.toString("utf-8");
+    } else {
+      res.status(400).json({ error: "Unsupported file type. Please upload a PDF, DOCX, or TXT file." });
+      return;
+    }
+
+    res.json({ text: text.trim() });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to parse file: " + (error as Error).message });
   }
 });
 

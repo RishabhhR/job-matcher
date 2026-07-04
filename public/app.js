@@ -1,6 +1,8 @@
 // Elements
 const form = document.getElementById("matcher-form");
 const cvTextInput = document.getElementById("cvText");
+const uploadBtn = document.getElementById("upload-cv-btn");
+const fileInput = document.getElementById("cv-file-input");
 const targetDesignationInput = document.getElementById("targetDesignation");
 const currentEmployerInput = document.getElementById("currentEmployer");
 const currentTitleInput = document.getElementById("currentTitle");
@@ -49,6 +51,65 @@ window.addEventListener("DOMContentLoaded", async () => {
   } catch (error) {
     addLogLine("error", "Error loading initial configuration: " + error.message);
   }
+});
+
+// Upload CV handler
+uploadBtn.addEventListener("click", () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const originalBtnText = uploadBtn.innerHTML;
+  uploadBtn.disabled = true;
+  uploadBtn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle; animation: spin 1s linear infinite;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+    Parsing...
+  `;
+  addLogLine("system", `Uploading and parsing CV file: ${file.name}...`);
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const base64Data = reader.result.split(",")[1];
+      const res = await fetch("/api/upload-cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          fileData: base64Data
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to parse CV");
+      }
+
+      const data = await res.json();
+      cvTextInput.value = data.text;
+      addLogLine("success", `Successfully parsed and loaded resume text (${data.text.length} characters).`);
+    } catch (err) {
+      addLogLine("error", `CV Upload Error: ${err.message}`);
+      alert(`Failed to upload/parse CV: ${err.message}`);
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.innerHTML = originalBtnText;
+      fileInput.value = ""; // Reset file selector
+    }
+  };
+
+  reader.onerror = () => {
+    addLogLine("error", "Failed to read local file.");
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = originalBtnText;
+    fileInput.value = "";
+  };
+
+  reader.readAsDataURL(file);
 });
 
 // Terminal Logger helper
