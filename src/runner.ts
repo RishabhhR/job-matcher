@@ -1,5 +1,5 @@
 import { fetchAllPostings, type RawPosting } from "./scrapers.js";
-import { fetchLinkedInPublic } from "./scrapers/linkedin.js";
+import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
 
@@ -65,6 +65,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     keywords: linkedinKeywords,
     location: linkedinLocation,
     maxResults: linkedinMaxResults,
+    fetchDescriptions: false,
   });
   // The location string above is only a loose search hint to LinkedIn's own guest
   // endpoint - it doesn't reliably restrict results, so apply the same explicit
@@ -84,6 +85,13 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   if (shortlisted.length === 0) {
     onProgress("complete", "No postings matched the target designation.");
     return [];
+  }
+
+  // Fetch descriptions only for the matching/filtered subset of LinkedIn jobs
+  const linkedinToFetch = shortlisted.filter((p) => p.source === "linkedin" && !p.descriptionText);
+  if (linkedinToFetch.length > 0) {
+    onProgress("scraping_linkedin_descriptions", `Fetching descriptions for ${linkedinToFetch.length} shortlisted LinkedIn jobs...`);
+    await fetchLinkedInDescriptions(linkedinToFetch);
   }
 
   onProgress("scoring", `Scoring ${shortlisted.length} postings against CV via AI fallback chain (Groq -> Gemini -> OpenRouter)...`);

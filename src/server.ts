@@ -140,7 +140,7 @@ app.get("/api/cron-match", async (req, res) => {
       companies,
       linkedin: {
         location: "India",
-        maxResults: 100
+        maxResults: 1000
       },
       onProgress
     });

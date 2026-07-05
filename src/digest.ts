@@ -93,7 +93,14 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
 
   const notifyEmail = profile.notifyEmail as string;
 
-  if (await hasEmailBeenSent(userId, today, slot)) {
+  // Idempotency only guards the actual email SEND, not scraping/scoring. GitHub
+  // Actions' `schedule` trigger has no precise-timing guarantee (runs can be
+  // delayed by hours under load) - if the send cron happens to fire before the
+  // scrape cron finishes for the same slot, gating scrape on "already sent" would
+  // mean fresh data never gets computed at all, and the send goes out (and stays)
+  // stale indefinitely. Scrape mode always runs; only the send step is deduped.
+  const alreadySent = await hasEmailBeenSent(userId, today, slot);
+  if (alreadySent && mode !== "scrape") {
     console.log(`[digest] Already sent ${slot} digest for ${today}, skipping.`);
     return { skipped: true, count: 0 };
   }
@@ -107,7 +114,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
         cvText,
         profile,
         companies,
-        linkedin: { maxResults: 100 },
+        linkedin: { maxResults: 1000 },
         onProgress: (status, message) => console.log(`[${status.toUpperCase()}] ${message}`),
         // Scheduled scrape runs have a full hour before the separate email cron
         // fires, so it's worth patiently riding out rate limits (see match.ts's

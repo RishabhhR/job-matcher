@@ -21,7 +21,7 @@ async function main() {
     companies,
     linkedin: {
       location: "India",
-      maxResults: 100
+      maxResults: 1000
     },
     onProgress: (status, message) => {
       console.log(`[${status.toUpperCase()}] ${message}`);
