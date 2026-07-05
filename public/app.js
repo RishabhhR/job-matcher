@@ -11,6 +11,7 @@ const currentSalaryEsopInput = document.getElementById("currentSalaryEsop");
 const currentSalaryCurrencyInput = document.getElementById("currentSalaryCurrency");
 const preferredCountryInput = document.getElementById("preferredCountry");
 const preferredCityInput = document.getElementById("preferredCity");
+const careerStartDateInput = document.getElementById("careerStartDate");
 const greenhouseInput = document.getElementById("greenhouseCompanies");
 const leverInput = document.getElementById("leverCompanies");
 const ashbyInput = document.getElementById("ashbyCompanies");
@@ -45,6 +46,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       currentSalaryCurrencyInput.value = data.profile.currentSalaryCurrency || "INR";
       preferredCountryInput.value = data.profile.preferredCountry || "";
       preferredCityInput.value = data.profile.preferredCity || "";
+      careerStartDateInput.value = data.profile.careerStartDate || "";
     }
     if (data.companies) {
       greenhouseInput.value = Array.isArray(data.companies.greenhouse) ? data.companies.greenhouse.join(", ") : "";
@@ -198,6 +200,7 @@ form.addEventListener("submit", async (e) => {
       currentSalaryCurrency: currentSalaryCurrencyInput.value,
       preferredCountry: preferredCountryInput.value || undefined,
       preferredCity: preferredCityInput.value || undefined,
+      careerStartDate: careerStartDateInput.value || undefined,
     },
     companies: {
       greenhouse: parseList(greenhouseInput.value),

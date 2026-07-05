@@ -1,45 +1,143 @@
-# Job Matches — 2026-07-04
+# Job Matches — 2026-07-05
 
 Target designation: **Product Manager** | Current: Associate Product Manager 2, Supply Chain Product @ Zepto (₹22L fixed + ₹5.5L ESOPs)
 
-## [75] Senior Product Manager, Card Experience — affirm
-- Location: Remote US
-- Comp fit: upgrade
-- Source: greenhouse
-- The candidate's experience in building sales call centers, lead generation products, and driving adoption for financial services aligns exceptionally well with the role's focus on card acquisition and scaling new channels. The 'Senior Product Manager' title is a stretch given their tenure, but the functional fit is strong. The move would be a significant compensation upgrade.
-- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7620527003)
+## [80] Product Manager — Maropost
+- Location: Sahibzada Ajit Singh Nagar, Punjab, India
+- Comp fit: downgrade
+- Source: linkedin
+- This Product Manager role is an excellent level-up opportunity, with the candidate's experience in dealer SAAS, payments, and B2B operational platforms directly aligning with retail management. Despite the strong fit, the estimated total compensation is likely a downgrade from the candidate's current high compensation.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-maropost-4431246451)
 
-## [65] Senior Product Manager, Capital — affirm
+## [75] Product Manager — Truworth Wellness
+- Location: Jaipur, Rajasthan, India
+- Comp fit: upgrade
+- Source: linkedin
+- The posting requires 2+ years of product experience, which the candidate meets, and the role is a Product Manager (one level up), making it a lateral/upgrade move despite unknown compensation.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-truworth-wellness-4428491048)
+
+## [70] Product Manager — Fabriclore
+- Location: Jaipur, Rajasthan, India
+- Comp fit: upgrade
+- Source: linkedin
+- The role is a Product Manager, one level above the candidate's current Associate PM title, representing a clear level-up; compensation is likely comparable or slightly lower, but the seniority jump justifies an upgrade label.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-fabriclore-4435415477)
+
+## [65] Product Manager — SOTI
+- Location: Kochi, Kerala, India
+- Comp fit: downgrade
+- Source: linkedin
+- This Product Manager role is a suitable level-up, with the candidate's experience in B2B platforms and general PM practices aligning well with mobile/IoT device management. However, the estimated total compensation is likely a downgrade compared to the candidate's current package.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-soti-4414911585)
+
+## [55] Product Manager — KeyValue
+- Location: Kochi, Kerala, India
+- Comp fit: downgrade
+- Source: linkedin
+- This Product Manager role is a level-up and aligns with the candidate's experience in payments and 0->1 product development. However, the explicit preference for an MBA from a reputable institution is a significant mismatch, and the estimated total compensation is likely a downgrade.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-keyvalue-4406480573)
+
+## [30] Product Manager — Hitachi Energy
+- Location: Vadodara, Gujarat, India
+- Comp fit: downgrade
+- Source: linkedin
+- This Product Manager role would be a level-up, but the candidate's background in consumer tech and B2B platforms does not align with the heavy industrial domain of power transformers. The estimated total compensation is likely a downgrade given the location and candidate's current high comp.
+- [Apply](https://in.linkedin.com/jobs/view/product-manager-at-hitachi-energy-4430943165)
+
+## [20] Senior Product Manager, Capital — affirm
 - Location: Remote Canada
 - Comp fit: upgrade
 - Source: greenhouse
-- The candidate possesses highly relevant experience in financial products, including insurance, payments, and banking integrations, which aligns well with Affirm's FinTech focus. However, the 'Senior Product Manager' title might be a stretch given their relatively short professional tenure. The move would be a significant compensation upgrade.
+- The candidate's 2 years of experience is insufficient for a Senior Product Manager role, which is a significant stretch (two levels up). The compensation would be a substantial upgrade.
 - [Apply](https://job-boards.greenhouse.io/affirm/jobs/7786009003)
 
-## [65] Senior Product Manager, Capital — affirm
+## [20] Senior Product Manager, Capital — affirm
 - Location: Remote US
 - Comp fit: upgrade
 - Source: greenhouse
-- The candidate possesses highly relevant experience in financial products, including insurance, payments, and banking integrations, which aligns well with Affirm's FinTech focus. However, the 'Senior Product Manager' title might be a stretch given their relatively short professional tenure. The move would be a significant compensation upgrade.
+- The candidate's 2 years of experience is insufficient for a Senior Product Manager role, which is a significant stretch (two levels up). The compensation would be a substantial upgrade.
 - [Apply](https://job-boards.greenhouse.io/affirm/jobs/7786007003)
 
-## [60] Product Manager, EMEA — airbnb
-- Location: London, United Kingdom
+## [20] Senior Product Manager, Card Experience — affirm
+- Location: Remote US
 - Comp fit: upgrade
 - Source: greenhouse
-- The candidate's strong product building and scaling experience is valuable, but their domain expertise in automotive and financial services doesn't directly align with Airbnb's travel and hospitality focus. The move would be a significant compensation upgrade.
-- [Apply](https://careers.airbnb.com/positions/7775427?gh_jid=7775427)
+- The candidate's 2 years of experience is significantly below the stated 4+ years required for this Senior Product Manager role, making it a major stretch. The compensation would be a substantial upgrade.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7620527003)
 
-## [55] Product Manager, Relevance and Personalization — airbnb
-- Location: San Francisco, United States
+## [20] Senior Product Manager, Card Experience — affirm
+- Location: Remote Canada
 - Comp fit: upgrade
 - Source: greenhouse
-- While the candidate has some analytical and academic ML experience, their professional background lacks direct experience in building relevance and personalization systems for a large-scale consumer platform like Airbnb. The move would be a significant compensation upgrade.
-- [Apply](https://careers.airbnb.com/positions/7905365?gh_jid=7905365)
+- The candidate's 2 years of experience is significantly below the stated 4+ years required for this Senior Product Manager role, making it a major stretch. The compensation would be a substantial upgrade.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7620529003)
 
-## [25]  Staff Product Manager, AI Personalization — airbnb
-- Location: United States
+## [20] Senior Product Manager, Credit & Pricing — affirm
+- Location: Remote Canada
 - Comp fit: upgrade
 - Source: greenhouse
-- The candidate's limited professional experience and lack of deep AI/ML product leadership at scale make them a poor fit for a Staff Product Manager role focused on AI Personalization. This would represent a substantial compensation upgrade if achieved.
-- [Apply](https://careers.airbnb.com/positions/7834495?gh_jid=7834495)
+- The candidate's 2 years of experience is insufficient for a Senior Product Manager role, which is a significant stretch (two levels up). The compensation would be a substantial upgrade.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7773693003)
+
+## [20] Senior Product Manager, Credit & Pricing — affirm
+- Location: Remote US
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is insufficient for a Senior Product Manager role, which is a significant stretch (two levels up). The compensation would be a substantial upgrade.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7773691003)
+
+## [20] Senior Product Manager, Developer Productivity — webflow
+- Location: CA Remote (BC & ON only); U.S. Remote
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is insufficient for a Senior Product Manager role, triggering a heavy penalty. Additionally, their experience in consumer/B2B platforms does not align with developer productivity tools.
+- [Apply](https://job-boards.greenhouse.io/webflow/jobs/7815489)
+
+## [20] Staff Product Manager, Governance — webflow
+- Location: CA Remote (BC & ON only); U.S. Remote
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is far too low for a Staff Product Manager role, triggering a heavy penalty. While there's a minor overlap in access control, the overall seniority and domain depth required are a significant mismatch.
+- [Apply](https://job-boards.greenhouse.io/webflow/jobs/8038479)
+
+## [15] Senior Product Manager, Financial Platforms — affirm
+- Location: Remote Canada
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is significantly below the 4+ years required for this Senior Product Manager role, making it a substantial experience and seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7605852003)
+
+## [15] Senior Product Manager, Financial Platforms — affirm
+- Location: Remote US
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is significantly below the 4+ years required for this Senior Product Manager role, making it a substantial experience and seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7605850003)
+
+## [15] Senior Product Manager, Shopping Experiences — affirm
+- Location: Remote US
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is significantly below the 4+ years required for this Senior Product Manager role, making it a substantial experience and seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7622734003)
+
+## [15] Senior Product Manager, Shopping Experiences — affirm
+- Location: Remote Canada
+- Comp fit: upgrade
+- Source: greenhouse
+- The candidate's 2 years of experience is significantly below the 4+ years required for this Senior Product Manager role, making it a substantial experience and seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7622736003)
+
+## [15] Staff Product Manager, Affirm Bank — affirm
+- Location: Remote US
+- Comp fit: upgrade
+- Source: greenhouse
+- This Staff Product Manager role is highly senior and a significant stretch for a candidate with only 2 years of experience, indicating a major seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7694938003)
+
+## [15] Staff Product Manager, Affirm Bank — affirm
+- Location: Remote Canada
+- Comp fit: upgrade
+- Source: greenhouse
+- This Staff Product Manager role is highly senior and a significant stretch for a candidate with only 2 years of experience, indicating a major seniority mismatch.
+- [Apply](https://job-boards.greenhouse.io/affirm/jobs/7694940003)
