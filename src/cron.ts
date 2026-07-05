@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, getActiveCvText, getUserProfileRow, upsertJobPosting, upsertUserMatch, getTopMatchesForUser } from "./db.js";
+import { client, getActiveCvText, getUserProfileRow, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, hasEmailBeenSent, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { sendDigestEmail } from "./mailer.js";
 import { canonicalizeUrl } from "./normalize.js";
@@ -49,6 +49,19 @@ async function runHourlyCron() {
     console.log(`[cron-hourly] User ${email}: local hour in ${timezone} is ${localHour} (preferred: ${digestHour}).`);
 
     if (localHour === digestHour) {
+      // This workflow runs every hour with no coordination with the older
+      // fixed-time send-digest.yml/Vercel cron - without this check, a user
+      // whose digest_hour happens to land near 9am/9pm could get duplicate
+      // emails, and a GH Actions retry/re-run would resend indefinitely.
+      // send_date uses UTC (matches jm_email_send_log's existing convention
+      // from digest.ts) so this only fires once per user per calendar day.
+      const sendDate = new Date().toISOString().slice(0, 10);
+      const slot = `hour-${digestHour}`;
+      if (await hasEmailBeenSent(userId, sendDate, slot)) {
+        console.log(`[cron-hourly] Already sent today's digest to ${email} for hour ${digestHour}, skipping.`);
+        continue;
+      }
+
       console.log(`[cron-hourly] Time matches for user ${email}. Running match and send pipeline...`);
       try {
         const cvText = await getActiveCvText(userId);
@@ -92,15 +105,19 @@ async function runHourlyCron() {
         // 3. Fetch top matches and send email
         const topMatches = await getTopMatchesForUser(userId, 15);
         if (topMatches.length > 0) {
-          const slot = localHour < 12 ? "am" : "pm";
+          const displaySlot = localHour < 12 ? "am" : "pm";
           console.log(`[cron-hourly] Sending email digest to ${email} with ${topMatches.length} matches...`);
-          const messageId = await sendDigestEmail(email, topMatches as any, slot);
+          const messageId = await sendDigestEmail(email, topMatches as any, displaySlot);
+          await logEmailSend(userId, sendDate, slot, "sent", messageId);
           console.log(`[cron-hourly] Email sent successfully to ${email} (messageId: ${messageId})`);
         } else {
           console.log(`[cron-hourly] No matches found for user ${email}, skipped email.`);
         }
       } catch (err) {
         console.error(`[cron-hourly] Pipeline failed for user ${email}:`, err);
+        // Logged as "failed", not "sent" - hasEmailBeenSent only counts status='sent',
+        // so this user is retried on the next hourly tick rather than being stuck.
+        await logEmailSend(userId, sendDate, slot, "failed", undefined, (err as Error).message).catch(() => {});
       }
     }
   }

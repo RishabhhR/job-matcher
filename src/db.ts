@@ -320,7 +320,10 @@ export async function getTopMatchesForUser(userId: string, limit = 20) {
   return result.rows;
 }
 
-export async function hasEmailBeenSent(userId: string, sendDate: string, slot: "am" | "pm"): Promise<boolean> {
+// slot is a free-form dedup key: "am"/"pm" for the original fixed-time cron,
+// "hour-N" for the per-user hourly cron (src/cron.ts) - any mechanism sharing
+// this table dedupes against the others as long as slot values don't collide.
+export async function hasEmailBeenSent(userId: string, sendDate: string, slot: string): Promise<boolean> {
   const result = await client.execute({
     sql: "SELECT id FROM jm_email_send_log WHERE user_id = ? AND send_date = ? AND slot = ? AND status = 'sent'",
     args: [userId, sendDate, slot],
@@ -331,7 +334,7 @@ export async function hasEmailBeenSent(userId: string, sendDate: string, slot: "
 export async function logEmailSend(
   userId: string,
   sendDate: string,
-  slot: "am" | "pm",
+  slot: string,
   status: "sent" | "failed",
   providerMessageId?: string,
   errorText?: string
