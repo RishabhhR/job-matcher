@@ -49,7 +49,6 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
 
   const postings: RawPosting[] = [];
   let start = 0;
-  const pageSize = 25;
 
   while (postings.length < maxResults) {
     const html = await fetchSearchPage(keywords, location, start);
@@ -80,11 +79,8 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
       });
     });
 
-    start += pageSize;
+    start += cards.length;
     await sleep(jitter(requestDelayMs));
-
-    // Guest endpoint stops returning cards once results are exhausted.
-    if (cards.length < pageSize) break;
   }
 
   const trimmed = postings.slice(0, maxResults);
@@ -105,4 +101,19 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
   }
 
   return trimmed;
+}
+
+export async function fetchLinkedInDescriptions(postings: RawPosting[], requestDelayMs = 1500): Promise<void> {
+  const batchSize = 3;
+  for (let i = 0; i < postings.length; i += batchSize) {
+    const batch = postings.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async (posting) => {
+        posting.descriptionText = await fetchDescription(posting.applyUrl);
+      })
+    );
+    if (i + batchSize < postings.length) {
+      await sleep(jitter(requestDelayMs));
+    }
+  }
 }
