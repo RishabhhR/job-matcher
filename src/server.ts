@@ -20,7 +20,8 @@ import {
   getUserClerkId,
   updateMatchScore,
   getActiveCvText,
-  getUserProfileRow
+  getUserProfileRow,
+  getUserStats
 } from "./db.js";
 import { fetchAllPostings } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
@@ -91,6 +92,21 @@ app.post("/api/user/init", async (req, res) => {
     });
   } catch (error) {
     console.error("Error in /api/user/init:", error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/api/user/stats", async (req, res) => {
+  const userId = req.query.userId as string;
+  if (!userId) {
+    res.status(400).json({ error: "Missing userId query parameter" });
+    return;
+  }
+  try {
+    const stats = await getUserStats(userId);
+    res.json(stats);
+  } catch (error) {
+    console.error("Error in /api/user/stats:", error);
     res.status(500).json({ error: (error as Error).message });
   }
 });

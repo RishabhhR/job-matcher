@@ -504,3 +504,74 @@ export async function updateMatchScore(
     args: [fitScore, compFitLabel, reasoningText, userId, postingId],
   });
 }
+
+export interface UserStats {
+  totalScraped: number;
+  totalScored: number;
+  averageFitScore: number;
+  highMatchCount: number;
+  mediumMatchCount: number;
+  lowMatchCount: number;
+  companyDistribution: { company: string; count: number }[];
+}
+
+export async function getUserStats(userId: string): Promise<UserStats> {
+  const totalRes = await client.execute({
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ?",
+    args: [userId],
+  });
+  const totalScraped = Number(totalRes.rows[0]?.cnt || 0);
+
+  const scoredRes = await client.execute({
+    sql: "SELECT COUNT(*) as cnt, AVG(fit_score) as avg_score FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored'",
+    args: [userId],
+  });
+  const totalScored = Number(scoredRes.rows[0]?.cnt || 0);
+  const averageFitScore = Math.round(Number(scoredRes.rows[0]?.avg_score || 0));
+
+  const highRes = await client.execute({
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score >= 80",
+    args: [userId],
+  });
+  const highMatchCount = Number(highRes.rows[0]?.cnt || 0);
+
+  const mediumRes = await client.execute({
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score >= 60 AND fit_score < 80",
+    args: [userId],
+  });
+  const mediumMatchCount = Number(mediumRes.rows[0]?.cnt || 0);
+
+  const lowRes = await client.execute({
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score < 60",
+    args: [userId],
+  });
+  const lowMatchCount = Number(lowRes.rows[0]?.cnt || 0);
+
+  const companyRes = await client.execute({
+    sql: `
+      SELECT p.company_name, COUNT(*) as cnt
+      FROM jm_user_job_matches m
+      JOIN jm_job_postings p ON m.job_posting_id = p.id
+      WHERE m.user_id = ?
+      GROUP BY p.company_name
+      ORDER BY cnt DESC
+      LIMIT 5
+    `,
+    args: [userId],
+  });
+
+  const companyDistribution = companyRes.rows.map((row: any) => ({
+    company: String(row.company_name || "Unknown"),
+    count: Number(row.cnt || 0),
+  }));
+
+  return {
+    totalScraped,
+    totalScored,
+    averageFitScore,
+    highMatchCount,
+    mediumMatchCount,
+    lowMatchCount,
+    companyDistribution,
+  };
+}
