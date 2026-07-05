@@ -2,7 +2,7 @@ import { createClient } from "@libsql/client";
 import { randomUUID } from "node:crypto";
 
 let _client: any;
-const client = new Proxy({} as any, {
+export const client = new Proxy({} as any, {
   get(target, prop) {
     if (!_client) {
       if (!process.env.TURSO_DATABASE_URL) {
@@ -104,8 +104,7 @@ export async function migrate() {
   for (const stmt of SCHEMA) {
     await client.execute(stmt);
   }
-  // jm_user_profiles already existed before these columns were added — CREATE TABLE
-  // IF NOT EXISTS won't add them to a pre-existing table, so patch them in separately.
+  // Patch schema additions separately for existing tables
   const addColumns = [
     "ALTER TABLE jm_user_profiles ADD COLUMN career_start_date TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_country TEXT",
@@ -118,24 +117,85 @@ export async function migrate() {
       if (!/duplicate column/i.test((err as Error).message)) throw err;
     }
   }
+
+  const addColumnsUsers = [
+    "ALTER TABLE jm_users ADD COLUMN clerk_id TEXT",
+    "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
+  ];
+  for (const sql of addColumnsUsers) {
+    try {
+      await client.execute(sql);
+    } catch (err) {
+      if (!/duplicate column|already exists/i.test((err as Error).message)) throw err;
+    }
+  }
+
+  try {
+    await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)");
+  } catch (err) {
+    if (!/already exists|duplicate/i.test((err as Error).message)) throw err;
+  }
 }
 
-export async function upsertUser(email: string, name: string, timezone = "Asia/Kolkata"): Promise<string> {
-  const existing = await client.execute({ sql: "SELECT id FROM jm_users WHERE email = ?", args: [email] });
-  if (existing.rows.length > 0) {
-    const id = existing.rows[0].id as string;
+export async function upsertUser(
+  email: string,
+  name: string,
+  clerkId?: string,
+  timezone = "Asia/Kolkata"
+): Promise<string> {
+  if (clerkId) {
+    const existing = await client.execute({ sql: "SELECT id FROM jm_users WHERE clerk_id = ?", args: [clerkId] });
+    if (existing.rows.length > 0) {
+      const id = existing.rows[0].id as string;
+      await client.execute({
+        sql: "UPDATE jm_users SET name = ?, email = ?, timezone = ?, updated_at = datetime('now') WHERE id = ?",
+        args: [name, email, timezone, id],
+      });
+      return id;
+    }
+  }
+
+  const existingEmail = await client.execute({ sql: "SELECT id, clerk_id FROM jm_users WHERE email = ?", args: [email] });
+  if (existingEmail.rows.length > 0) {
+    const id = existingEmail.rows[0].id as string;
     await client.execute({
-      sql: "UPDATE jm_users SET name = ?, timezone = ?, updated_at = datetime('now') WHERE id = ?",
-      args: [name, timezone, id],
+      sql: "UPDATE jm_users SET name = ?, clerk_id = COALESCE(clerk_id, ?), timezone = ?, updated_at = datetime('now') WHERE id = ?",
+      args: [name, clerkId || null, timezone, id],
     });
     return id;
   }
+
   const id = randomUUID();
   await client.execute({
-    sql: "INSERT INTO jm_users (id, email, name, timezone) VALUES (?, ?, ?, ?)",
-    args: [id, email, name, timezone],
+    sql: "INSERT INTO jm_users (id, email, name, clerk_id, timezone) VALUES (?, ?, ?, ?, ?)",
+    args: [id, email, name, clerkId || null, timezone],
   });
   return id;
+}
+
+export async function updateUserDigestSettings(userId: string, enabled: boolean, hour: number): Promise<void> {
+  await client.execute({
+    sql: "UPDATE jm_users SET digest_enabled = ?, digest_hour = ?, updated_at = datetime('now') WHERE id = ?",
+    args: [enabled ? 1 : 0, hour, userId],
+  });
+}
+
+export interface UserDigestSettings {
+  digestEnabled: boolean;
+  digestHour: number;
+}
+
+export async function getUserDigestSettings(userId: string): Promise<UserDigestSettings | null> {
+  const result = await client.execute({
+    sql: "SELECT digest_enabled, digest_hour FROM jm_users WHERE id = ?",
+    args: [userId],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    digestEnabled: row.digest_enabled === 1,
+    digestHour: row.digest_hour as number,
+  };
 }
 
 export interface DbProfile {

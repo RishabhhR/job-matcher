@@ -15,6 +15,8 @@ import {
   bulkInsertPostingsAndPendingMatches,
   getPaginatedMatchesForUser,
   getTotalMatchCountForUser,
+  updateUserDigestSettings,
+  getUserDigestSettings,
   updateMatchScore,
   getActiveCvText,
   getUserProfileRow
@@ -54,6 +56,47 @@ app.get("/api/initial-data", (req, res) => {
     res.json({ cvText, profile, companies });
   } catch (error) {
     res.status(500).json({ error: "Failed to read initial config files: " + (error as Error).message });
+  }
+});
+
+app.post("/api/user/init", async (req, res) => {
+  const { clerkId, email, name } = req.body;
+  if (!clerkId || !email) {
+    res.status(400).json({ error: "Missing clerkId or email" });
+    return;
+  }
+  try {
+    const userId = await upsertUser(email, name || "User", clerkId);
+    const profile = await getUserProfileRow(userId);
+    const cvText = await getActiveCvText(userId);
+    const digestSettings = await getUserDigestSettings(userId);
+    
+    let finalProfile = profile;
+    if (!profile) {
+      const profilePath = path.join(dataDir, "profile.json");
+      if (existsSync(profilePath)) {
+        finalProfile = JSON.parse(readFileSync(profilePath, "utf-8"));
+      }
+    }
+    
+    let finalCvText = cvText;
+    if (!cvText) {
+      const cvPath = path.join(dataDir, "cv.txt");
+      if (existsSync(cvPath)) {
+        finalCvText = readFileSync(cvPath, "utf-8");
+      }
+    }
+
+    res.json({
+      success: true,
+      userId,
+      profile: finalProfile,
+      cvText: finalCvText,
+      digestSettings: digestSettings || { digestEnabled: true, digestHour: 9 }
+    });
+  } catch (error) {
+    console.error("Error in /api/user/init:", error);
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
@@ -260,7 +303,7 @@ app.get("/api/cron-match", async (req, res) => {
 
 // SSE endpoint to run the initial scraper and stream progress updates, returning the first page of matches
 app.post("/api/match", async (req, res) => {
-  const { cvText, profile, companies, linkedin } = req.body;
+  const { cvText, profile, companies, linkedin, clerkId, email, name, digestEnabled, digestHour } = req.body;
 
   if (!cvText || !profile || !companies) {
     res.status(400).json({ error: "Missing required fields (cvText, profile, or companies)" });
@@ -279,13 +322,18 @@ app.post("/api/match", async (req, res) => {
   };
 
   try {
-    const userEmail = "rishabh.raj.2002.rr@gmail.com";
-    const userName = "Rishabh Raj";
+    const userEmail = email || "rishabh.raj.2002.rr@gmail.com";
+    const userName = name || "Rishabh Raj";
     
     sendEvent("progress", { status: "system", message: "Connecting to database..." });
-    const userId = await upsertUser(userEmail, userName);
+    const userId = await upsertUser(userEmail, userName, clerkId);
     await upsertUserProfile(userId, profile);
     await upsertCv(userId, cvText);
+
+    // Save user digest settings
+    if (digestEnabled !== undefined && digestHour !== undefined) {
+      await updateUserDigestSettings(userId, digestEnabled, parseInt(digestHour));
+    }
 
     sendEvent("progress", { status: "scraping_ats", message: `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}` });
     const atsPostingsRaw = await fetchAllPostings(companies);

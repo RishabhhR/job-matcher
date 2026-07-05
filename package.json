@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/server.ts",
-    "digest": "tsx src/digest.ts"
+    "digest": "tsx src/digest.ts",
+    "cron-hourly": "tsx src/cron.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

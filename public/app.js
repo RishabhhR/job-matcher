@@ -18,6 +18,14 @@ const ashbyInput = document.getElementById("ashbyCompanies");
 const linkedinLocationInput = document.getElementById("linkedinLocation");
 const linkedinMaxResultsInput = document.getElementById("linkedinMaxResults");
 
+const digestEnabledInput = document.getElementById("digestEnabled");
+const digestHourInput = document.getElementById("digestHour");
+const authContainer = document.getElementById("auth-container");
+const appContainer = document.getElementById("app-container");
+const userProfileHeader = document.getElementById("user-profile-header");
+const userNameLabel = document.getElementById("user-name-label");
+const logoutBtn = document.getElementById("logout-btn");
+
 const submitBtn = document.getElementById("submit-btn");
 const statusBadge = document.getElementById("status-badge");
 const terminalBody = document.getElementById("terminal-body");
@@ -38,15 +46,82 @@ let currentUserId = null;
 let currentPage = 1;
 let totalMatchesCount = 0;
 const limitPerPage = 10;
+let clerkUser = null;
 
-// Initial Config Fetch
-window.addEventListener("DOMContentLoaded", async () => {
-  addLogLine("system", "Loading initial configuration from backend files...");
+// Clerk Auth Initialization Handler
+window.addEventListener("load", async () => {
+  addLogLine("system", "Connecting to authentication service...");
+  if (typeof window.Clerk === "undefined") {
+    let retries = 0;
+    const interval = setInterval(async () => {
+      retries++;
+      if (typeof window.Clerk !== "undefined") {
+        clearInterval(interval);
+        await initClerk();
+      } else if (retries > 30) {
+        clearInterval(interval);
+        addLogLine("error", "Clerk failed to load. Please verify your internet connection.");
+      }
+    }, 200);
+  } else {
+    await initClerk();
+  }
+});
+
+async function initClerk() {
   try {
-    const res = await fetch("/api/initial-data");
-    if (!res.ok) throw new Error("Failed to load initial configurations.");
-    const data = await res.json();
-    
+    await window.Clerk.load();
+    if (window.Clerk.user) {
+      clerkUser = window.Clerk.user;
+      showApp();
+      await initializeUserData();
+    } else {
+      showLogin();
+    }
+  } catch (err) {
+    console.error("Clerk initialization error:", err);
+    addLogLine("error", "Authentication error: " + err.message);
+  }
+}
+
+function showLogin() {
+  authContainer.classList.remove("hidden");
+  appContainer.classList.add("hidden");
+  window.Clerk.mountSignIn(authContainer, {
+    afterSignInUrl: window.location.href,
+  });
+}
+
+function showApp() {
+  authContainer.classList.add("hidden");
+  appContainer.classList.remove("hidden");
+  userProfileHeader.classList.remove("hidden");
+  const displayName = clerkUser.fullName || clerkUser.primaryEmailAddress.emailAddress;
+  userNameLabel.textContent = `Hello, ${displayName}!`;
+}
+
+logoutBtn.addEventListener("click", async () => {
+  await window.Clerk.signOut();
+  window.location.reload();
+});
+
+async function initializeUserData() {
+  addLogLine("system", "Loading profile and email preferences...");
+  try {
+    const response = await fetch("/api/user/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clerkId: clerkUser.id,
+        email: clerkUser.primaryEmailAddress.emailAddress,
+        name: clerkUser.fullName
+      })
+    });
+
+    if (!response.ok) throw new Error("Failed to sync profile settings with backend.");
+    const data = await response.json();
+    currentUserId = data.userId;
+
     if (data.cvText) cvTextInput.value = data.cvText;
     if (data.profile) {
       targetDesignationInput.value = data.profile.targetDesignation || "";
@@ -59,16 +134,33 @@ window.addEventListener("DOMContentLoaded", async () => {
       preferredCityInput.value = data.profile.preferredCity || "";
       careerStartDateInput.value = data.profile.careerStartDate || "";
     }
-    if (data.companies) {
-      greenhouseInput.value = Array.isArray(data.companies.greenhouse) ? data.companies.greenhouse.join(", ") : "";
-      leverInput.value = Array.isArray(data.companies.lever) ? data.companies.lever.join(", ") : "";
-      ashbyInput.value = Array.isArray(data.companies.ashby) ? data.companies.ashby.join(", ") : "";
+
+    // Prefill fallback templates if empty
+    const configRes = await fetch("/api/initial-data");
+    if (configRes.ok) {
+      const configData = await configRes.json();
+      if (!cvTextInput.value && configData.cvText) cvTextInput.value = configData.cvText;
+      if (configData.companies) {
+        greenhouseInput.value = Array.isArray(configData.companies.greenhouse) ? configData.companies.greenhouse.join(", ") : "";
+        leverInput.value = Array.isArray(configData.companies.lever) ? configData.companies.lever.join(", ") : "";
+        ashbyInput.value = Array.isArray(configData.companies.ashby) ? configData.companies.ashby.join(", ") : "";
+      }
     }
-    addLogLine("success", "Initial configurations successfully prefilled.");
+
+    if (data.digestSettings) {
+      digestEnabledInput.checked = data.digestSettings.digestEnabled;
+      digestHourInput.value = data.digestSettings.digestHour.toString();
+    }
+
+    addLogLine("success", "Settings prefilled and database session initialized.");
+    
+    // Automatically load existing matched job roles for the user, if any
+    currentPage = 1;
+    await fetchMatchesPage(currentPage);
   } catch (error) {
-    addLogLine("error", "Error loading initial configuration: " + error.message);
+    addLogLine("error", "Sync error: " + error.message);
   }
-});
+}
 
 // Upload CV handler
 uploadBtn.addEventListener("click", () => {
@@ -221,7 +313,12 @@ form.addEventListener("submit", async (e) => {
     linkedin: {
       location: linkedinLocationInput.value || "India",
       maxResults: parseInt(linkedinMaxResultsInput.value) || 100,
-    }
+    },
+    clerkId: clerkUser ? clerkUser.id : undefined,
+    email: clerkUser ? clerkUser.primaryEmailAddress.emailAddress : undefined,
+    name: clerkUser ? clerkUser.fullName : undefined,
+    digestEnabled: digestEnabledInput.checked,
+    digestHour: parseInt(digestHourInput.value)
   };
 
   try {
