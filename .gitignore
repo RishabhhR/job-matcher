@@ -4,3 +4,4 @@ data/cv.txt
 data/profile.json
 .vercel
 .env*
+.coordo/state.json
