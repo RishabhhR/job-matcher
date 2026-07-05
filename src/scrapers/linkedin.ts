@@ -49,38 +49,53 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
 
   const postings: RawPosting[] = [];
   let start = 0;
+  const pageBatchSize = 5;
 
   while (postings.length < maxResults) {
-    const html = await fetchSearchPage(keywords, location, start);
-    if (!html) break;
+    const promises = [];
+    for (let b = 0; b < pageBatchSize; b++) {
+      const pageStart = start + b * 10;
+      if (pageStart >= maxResults) break;
+      promises.push(fetchSearchPage(keywords, location, pageStart));
+    }
 
-    const $ = cheerio.load(html);
-    const cards = $("li > div.job-search-card, div.job-search-card");
-    if (cards.length === 0) break;
+    const htmls = await Promise.all(promises);
+    let cardsFoundInBatch = 0;
 
-    cards.each((_, el) => {
-      const card = $(el);
-      const urn = card.attr("data-entity-urn") || "";
-      const applyUrl = card.find("a.base-card__full-link").attr("href")?.split("?")[0] || "";
-      const title = card.find("h3.base-search-card__title").text().trim();
-      const company = card.find("h4.base-search-card__subtitle a").text().trim();
-      const jobLocation = card.find("span.job-search-card__location").text().trim();
+    for (const html of htmls) {
+      if (!html) continue;
+      const $ = cheerio.load(html);
+      const cards = $("li > div.job-search-card, div.job-search-card");
+      if (cards.length === 0) continue;
+      cardsFoundInBatch += cards.length;
 
-      if (!applyUrl || !title) return;
+      cards.each((_, el) => {
+        const card = $(el);
+        const urn = card.attr("data-entity-urn") || "";
+        const applyUrl = card.find("a.base-card__full-link").attr("href")?.split("?")[0] || "";
+        const title = card.find("h3.base-search-card__title").text().trim();
+        const company = card.find("h4.base-search-card__subtitle a").text().trim();
+        const jobLocation = card.find("span.job-search-card__location").text().trim();
 
-      postings.push({
-        source: "linkedin",
-        sourceJobId: urn.split(":").pop() || extractJobId(applyUrl),
-        company: company || "Unknown",
-        title,
-        location: jobLocation,
-        applyUrl,
-        descriptionText: "",
+        if (!applyUrl || !title) return;
+
+        postings.push({
+          source: "linkedin",
+          sourceJobId: urn.split(":").pop() || extractJobId(applyUrl),
+          company: company || "Unknown",
+          title,
+          location: jobLocation,
+          applyUrl,
+          descriptionText: "",
+        });
       });
-    });
+    }
 
-    start += cards.length;
-    await sleep(jitter(requestDelayMs));
+    if (cardsFoundInBatch === 0) break;
+
+    start += pageBatchSize * 10;
+    // Small delay between batches to respect rate limits
+    await sleep(jitter(requestDelayMs / 3));
   }
 
   const trimmed = postings.slice(0, maxResults);
