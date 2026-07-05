@@ -87,24 +87,39 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     return [];
   }
 
-  // Fetch descriptions only for the matching/filtered subset of LinkedIn jobs
-  const linkedinToFetch = shortlisted.filter((p) => p.source === "linkedin" && !p.descriptionText);
+  // Fetch descriptions only for the matching/filtered subset of LinkedIn jobs (cap at 40 to prevent Vercel timeout)
+  const allLinkedinToFetch = shortlisted.filter((p) => p.source === "linkedin" && !p.descriptionText);
+  const linkedinToFetch = allLinkedinToFetch.slice(0, 40);
+
   if (linkedinToFetch.length > 0) {
-    onProgress("scraping_linkedin_descriptions", `Fetching descriptions for ${linkedinToFetch.length} shortlisted LinkedIn jobs...`);
+    onProgress("scraping_linkedin_descriptions", `Fetching descriptions for top ${linkedinToFetch.length} of ${allLinkedinToFetch.length} shortlisted LinkedIn jobs...`);
     await fetchLinkedInDescriptions(linkedinToFetch);
   }
 
-  onProgress("scoring", `Scoring ${shortlisted.length} postings against CV via AI fallback chain (Groq -> Gemini -> OpenRouter)...`);
+  // Only keep postings that actually have descriptions (ATS boards + successfully fetched LinkedIn)
+  const finalShortlist = shortlisted.filter((p) => {
+    if (p.source === "linkedin") {
+      return p.descriptionText && p.descriptionText.length > 0;
+    }
+    return true; // ATS boards already have descriptions
+  });
+
+  if (finalShortlist.length === 0) {
+    onProgress("complete", "No postings with descriptions matched the target designation.");
+    return [];
+  }
+
+  onProgress("scoring", `Scoring ${finalShortlist.length} postings against CV via AI fallback chain (Groq -> Gemini -> Cerebras -> Mistral -> OpenRouter)...`);
   
   // Custom progress for scoring
   const batchSize = 6;
-  const totalPostings = shortlisted.length;
+  const totalPostings = finalShortlist.length;
   const totalBatches = Math.ceil(totalPostings / batchSize);
   const scoredMatches: ScoredMatch[] = [];
 
   for (let i = 0; i < totalPostings; i += batchSize) {
     const currentBatchNum = Math.floor(i / batchSize) + 1;
-    const batch = shortlisted.slice(i, i + batchSize);
+    const batch = finalShortlist.slice(i, i + batchSize);
     onProgress("scoring", `Scoring batch ${currentBatchNum}/${totalBatches} (${batch.length} postings)...`);
     
     const { results: batchResults, provider } = await scoreAll(cvText, profile, batch, batch.length, retryOptions);
