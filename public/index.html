@@ -28,27 +28,61 @@
         </div>
         <div class="user-profile-header hidden" id="user-profile-header">
           <span id="user-name-label" class="user-name-label">Loading user...</span>
+          <nav class="header-nav">
+            <button type="button" class="nav-btn active" id="nav-btn-wizard">Match Wizard</button>
+            <button type="button" class="nav-btn" id="nav-btn-settings">Settings & Stats</button>
+          </nav>
           <button type="button" class="btn-secondary btn-sm" id="logout-btn">Log Out</button>
         </div>
       </div>
       <p class="header-subtitle">Autonomously scrape public boards, target LinkedIn listings, and rank roles via LLM evaluation.</p>
     </header>
 
+    <!-- VIEW 1: Match Wizard -->
+    <div id="view-wizard" class="view-pane active">
+      <!-- Step Progress Indicator -->
+      <nav class="stepper" id="stepper">
+      <button type="button" class="stepper-step active" data-step="profile" id="stepper-nav-profile">
+        <span class="stepper-dot">1</span>
+        <span class="stepper-label">Profile</span>
+      </button>
+      <span class="stepper-line"></span>
+      <button type="button" class="stepper-step" data-step="preferences" id="stepper-nav-preferences">
+        <span class="stepper-dot">2</span>
+        <span class="stepper-label">Search Preferences</span>
+      </button>
+      <span class="stepper-line"></span>
+      <button type="button" class="stepper-step" data-step="results" id="stepper-nav-results" disabled>
+        <span class="stepper-dot">3</span>
+        <span class="stepper-label">Results</span>
+      </button>
+    </nav>
+
     <main class="app-main">
-      <!-- Input Panel (Left Column) -->
-      <section class="panel input-panel">
-        <h2 class="panel-title">1. Candidate Configuration</h2>
-        <form id="matcher-form">
+      <form id="matcher-form">
+
+        <!-- STEP 1: Profile -->
+        <section class="panel wizard-step active" id="step-profile" data-step-panel="profile">
+          <h2 class="panel-title">Your Profile</h2>
+          <p class="panel-subtitle">Tell us who you are so the AI can judge fit accurately.</p>
+
           <div class="form-group">
             <div class="label-header">
-              <label for="cvText">Resume / CV Text</label>
-              <button type="button" class="btn-secondary btn-sm" id="upload-cv-btn">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                Upload File (PDF/DOCX/TXT)
-              </button>
+              <label for="cvText">Resume / CV</label>
+            </div>
+            <div class="dropzone" id="cv-dropzone">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              <span class="dropzone-title">Drag and drop your resume here</span>
+              <span class="dropzone-sub">or <button type="button" class="link-btn" id="upload-cv-btn">browse a file</button> &middot; PDF, DOCX, or TXT</span>
               <input type="file" id="cv-file-input" accept=".pdf,.docx,.txt" style="display: none;">
             </div>
-            <textarea id="cvText" placeholder="Paste your plain text resume or upload a file using the button above..." required></textarea>
+            <button type="button" class="collapsible-toggle" id="paste-text-toggle">
+              <span>Or paste text instead</span>
+              <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="collapsible-body" id="paste-text-body">
+              <textarea id="cvText" placeholder="Paste your plain text resume here..." required></textarea>
+            </div>
           </div>
 
           <div class="form-grid">
@@ -65,17 +99,45 @@
               <input type="text" id="currentTitle" placeholder="e.g. Associate PM 2" required>
             </div>
             <div class="form-group">
-              <label for="currentSalaryFixed">Fixed Salary (LPA)</label>
-              <input type="number" id="currentSalaryFixed" placeholder="e.g. 22" step="any" required>
+              <label for="careerStartDate">Career Start Date</label>
+              <input type="date" id="careerStartDate">
+              <span class="field-hint">Used to estimate years of experience for better matches.</span>
             </div>
-            <div class="form-group">
-              <label for="currentSalaryEsop">ESOPs Salary (LPA)</label>
-              <input type="number" id="currentSalaryEsop" placeholder="e.g. 5.5" step="any" required>
+          </div>
+
+          <button type="button" class="collapsible-toggle" id="compensation-toggle">
+            <span>Compensation details</span>
+            <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="collapsible-body" id="compensation-body">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="currentSalaryFixed">Fixed Salary (LPA)</label>
+                <input type="number" id="currentSalaryFixed" placeholder="e.g. 22" step="any" required>
+              </div>
+              <div class="form-group">
+                <label for="currentSalaryEsop">ESOPs Salary (LPA)</label>
+                <input type="number" id="currentSalaryEsop" placeholder="e.g. 5.5" step="any" required>
+              </div>
+              <div class="form-group">
+                <label for="currentSalaryCurrency">Currency</label>
+                <input type="text" id="currentSalaryCurrency" placeholder="e.g. INR" required>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="currentSalaryCurrency">Currency</label>
-              <input type="text" id="currentSalaryCurrency" placeholder="e.g. INR" required>
-            </div>
+          </div>
+
+          <div class="wizard-actions">
+            <span></span>
+            <button type="button" class="btn btn-primary btn-wizard" id="continue-to-preferences-btn">Continue</button>
+          </div>
+        </section>
+
+        <!-- STEP 2: Search Preferences -->
+        <section class="panel wizard-step" id="step-preferences" data-step-panel="preferences">
+          <h2 class="panel-title">Search Preferences</h2>
+          <p class="panel-subtitle">Refine where we search and how we notify you.</p>
+
+          <div class="form-grid">
             <div class="form-group">
               <label for="preferredCountry">Preferred Country</label>
               <input type="text" id="preferredCountry" placeholder="e.g. India">
@@ -84,15 +146,22 @@
               <label for="preferredCity">Preferred City</label>
               <input type="text" id="preferredCity" placeholder="e.g. Bengaluru">
             </div>
-            <div class="form-group">
-              <label for="careerStartDate">Career Start Date</label>
-              <input type="date" id="careerStartDate" placeholder="e.g. 2024-07-01">
-            </div>
+          </div>
+          <div class="form-group">
+            <label for="linkedinLocation">LinkedIn Location</label>
+            <input type="text" id="linkedinLocation" placeholder="e.g. India" value="India">
+            <span class="field-hint">We'll also search LinkedIn's public listings for this location.</span>
+          </div>
+          <div class="form-group">
+            <label for="linkedinMaxResults">LinkedIn Max Jobs</label>
+            <input type="number" id="linkedinMaxResults" placeholder="e.g. 100" min="5" max="1000" value="100">
           </div>
 
-          <h2 class="panel-title section-break">2. Scraping Configuration</h2>
-          <div class="form-group">
-            <label>ATS Board Tokens (Comma-separated)</label>
+          <button type="button" class="collapsible-toggle" id="ats-toggle">
+            <span>ATS company boards <span class="optional-tag">optional</span></span>
+            <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="collapsible-body" id="ats-body">
             <div class="ats-grid">
               <div class="ats-input">
                 <span class="ats-badge greenhouse">Greenhouse</span>
@@ -104,32 +173,21 @@
               </div>
               <div class="ats-input">
                 <span class="ats-badge ashby">Ashby</span>
-                <input type="text" id="ashbyCompanies" placeholder="vercel, notion,deel">
+                <input type="text" id="ashbyCompanies" placeholder="vercel, notion, deel">
               </div>
             </div>
           </div>
 
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="linkedinLocation">LinkedIn Location</label>
-              <input type="text" id="linkedinLocation" placeholder="e.g. India" value="India">
-            </div>
-            <div class="form-group">
-              <label for="linkedinMaxResults">LinkedIn Max Jobs</label>
-              <input type="number" id="linkedinMaxResults" placeholder="e.g. 1000" min="5" max="1000" value="1000">
-            </div>
-          </div>
-
-          <h2 class="panel-title section-break">3. Email Notification Settings</h2>
-          <div class="form-grid">
-            <div class="form-group check-group">
-              <label class="checkbox-container">
-                <input type="checkbox" id="digestEnabled" checked>
-                <span class="checkmark"></span>
-                Enable Daily Email Digest
-              </label>
-            </div>
-            <div class="form-group">
+          <div class="form-group notification-group">
+            <label class="toggle-container">
+              <input type="checkbox" id="digestEnabled" checked>
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-text-block">
+                <span class="toggle-title">Email me a daily digest</span>
+                <span class="field-hint">We'll email you once a day with new matches — turn this off anytime.</span>
+              </span>
+            </label>
+            <div class="form-group" id="digest-hour-group">
               <label for="digestHour">Preferred Email Hour</label>
               <select id="digestHour" class="select-control">
                 <option value="0">12:00 AM (Midnight)</option>
@@ -160,57 +218,216 @@
             </div>
           </div>
 
-          <button type="submit" id="submit-btn" class="btn btn-primary">
-            <span class="btn-text">Start Job Matching Pipeline</span>
-            <span class="btn-loader"></span>
-          </button>
-        </form>
-      </section>
+          <div class="wizard-actions">
+            <button type="button" class="btn-secondary btn-wizard-back" id="back-to-profile-btn">← Back</button>
+            <button type="submit" id="submit-btn" class="btn btn-primary btn-wizard">
+              <span class="btn-text">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -3px; margin-right: 4px;"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+                Find My Matches
+              </span>
+              <span class="btn-loader"></span>
+            </button>
+          </div>
+        </section>
 
-      <!-- Runner Panel (Right Column) -->
-      <section class="panel runner-panel">
-        <div class="runner-header">
-          <h2 class="panel-title">Match Execution & Results</h2>
-          <div id="status-badge" class="status-badge idle">Idle</div>
-        </div>
+        <!-- STEP 3: Results -->
+        <section class="panel wizard-step wide" id="step-results" data-step-panel="results">
+          <div class="runner-header">
+            <h2 class="panel-title">Match Execution & Results</h2>
+            <div id="status-badge" class="status-badge idle">Idle</div>
+          </div>
 
-        <!-- Terminal Output -->
-        <div class="terminal-container">
-          <div class="terminal-header">
-            <span class="dot red"></span>
-            <span class="dot yellow"></span>
-            <span class="dot green"></span>
-            <span class="terminal-title">system_logs</span>
+          <!-- Terminal Output -->
+          <div class="terminal-container">
+            <div class="terminal-header">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+              <span class="terminal-title">system_logs</span>
+            </div>
+            <div id="terminal-body" class="terminal-body">
+              <div class="log-line system">Waiting to start job matching pipeline...</div>
+            </div>
           </div>
-          <div id="terminal-body" class="terminal-body">
-            <div class="log-line system">Waiting to start job matching pipeline...</div>
-          </div>
-        </div>
 
-        <!-- Progress Bar -->
-        <div class="progress-bar-container hidden" id="progress-container">
-          <div class="progress-bar-track">
-            <div class="progress-bar-fill" id="progress-bar"></div>
+          <!-- Progress Bar -->
+          <div class="progress-bar-container hidden" id="progress-container">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="progress-bar"></div>
+            </div>
+            <span class="progress-percent" id="progress-percent">0%</span>
           </div>
-          <span class="progress-percent" id="progress-percent">0%</span>
-        </div>
 
-        <!-- Scored Results Grid -->
-        <div class="results-container">
-          <div class="results-header hidden" id="results-count-container">
-            <h3>Top Matches Found (<span id="results-count">0</span>)</h3>
+          <!-- Scored Results Grid -->
+          <div class="results-container">
+            <div class="results-header hidden" id="results-count-container">
+              <h3>Top Matches Found (<span id="results-count">0</span>)</h3>
+            </div>
+            <div id="results-grid" class="results-grid">
+              <!-- Results will be dynamically populated here -->
+            </div>
+            <div id="pagination-controls" class="pagination-controls hidden">
+              <button id="prev-page-btn" class="btn-secondary btn-sm" disabled>Previous</button>
+              <span id="page-info">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
+              <button id="next-page-btn" class="btn-secondary btn-sm">Next</button>
+            </div>
           </div>
-          <div id="results-grid" class="results-grid">
-            <!-- Results will be dynamically populated here -->
+
+          <div class="wizard-actions">
+            <button type="button" class="btn-secondary btn-wizard-back" id="back-to-preferences-btn">← Edit Preferences</button>
+            <span></span>
           </div>
-          <div id="pagination-controls" class="pagination-controls hidden">
-            <button id="prev-page-btn" class="btn-secondary btn-sm" disabled>Previous</button>
-            <span id="page-info">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
-            <button id="next-page-btn" class="btn-secondary btn-sm">Next</button>
-          </div>
-        </div>
-      </section>
+        </section>
+
+      </form>
     </main>
+    </div> <!-- End of view-wizard -->
+
+    <!-- VIEW 2: Settings & Stats -->
+    <div id="view-settings" class="view-pane hidden">
+      <main class="app-main">
+        <div class="settings-grid">
+          
+          <!-- Column 1: Analytics & Stats -->
+          <section class="panel stats-panel">
+            <h2 class="panel-title">Dashboard Insights</h2>
+            <p class="panel-subtitle">Key metrics aggregated from your LLM evaluations.</p>
+            
+            <div class="metrics-row">
+              <div class="metric-card">
+                <span class="metric-label">Average Fit Score</span>
+                <span class="metric-value text-gradient" id="stat-avg-score">0%</span>
+                <div class="metric-sub" id="stat-avg-score-desc">Based on scored jobs</div>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Total Scraped</span>
+                <span class="metric-value" id="stat-total-scraped">0</span>
+                <div class="metric-sub">Jobs found in matches</div>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Total Evaluated</span>
+                <span class="metric-value" id="stat-total-scored">0</span>
+                <div class="metric-sub">Ranked by AI agent</div>
+              </div>
+            </div>
+
+            <div class="stats-card-group">
+              <!-- Fit Bands Distribution -->
+              <div class="chart-card">
+                <h3>Match Distributions</h3>
+                <div class="fit-distribution-bars">
+                  <div class="dist-bar-group">
+                    <span class="dist-label">Strong Matches (>=80)</span>
+                    <div class="bar-container">
+                      <div class="bar-fill high" id="dist-bar-high" style="width: 0%;"></div>
+                    </div>
+                    <span class="dist-count" id="dist-count-high">0</span>
+                  </div>
+                  <div class="dist-bar-group">
+                    <span class="dist-label">Good Fits (60-79)</span>
+                    <div class="bar-container">
+                      <div class="bar-fill medium" id="dist-bar-medium" style="width: 0%;"></div>
+                    </div>
+                    <span class="dist-count" id="dist-count-medium">0</span>
+                  </div>
+                  <div class="dist-bar-group">
+                    <span class="dist-label">Low Fits (&lt;60)</span>
+                    <div class="bar-container">
+                      <div class="bar-fill low" id="dist-bar-low" style="width: 0%;"></div>
+                    </div>
+                    <span class="dist-count" id="dist-count-low">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Top Companies -->
+              <div class="chart-card">
+                <h3>Top Matched Companies</h3>
+                <ul class="company-list" id="stat-company-list">
+                  <li class="company-item empty">No listings scored yet.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <!-- Column 2: Digest Settings -->
+          <section class="panel configurations-panel">
+            <h2 class="panel-title">Digest & Account Settings</h2>
+            <p class="panel-subtitle">Manage automated reports and account details.</p>
+
+            <form id="settings-form">
+              <div class="settings-card">
+                <h3>Daily Email Digest</h3>
+                <p class="settings-desc">Receive a daily digest of matching positions in your mailbox.</p>
+                
+                <div class="checkbox-group">
+                  <label class="switch">
+                    <input type="checkbox" id="settings-digest-enabled" checked>
+                    <span class="slider round"></span>
+                  </label>
+                  <span class="checkbox-label-text">Enable Daily Digest Email</span>
+                </div>
+
+                <div class="form-group" id="settings-digest-hour-group">
+                  <label for="settings-digest-hour">Preferred Dispatch Time</label>
+                  <select id="settings-digest-hour" class="form-select">
+                    <option value="0">12:00 AM (Midnight)</option>
+                    <option value="1">01:00 AM</option>
+                    <option value="2">02:00 AM</option>
+                    <option value="3">03:00 AM</option>
+                    <option value="4">04:00 AM</option>
+                    <option value="5">05:00 AM</option>
+                    <option value="6">06:00 AM</option>
+                    <option value="7">07:00 AM</option>
+                    <option value="8">08:00 AM</option>
+                    <option value="9" selected>09:00 AM</option>
+                    <option value="10">10:00 AM</option>
+                    <option value="11">11:00 AM</option>
+                    <option value="12">12:00 PM (Noon)</option>
+                    <option value="13">01:00 PM</option>
+                    <option value="14">02:00 PM</option>
+                    <option value="15">03:00 PM</option>
+                    <option value="16">04:00 PM</option>
+                    <option value="17">05:00 PM</option>
+                    <option value="18">06:00 PM</option>
+                    <option value="19">07:00 PM</option>
+                    <option value="20">08:00 PM</option>
+                    <option value="21">09:00 PM</option>
+                    <option value="22">10:00 PM</option>
+                    <option value="23">11:00 PM</option>
+                  </select>
+                  <span class="field-hint">Digests are dispatched dynamically in your local timezone.</span>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <h3>Candidate Quick-Info</h3>
+                <p class="settings-desc">These target criteria are used by the AI agent during scraping runs.</p>
+                <div class="readonly-grid">
+                  <div class="info-item">
+                    <span class="info-label">Target Title</span>
+                    <span class="info-val" id="readonly-target-title">Not set</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Current Employer</span>
+                    <span class="info-val" id="readonly-current-employer">Not set</span>
+                  </div>
+                </div>
+                <div class="info-link-container" style="margin-top: 0.5rem;">
+                  <button type="button" class="link-btn" id="edit-profile-shortcut-btn">Edit Profile in Wizard →</button>
+                </div>
+              </div>
+
+              <div class="wizard-actions" style="margin-top: 1.5rem;">
+                <span></span>
+                <button type="submit" class="btn-primary" id="save-settings-btn" style="min-width: 140px;">Save Settings</button>
+              </div>
+            </form>
+          </section>
+
+        </div>
+      </main>
+    </div>
   </div>
 
   <!-- JavaScript -->

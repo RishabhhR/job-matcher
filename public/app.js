@@ -48,6 +48,96 @@ let totalMatchesCount = 0;
 const limitPerPage = 10;
 let clerkUser = null;
 
+// --- Wizard Step Navigation ---
+const stepPanels = document.querySelectorAll(".wizard-step");
+const stepperNavButtons = document.querySelectorAll(".stepper-step");
+let furthestStepReached = "profile";
+const stepOrder = ["profile", "preferences", "results"];
+
+function showStep(stepName) {
+  stepPanels.forEach(panel => {
+    panel.classList.toggle("active", panel.dataset.stepPanel === stepName);
+  });
+  stepperNavButtons.forEach(btn => {
+    const isCurrent = btn.dataset.step === stepName;
+    const isPast = stepOrder.indexOf(btn.dataset.step) < stepOrder.indexOf(stepName);
+    btn.classList.toggle("active", isCurrent);
+    btn.classList.toggle("complete", isPast);
+  });
+  if (stepOrder.indexOf(stepName) > stepOrder.indexOf(furthestStepReached)) {
+    furthestStepReached = stepName;
+  }
+  document.getElementById("stepper-nav-results").disabled = stepOrder.indexOf(furthestStepReached) < stepOrder.indexOf("results");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+document.getElementById("continue-to-preferences-btn").addEventListener("click", () => {
+  const requiredIds = ["cvText", "targetDesignation", "currentEmployer", "currentTitle", "currentSalaryFixed", "currentSalaryEsop", "currentSalaryCurrency"];
+  for (const id of requiredIds) {
+    const el = document.getElementById(id);
+    if (!el.reportValidity()) return;
+  }
+  showStep("preferences");
+});
+
+document.getElementById("back-to-profile-btn").addEventListener("click", () => showStep("profile"));
+document.getElementById("back-to-preferences-btn").addEventListener("click", () => showStep("preferences"));
+
+stepperNavButtons.forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.disabled) return;
+    if (stepOrder.indexOf(btn.dataset.step) <= stepOrder.indexOf(furthestStepReached)) {
+      showStep(btn.dataset.step);
+    }
+  });
+});
+
+// --- Collapsible sections ---
+function wireCollapsible(toggleId, bodyId, startOpen = false) {
+  const toggle = document.getElementById(toggleId);
+  const body = document.getElementById(bodyId);
+  if (startOpen) {
+    toggle.classList.add("expanded");
+    body.classList.add("expanded");
+  }
+  toggle.addEventListener("click", () => {
+    toggle.classList.toggle("expanded");
+    body.classList.toggle("expanded");
+  });
+}
+wireCollapsible("paste-text-toggle", "paste-text-body");
+wireCollapsible("compensation-toggle", "compensation-body");
+wireCollapsible("ats-toggle", "ats-body");
+
+// --- Digest hour visibility follows the toggle ---
+function syncDigestHourVisibility() {
+  document.getElementById("digest-hour-group").classList.toggle("hidden", !document.getElementById("digestEnabled").checked);
+}
+document.getElementById("digestEnabled").addEventListener("change", syncDigestHourVisibility);
+syncDigestHourVisibility();
+
+// --- Drag-and-drop for CV upload ---
+const cvDropzone = document.getElementById("cv-dropzone");
+["dragenter", "dragover"].forEach(evt => {
+  cvDropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    cvDropzone.classList.add("dragover");
+  });
+});
+["dragleave", "drop"].forEach(evt => {
+  cvDropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    cvDropzone.classList.remove("dragover");
+  });
+});
+cvDropzone.addEventListener("drop", (e) => {
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    fileInput.files = e.dataTransfer.files;
+    fileInput.dispatchEvent(new Event("change"));
+  }
+});
+
 // Clerk Auth Initialization Handler
 window.addEventListener("load", async () => {
   addLogLine("system", "Connecting to authentication service...");
@@ -284,7 +374,9 @@ function updateProgress(status, message) {
 // Form Submission Handler
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  
+
+  showStep("results");
+
   // Reset UI state
   terminalBody.innerHTML = "";
   resultsGrid.innerHTML = "";
@@ -539,6 +631,139 @@ async function goToPage(page) {
 // Pagination Event Listeners
 prevPageBtn.addEventListener("click", () => goToPage(currentPage - 1));
 nextPageBtn.addEventListener("click", () => goToPage(currentPage + 1));
+
+// --- Navigation Tab Toggles ---
+const navBtnWizard = document.getElementById("nav-btn-wizard");
+const navBtnSettings = document.getElementById("nav-btn-settings");
+const viewWizard = document.getElementById("view-wizard");
+const viewSettings = document.getElementById("view-settings");
+
+navBtnWizard.addEventListener("click", () => {
+  navBtnWizard.classList.add("active");
+  navBtnSettings.classList.remove("active");
+  viewWizard.classList.remove("hidden");
+  viewSettings.classList.add("hidden");
+});
+
+navBtnSettings.addEventListener("click", async () => {
+  navBtnWizard.classList.remove("active");
+  navBtnSettings.classList.add("active");
+  viewWizard.classList.add("hidden");
+  viewSettings.classList.remove("hidden");
+
+  // Sync inputs
+  document.getElementById("settings-digest-enabled").checked = document.getElementById("digestEnabled").checked;
+  document.getElementById("settings-digest-hour").value = document.getElementById("digestHour").value;
+  document.getElementById("settings-digest-hour-group").classList.toggle("hidden", !document.getElementById("digestEnabled").checked);
+
+  // Populate candidate quick-info
+  document.getElementById("readonly-target-title").textContent = document.getElementById("targetDesignation").value || "Not set";
+  document.getElementById("readonly-current-employer").textContent = document.getElementById("currentEmployer").value || "Not set";
+
+  // Fetch stats and update charts/metrics
+  await fetchAndRenderStats();
+});
+
+// Shortcut button
+document.getElementById("edit-profile-shortcut-btn").addEventListener("click", () => {
+  navBtnWizard.click();
+  showStep("profile");
+});
+
+// Sync inputs bi-directionally
+document.getElementById("settings-digest-enabled").addEventListener("change", (e) => {
+  document.getElementById("digestEnabled").checked = e.target.checked;
+  document.getElementById("settings-digest-hour-group").classList.toggle("hidden", !e.target.checked);
+});
+document.getElementById("settings-digest-hour").addEventListener("change", (e) => {
+  document.getElementById("digestHour").value = e.target.value;
+});
+
+// Settings Form Submission
+const settingsForm = document.getElementById("settings-form");
+settingsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const saveBtn = document.getElementById("save-settings-btn");
+  const originalText = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving...";
+
+  try {
+    const res = await authFetch("/api/user/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        userId: currentUserId,
+        digestEnabled: document.getElementById("settings-digest-enabled").checked,
+        digestHour: parseInt(document.getElementById("settings-digest-hour").value, 10)
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || "Failed to save settings");
+    }
+
+    // Sync back to wizard inputs
+    document.getElementById("digestEnabled").checked = document.getElementById("settings-digest-enabled").checked;
+    document.getElementById("digestHour").value = document.getElementById("settings-digest-hour").value;
+    
+    // Also sync the wizard's timezone/hour groups visibility
+    syncDigestHourVisibility();
+
+    alert("Settings saved successfully!");
+  } catch (err) {
+    alert("Error saving settings: " + err.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalText;
+  }
+});
+
+async function fetchAndRenderStats() {
+  if (!currentUserId) return;
+  try {
+    const res = await authFetch(`/api/user/stats?userId=${currentUserId}`);
+    if (!res.ok) throw new Error("Failed to fetch statistics.");
+    const stats = await res.json();
+
+    // Populate metric cards
+    document.getElementById("stat-avg-score").textContent = `${stats.averageFitScore}%`;
+    document.getElementById("stat-total-scraped").textContent = stats.totalScraped;
+    document.getElementById("stat-total-scored").textContent = stats.totalScored;
+
+    // Calculate maximum count for percentages in the chart
+    const maxCount = Math.max(stats.highMatchCount, stats.mediumMatchCount, stats.lowMatchCount, 1);
+    
+    const setBar = (barId, countId, count) => {
+      const pct = (count / maxCount) * 100;
+      document.getElementById(barId).style.width = `${pct}%`;
+      document.getElementById(countId).textContent = count;
+    };
+
+    setBar("dist-bar-high", "dist-count-high", stats.highMatchCount);
+    setBar("dist-bar-medium", "dist-count-medium", stats.mediumMatchCount);
+    setBar("dist-bar-low", "dist-count-low", stats.lowMatchCount);
+
+    // Render company list
+    const companyListEl = document.getElementById("stat-company-list");
+    companyListEl.innerHTML = "";
+    if (stats.companyDistribution.length === 0) {
+      companyListEl.innerHTML = `<li class="company-item empty">No listings scored yet.</li>`;
+    } else {
+      stats.companyDistribution.forEach(item => {
+        const li = document.createElement("li");
+        li.className = "company-item";
+        li.innerHTML = `
+          <span class="company-name">${escapeHTML(item.company)}</span>
+          <span class="company-count">${item.count}</span>
+        `;
+        companyListEl.appendChild(li);
+      });
+    }
+  } catch (err) {
+    console.error("Error fetching dashboard statistics:", err);
+  }
+}
 
 function escapeHTML(str) {
   if (!str) return "";

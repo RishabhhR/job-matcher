@@ -111,6 +111,21 @@ app.get("/api/user/stats", async (req, res) => {
   }
 });
 
+app.post("/api/user/settings", async (req, res) => {
+  const { userId, digestEnabled, digestHour } = req.body;
+  if (!userId) {
+    res.status(400).json({ error: "Missing userId" });
+    return;
+  }
+  try {
+    await updateUserDigestSettings(userId, digestEnabled, parseInt(digestHour));
+    res.json({ success: true, message: "Settings updated successfully." });
+  } catch (error) {
+    console.error("Error in /api/user/settings:", error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 // CV parsing endpoint to handle PDF, DOCX, and TXT files
 app.post("/api/upload-cv", async (req, res) => {
   try {
