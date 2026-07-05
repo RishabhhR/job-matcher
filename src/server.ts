@@ -259,7 +259,7 @@ app.get("/api/cron-match", async (req, res) => {
         },
         body: JSON.stringify({
           from: "Job Matcher <onboarding@resend.dev>",
-          to: ["rishabh.raj.2002.rr@gmail.com"],
+          to: [profile.notifyEmail || process.env.DIGEST_USER_EMAIL || "admin@jobmatcher.dev"],
           subject: `Job Match Digest: ${scoredMatches.length} Matches Found`,
           html: htmlContent
         })
@@ -271,7 +271,7 @@ app.get("/api/cron-match", async (req, res) => {
         logs.push(`[email_error] ${errText}`);
       } else {
         console.log("[cron] Digest email sent successfully via Resend API.");
-        logs.push("[email] Sent successfully to rishabh.raj.2002.rr@gmail.com");
+        logs.push(`[email] Sent successfully to ${profile.notifyEmail || process.env.DIGEST_USER_EMAIL || "admin@jobmatcher.dev"}`);
       }
     } else {
       console.log("[cron] RESEND_API_KEY env is not configured, skipped email dispatch.");
@@ -306,8 +306,8 @@ app.post("/api/match", async (req, res) => {
   };
 
   try {
-    const userEmail = email || "rishabh.raj.2002.rr@gmail.com";
-    const userName = name || "Rishabh Raj";
+    const userEmail = email || "anonymous@jobmatcher.dev";
+    const userName = name || "Anonymous User";
     
     sendEvent("progress", { status: "system", message: "Connecting to database..." });
     const userId = await upsertUser(userEmail, userName, clerkId);
