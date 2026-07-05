@@ -357,3 +357,81 @@ export async function getUserProfileRow(userId: string): Promise<DbProfile | nul
     preferredCity: (row.preferred_city as string) ?? undefined,
   };
 }
+
+export async function deletePendingMatches(userId: string): Promise<void> {
+  await client.execute({
+    sql: "DELETE FROM jm_user_job_matches WHERE user_id = ? AND status = 'pending'",
+    args: [userId],
+  });
+}
+
+export async function bulkInsertPostingsAndPendingMatches(userId: string, postings: any[]): Promise<void> {
+  const batchStatements = [];
+  for (const p of postings) {
+    const postingId = randomUUID();
+    const matchId = randomUUID();
+    const dedupHash = `${p.company.toLowerCase()}:${p.title.toLowerCase()}:${(p.location || "").toLowerCase()}`;
+    
+    batchStatements.push({
+      sql: `INSERT INTO jm_job_postings (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dedup_hash) DO UPDATE SET title = title`,
+      args: [postingId, p.source, p.sourceJobId || null, p.company, p.title, p.location || null, p.descriptionText || "", p.applyUrl, dedupHash],
+    });
+
+    batchStatements.push({
+      sql: `INSERT INTO jm_user_job_matches (id, user_id, job_posting_id, fit_score, comp_fit_label, reasoning_text, status)
+            SELECT ?, ?, id, -1, 'unknown', 'Pending evaluation', 'pending'
+            FROM jm_job_postings WHERE dedup_hash = ?
+            ON CONFLICT(user_id, job_posting_id) DO UPDATE SET
+              status = CASE WHEN status = 'scored' THEN 'scored' ELSE 'pending' END`,
+      args: [matchId, userId, dedupHash],
+    });
+  }
+
+  if (batchStatements.length > 0) {
+    await client.batch(batchStatements);
+  }
+}
+
+export async function getPaginatedMatchesForUser(userId: string, offset: number, limit: number) {
+  const result = await client.execute({
+    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash,
+                 m.status, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText
+          FROM jm_user_job_matches m
+          JOIN jm_job_postings jp ON jp.id = m.job_posting_id
+          WHERE m.user_id = ?
+          ORDER BY jp.scraped_at DESC, jp.id ASC
+          LIMIT ? OFFSET ?`,
+    args: [userId, limit, offset],
+  });
+  return result.rows;
+}
+
+export async function getTotalMatchCountForUser(userId: string): Promise<number> {
+  const result = await client.execute({
+    sql: "SELECT COUNT(*) as count FROM jm_user_job_matches WHERE user_id = ?",
+    args: [userId],
+  });
+  return (result.rows[0]?.count as number) || 0;
+}
+
+export async function updateMatchScore(
+  userId: string,
+  postingId: string,
+  fitScore: number,
+  compFitLabel: string,
+  reasoningText: string,
+  descriptionText?: string
+): Promise<void> {
+  if (descriptionText !== undefined) {
+    await client.execute({
+      sql: "UPDATE jm_job_postings SET description_text = ? WHERE id = ?",
+      args: [descriptionText, postingId],
+    });
+  }
+  await client.execute({
+    sql: "UPDATE jm_user_job_matches SET fit_score = ?, comp_fit_label = ?, reasoning_text = ?, status = 'scored', matched_at = datetime('now') WHERE user_id = ? AND job_posting_id = ?",
+    args: [fitScore, compFitLabel, reasoningText, userId, postingId],
+  });
+}

@@ -27,6 +27,17 @@ const progressPercent = document.getElementById("progress-percent");
 const resultsCountContainer = document.getElementById("results-count-container");
 const resultsCount = document.getElementById("results-count");
 const resultsGrid = document.getElementById("results-grid");
+const paginationControls = document.getElementById("pagination-controls");
+const prevPageBtn = document.getElementById("prev-page-btn");
+const nextPageBtn = document.getElementById("next-page-btn");
+const currentPageLabel = document.getElementById("current-page");
+const totalPagesLabel = document.getElementById("total-pages");
+
+// Pagination State
+let currentUserId = null;
+let currentPage = 1;
+let totalMatchesCount = 0;
+const limitPerPage = 10;
 
 // Initial Config Fetch
 window.addEventListener("DOMContentLoaded", async () => {
@@ -287,7 +298,12 @@ function handleSSEEvent(event, data) {
     submitBtn.classList.remove("loading");
     submitBtn.disabled = false;
     
+    currentUserId = data.userId;
+    totalMatchesCount = data.totalMatches;
+    currentPage = 1;
+    
     renderResults(data.results);
+    updatePaginationControls();
   } else if (event === "error") {
     addLogLine("error", "Error during execution: " + data.message);
     statusBadge.className = "status-badge error";
@@ -302,6 +318,7 @@ function renderResults(results) {
   resultsGrid.innerHTML = "";
   if (!results || results.length === 0) {
     resultsCountContainer.classList.add("hidden");
+    paginationControls.classList.add("hidden");
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "log-line warning";
     emptyMsg.textContent = "No scored job matches met the current filtering criteria.";
@@ -309,7 +326,9 @@ function renderResults(results) {
     return;
   }
 
-  resultsCount.textContent = results.length;
+  const startIdx = (currentPage - 1) * limitPerPage + 1;
+  const endIdx = Math.min(currentPage * limitPerPage, totalMatchesCount);
+  resultsCount.textContent = `showing ${startIdx}-${endIdx} of ${totalMatchesCount}`;
   resultsCountContainer.classList.remove("hidden");
 
   results.forEach(m => {
@@ -348,6 +367,72 @@ function renderResults(results) {
     resultsGrid.appendChild(card);
   });
 }
+
+function updatePaginationControls() {
+  const totalPages = Math.ceil(totalMatchesCount / limitPerPage);
+  
+  if (totalPages <= 1) {
+    paginationControls.classList.add("hidden");
+    return;
+  }
+  
+  paginationControls.classList.remove("hidden");
+  currentPageLabel.textContent = currentPage;
+  totalPagesLabel.textContent = totalPages;
+  
+  prevPageBtn.disabled = currentPage === 1;
+  nextPageBtn.disabled = currentPage === totalPages;
+}
+
+async function goToPage(page) {
+  const totalPages = Math.ceil(totalMatchesCount / limitPerPage);
+  if (page < 1 || page > totalPages) return;
+  
+  currentPage = page;
+  updatePaginationControls();
+  
+  // Set UI to loading state
+  resultsGrid.innerHTML = `
+    <div class="log-line system" style="text-align: center; padding: 2rem;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; margin-bottom: 8px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      <div>Fetching and scoring matches for Page ${currentPage}...</div>
+    </div>
+  `;
+  
+  addLogLine("system", `Fetching descriptions and scoring matches for Page ${currentPage}...`);
+  
+  try {
+    const res = await fetch("/api/match/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: currentUserId,
+        page: currentPage,
+        limit: limitPerPage
+      })
+    });
+    
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Failed to load page results.");
+    }
+    
+    const data = await res.json();
+    addLogLine("success", `Successfully scored and rendered Page ${currentPage}.`);
+    renderResults(data.results);
+  } catch (error) {
+    addLogLine("error", `Page Load Error: ${error.message}`);
+    resultsGrid.innerHTML = `
+      <div class="log-line error" style="text-align: center; padding: 2rem;">
+        Error loading page ${currentPage}: ${error.message}
+      </div>
+    `;
+  }
+}
+
+// Pagination Event Listeners
+prevPageBtn.addEventListener("click", () => goToPage(currentPage - 1));
+nextPageBtn.addEventListener("click", () => goToPage(currentPage + 1));
 
 function escapeHTML(str) {
   if (!str) return "";

@@ -4,8 +4,25 @@ import cors from "cors";
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import * as cheerio from "cheerio";
 import { runJobMatcher } from "./runner.js";
 import { runDigest } from "./digest.js";
+import {
+  upsertUser,
+  upsertUserProfile,
+  upsertCv,
+  deletePendingMatches,
+  bulkInsertPostingsAndPendingMatches,
+  getPaginatedMatchesForUser,
+  getTotalMatchCountForUser,
+  updateMatchScore,
+  getActiveCvText,
+  getUserProfileRow
+} from "./db.js";
+import { fetchAllPostings } from "./scrapers.js";
+import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
+import { dedupePostings } from "./normalize.js";
+import { keywordPrefilter, scoreAll } from "./match.js";
 
 // Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
 if (typeof (global as any).DOMMatrix === "undefined") {
@@ -241,7 +258,7 @@ app.get("/api/cron-match", async (req, res) => {
   }
 });
 
-// SSE endpoint to run the matcher and stream progress updates
+// SSE endpoint to run the initial scraper and stream progress updates, returning the first page of matches
 app.post("/api/match", async (req, res) => {
   const { cvText, profile, companies, linkedin } = req.body;
 
@@ -262,22 +279,194 @@ app.post("/api/match", async (req, res) => {
   };
 
   try {
-    const scoredMatches = await runJobMatcher({
-      cvText,
-      profile,
-      companies,
-      linkedin,
-      onProgress: (status, message) => {
-        sendEvent("progress", { status, message });
-      },
-    });
+    const userEmail = "rishabh.raj.2002.rr@gmail.com";
+    const userName = "Rishabh Raj";
+    
+    sendEvent("progress", { status: "system", message: "Connecting to database..." });
+    const userId = await upsertUser(userEmail, userName);
+    await upsertUserProfile(userId, profile);
+    await upsertCv(userId, cvText);
 
-    sendEvent("done", { results: scoredMatches });
+    sendEvent("progress", { status: "scraping_ats", message: `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}` });
+    const atsPostingsRaw = await fetchAllPostings(companies);
+    
+    // Filter ATS by location
+    const patterns = [/remote/i, /\bhybrid\b/i, /anywhere/i];
+    if (profile.preferredCountry) patterns.push(new RegExp(profile.preferredCountry, "i"));
+    if (profile.preferredCity) patterns.push(new RegExp(profile.preferredCity, "i"));
+    
+    const filterByLoc = (postings: any[]) => {
+      if (!profile.preferredCountry && !profile.preferredCity) return postings;
+      return postings.filter(p => {
+        const loc = p.location || "";
+        if (!loc) return true;
+        return patterns.some(re => re.test(loc));
+      });
+    };
+
+    const atsPostings = filterByLoc(atsPostingsRaw);
+    sendEvent("progress", { status: "scraping_ats_complete", message: `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched location filter.` });
+
+    const linkedinKeywords = profile.targetDesignation;
+    const defaultLinkedinLocation = [profile.preferredCity, profile.preferredCountry].filter(Boolean).join(", ") || "worldwide";
+    const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
+    // Clamped to 150: this handler still runs the LinkedIn search/scrape step
+    // synchronously (only per-job scoring got paginated), and Vercel's function
+    // has a 60s hard cap (vercel.json) - a 1000-result search alone can exceed
+    // that just from its own pagination delays, before any scoring even starts.
+    const linkedinMaxResults = Math.min(linkedin?.maxResults || 100, 150);
+
+    sendEvent("progress", { status: "scraping_linkedin", message: `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...` });
+    const linkedinPostingsRaw = await fetchLinkedInPublic({
+      keywords: linkedinKeywords,
+      location: linkedinLocation,
+      maxResults: linkedinMaxResults,
+      fetchDescriptions: false,
+    });
+    
+    const linkedinPostings = filterByLoc(linkedinPostingsRaw);
+    sendEvent("progress", { status: "scraping_linkedin_complete", message: `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched location filter.` });
+
+    const rawPostings = [...atsPostings, ...linkedinPostings];
+    sendEvent("progress", { status: "processing", message: `Total raw postings collected: ${rawPostings.length}. Running deduplication...` });
+    const deduped = dedupePostings(rawPostings);
+    sendEvent("progress", { status: "processing", message: `Deduplication complete. Retained ${deduped.length} unique postings.` });
+    const shortlisted = keywordPrefilter(deduped, profile.targetDesignation);
+
+    sendEvent("progress", { status: "processing", message: `Filtered down to ${shortlisted.length} matching target designation "${profile.targetDesignation}". Saving to database...` });
+    
+    // Clear old pending matches and save new ones
+    await deletePendingMatches(userId);
+    await bulkInsertPostingsAndPendingMatches(userId, shortlisted);
+
+    const totalMatches = await getTotalMatchCountForUser(userId);
+    sendEvent("progress", { status: "processing", message: `Saved ${totalMatches} matching postings to database. Preparing Page 1...` });
+
+    // Fetch and score Page 1 immediately (first 10 jobs)
+    const page1Jobs = await getPaginatedMatchesForUser(userId, 0, 10);
+    const pendingPage1 = page1Jobs.filter((j: any) => j.status === "pending");
+
+    if (pendingPage1.length > 0) {
+      sendEvent("progress", { status: "scraping_linkedin_descriptions", message: `Fetching descriptions for ${pendingPage1.length} new jobs on Page 1...` });
+      
+      const postingsToFetch = pendingPage1.map((j: any) => ({
+        source: j.source,
+        sourceJobId: j.sourceJobId,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        applyUrl: j.applyUrl,
+        descriptionText: "",
+      }));
+      
+      await fetchLinkedInDescriptions(postingsToFetch);
+
+      sendEvent("progress", { status: "scoring", message: `Scoring ${pendingPage1.length} new jobs on Page 1 against CV via AI fallback chain...` });
+      const { results: scoredResults } = await scoreAll(cvText, profile, postingsToFetch, postingsToFetch.length);
+
+      for (let i = 0; i < pendingPage1.length; i++) {
+        const job = pendingPage1[i];
+        const scored = scoredResults[i];
+        const description = postingsToFetch[i].descriptionText;
+        await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
+      }
+    }
+
+    // Query fully updated page 1 scored matches
+    const finalPage1 = await getPaginatedMatchesForUser(userId, 0, 10);
+    
+    // Transform rows to ScoredMatch format
+    const results = finalPage1.map((j: any) => ({
+      posting: {
+        id: j.posting_id,
+        source: j.source,
+        sourceJobId: j.sourceJobId,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        descriptionText: j.descriptionText || "",
+        applyUrl: j.applyUrl,
+      },
+      fitScore: j.fitScore,
+      compFitLabel: j.compFitLabel,
+      reasoningText: j.reasoningText,
+    }));
+
+    sendEvent("done", { userId, totalMatches, results });
   } catch (error) {
     console.error("Match error:", error);
     sendEvent("error", { message: (error as Error).message });
   } finally {
     res.end();
+  }
+});
+
+// Fetch and score a specific page of matches (dynamic/lazy descriptions & scores)
+app.post("/api/match/page", async (req, res) => {
+  const { userId, page, limit = 10 } = req.body;
+
+  if (!userId || !page) {
+    res.status(400).json({ error: "Missing required fields (userId or page)" });
+    return;
+  }
+
+  try {
+    const cvText = await getActiveCvText(userId);
+    const profile = await getUserProfileRow(userId);
+
+    if (!cvText || !profile) {
+      res.status(400).json({ error: "Active CV or profile not found for this user." });
+      return;
+    }
+
+    const offset = (page - 1) * limit;
+    const pageJobs = await getPaginatedMatchesForUser(userId, offset, limit);
+    const pendingJobs = pageJobs.filter((j: any) => j.status === "pending");
+
+    if (pendingJobs.length > 0) {
+      const postingsToFetch = pendingJobs.map((j: any) => ({
+        source: j.source,
+        sourceJobId: j.sourceJobId,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        applyUrl: j.applyUrl,
+        descriptionText: "",
+      }));
+      
+      await fetchLinkedInDescriptions(postingsToFetch);
+      const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
+
+      for (let i = 0; i < pendingJobs.length; i++) {
+        const job = pendingJobs[i];
+        const scored = scoredResults[i];
+        const description = postingsToFetch[i].descriptionText;
+        await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
+      }
+    }
+
+    // Re-query fully updated page scored matches
+    const finalPageJobs = await getPaginatedMatchesForUser(userId, offset, limit);
+    const results = finalPageJobs.map((j: any) => ({
+      posting: {
+        id: j.posting_id,
+        source: j.source,
+        sourceJobId: j.sourceJobId,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        descriptionText: j.descriptionText || "",
+        applyUrl: j.applyUrl,
+      },
+      fitScore: j.fitScore,
+      compFitLabel: j.compFitLabel,
+      reasoningText: j.reasoningText,
+    }));
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error("Match page error:", error);
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
