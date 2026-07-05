@@ -71,27 +71,11 @@ app.post("/api/user/init", async (req, res) => {
     const cvText = await getActiveCvText(userId);
     const digestSettings = await getUserDigestSettings(userId);
     
-    let finalProfile = profile;
-    if (!profile) {
-      const profilePath = path.join(dataDir, "profile.json");
-      if (existsSync(profilePath)) {
-        finalProfile = JSON.parse(readFileSync(profilePath, "utf-8"));
-      }
-    }
-    
-    let finalCvText = cvText;
-    if (!cvText) {
-      const cvPath = path.join(dataDir, "cv.txt");
-      if (existsSync(cvPath)) {
-        finalCvText = readFileSync(cvPath, "utf-8");
-      }
-    }
-
     res.json({
       success: true,
       userId,
-      profile: finalProfile,
-      cvText: finalCvText,
+      profile: profile || null,
+      cvText: cvText || "",
       digestSettings: digestSettings || { digestEnabled: true, digestHour: 9 }
     });
   } catch (error) {

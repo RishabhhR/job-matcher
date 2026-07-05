@@ -135,11 +135,10 @@ async function initializeUserData() {
       careerStartDateInput.value = data.profile.careerStartDate || "";
     }
 
-    // Prefill fallback templates if empty
+    // Prefill baseline companies
     const configRes = await fetch("/api/initial-data");
     if (configRes.ok) {
       const configData = await configRes.json();
-      if (!cvTextInput.value && configData.cvText) cvTextInput.value = configData.cvText;
       if (configData.companies) {
         greenhouseInput.value = Array.isArray(configData.companies.greenhouse) ? configData.companies.greenhouse.join(", ") : "";
         leverInput.value = Array.isArray(configData.companies.lever) ? configData.companies.lever.join(", ") : "";
