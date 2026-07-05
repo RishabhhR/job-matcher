@@ -53,15 +53,25 @@ app.post("/api/upload-cv", async (req, res) => {
     let text = "";
 
     if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
-      // pdf-parse (via pdfjs-dist) tries to set up a worker even in "fake worker"
-      // fallback mode, importing pdf.worker.mjs - Vercel's serverless bundler
-      // doesn't trace/include that file, so it 500s in production with
-      // "Setting up fake worker failed: Cannot find module .../pdf.worker.mjs"
-      // even though it works fine locally. unpdf bundles a pdf.js build made
-      // specifically for serverless/edge runtimes with no separate worker file.
-      const { extractText } = await import("unpdf");
-      const result = await extractText(new Uint8Array(buffer), { mergePages: true });
-      text = result.text || "";
+      const pdfreaderModule = await import("pdfreader");
+      const PdfReader = pdfreaderModule.PdfReader || (pdfreaderModule as any).default?.PdfReader;
+      if (!PdfReader) {
+        throw new Error("Failed to load PdfReader from pdfreader module.");
+      }
+
+      text = await new Promise<string>((resolve, reject) => {
+        let content = "";
+        const reader = new PdfReader();
+        reader.parseBuffer(buffer, (err: any, item: any) => {
+          if (err) {
+            reject(err);
+          } else if (!item) {
+            resolve(content);
+          } else if (item.text) {
+            content += item.text + " ";
+          }
+        });
+      });
     } else if (
       fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       fileName.endsWith(".docx")
