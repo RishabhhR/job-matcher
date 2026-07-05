@@ -347,8 +347,14 @@ app.post("/api/match", async (req, res) => {
     const pendingPage1 = page1Jobs.filter((j: any) => j.status === "pending");
 
     if (pendingPage1.length > 0) {
-      sendEvent("progress", { status: "scraping_linkedin_descriptions", message: `Fetching descriptions for ${pendingPage1.length} new jobs on Page 1...` });
-      
+      // ATS postings already have full descriptions from the original scrape
+      // (bulkInsertPostingsAndPendingMatches persisted them) - only LinkedIn
+      // postings genuinely need fetching here, since fetchLinkedInPublic was
+      // called with fetchDescriptions: false during the initial search. Blindly
+      // re-fetching every posting (regardless of source) via a LinkedIn-only
+      // HTML scraper wastes a full page load per job AND overwrites already-good
+      // ATS descriptions with empty text (the CSS selector never matches on a
+      // non-LinkedIn page).
       const postingsToFetch = pendingPage1.map((j: any) => ({
         source: j.source,
         sourceJobId: j.sourceJobId,
@@ -356,10 +362,14 @@ app.post("/api/match", async (req, res) => {
         title: j.title,
         location: j.location,
         applyUrl: j.applyUrl,
-        descriptionText: "",
+        descriptionText: j.descriptionText || "",
       }));
-      
-      await fetchLinkedInDescriptions(postingsToFetch);
+      const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
+
+      if (linkedinNeedingFetch.length > 0) {
+        sendEvent("progress", { status: "scraping_linkedin_descriptions", message: `Fetching descriptions for ${linkedinNeedingFetch.length} LinkedIn jobs on Page 1...` });
+        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, 10);
+      }
 
       sendEvent("progress", { status: "scoring", message: `Scoring ${pendingPage1.length} new jobs on Page 1 against CV via AI fallback chain...` });
       const { results: scoredResults } = await scoreAll(cvText, profile, postingsToFetch, postingsToFetch.length);
@@ -424,6 +434,11 @@ app.post("/api/match/page", async (req, res) => {
     const pendingJobs = pageJobs.filter((j: any) => j.status === "pending");
 
     if (pendingJobs.length > 0) {
+      // Same fix as /api/match's Page 1 handling: ATS postings already have full
+      // descriptions from the original scrape, only LinkedIn postings need
+      // fetching. Re-fetching every posting regardless of source wastes a full
+      // page load per job and overwrites already-good ATS descriptions with
+      // empty text (the LinkedIn-only CSS selector never matches elsewhere).
       const postingsToFetch = pendingJobs.map((j: any) => ({
         source: j.source,
         sourceJobId: j.sourceJobId,
@@ -431,10 +446,13 @@ app.post("/api/match/page", async (req, res) => {
         title: j.title,
         location: j.location,
         applyUrl: j.applyUrl,
-        descriptionText: "",
+        descriptionText: j.descriptionText || "",
       }));
-      
-      await fetchLinkedInDescriptions(postingsToFetch);
+      const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
+
+      if (linkedinNeedingFetch.length > 0) {
+        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, 10);
+      }
       const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
 
       for (let i = 0; i < pendingJobs.length; i++) {
