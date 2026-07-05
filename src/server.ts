@@ -17,6 +17,7 @@ import {
   getTotalMatchCountForUser,
   updateUserDigestSettings,
   getUserDigestSettings,
+  getUserClerkId,
   updateMatchScore,
   getActiveCvText,
   getUserProfileRow
@@ -25,6 +26,7 @@ import { fetchAllPostings } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll } from "./match.js";
+import { attachVerifiedClerkUser } from "./clerkAuth.js";
 
 // Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
 if (typeof (global as any).DOMMatrix === "undefined") {
@@ -40,6 +42,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use(attachVerifiedClerkUser);
 app.use(express.static(publicDir));
 
 // Initial data endpoint to prefill the UI forms
@@ -63,6 +66,14 @@ app.post("/api/user/init", async (req, res) => {
   const { clerkId, email, name } = req.body;
   if (!clerkId || !email) {
     res.status(400).json({ error: "Missing clerkId or email" });
+    return;
+  }
+  // This route always claims a specific logged-in identity, so unlike /api/match
+  // (which also supports anonymous use), a verified token matching the claimed
+  // clerkId is mandatory here - otherwise anyone could sync/read another user's
+  // profile, CV, and digest settings just by knowing/guessing their clerkId.
+  if (req.verifiedClerkUserId !== clerkId) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't match clerkId" });
     return;
   }
   try {
@@ -294,6 +305,15 @@ app.post("/api/match", async (req, res) => {
     return;
   }
 
+  // Anonymous use (no clerkId claimed) stays allowed for local/no-login testing.
+  // But if the request DOES claim a logged-in identity, that claim must be backed
+  // by a verified session token - otherwise anyone could write matches/settings
+  // into another real user's account just by sending their clerkId.
+  if (clerkId && req.verifiedClerkUserId !== clerkId) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't match clerkId" });
+    return;
+  }
+
   // Setup Server-Sent Events headers
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -449,6 +469,18 @@ app.post("/api/match/page", async (req, res) => {
 
   if (!userId || !page) {
     res.status(400).json({ error: "Missing required fields (userId or page)" });
+    return;
+  }
+
+  // userId here is our internal DB id, not directly a Clerk id, so it can't be
+  // checked the same way as /api/match's clerkId. Instead, confirm the caller's
+  // verified session (if any) actually owns this userId - if the target account
+  // has a clerk_id on file, a verified session is required and must match;
+  // pre-Clerk/anonymous rows (clerk_id is null) stay accessible without a
+  // session, matching current behavior.
+  const ownerClerkId = await getUserClerkId(userId);
+  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
     return;
   }
 

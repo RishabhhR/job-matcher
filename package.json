@@ -10,6 +10,7 @@
     "cron-hourly": "tsx src/cron.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^3.10.0",
     "@libsql/client": "^0.17.4",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",

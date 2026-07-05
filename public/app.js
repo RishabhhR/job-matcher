@@ -84,6 +84,19 @@ async function initClerk() {
   }
 }
 
+// Attaches the current Clerk session token (if signed in) as a Bearer header.
+// The server verifies this token independently - it does NOT trust any clerkId
+// sent in the request body alone, so this is required for /api/user/init,
+// /api/match, and /api/match/page to succeed once a user is signed in.
+async function authFetch(url, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (window.Clerk && window.Clerk.session) {
+    const token = await window.Clerk.session.getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
 function showLogin() {
   authContainer.classList.remove("hidden");
   appContainer.classList.add("hidden");
@@ -108,9 +121,8 @@ logoutBtn.addEventListener("click", async () => {
 async function initializeUserData() {
   addLogLine("system", "Loading profile and email preferences...");
   try {
-    const response = await fetch("/api/user/init", {
+    const response = await authFetch("/api/user/init", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         clerkId: clerkUser.id,
         email: clerkUser.primaryEmailAddress.emailAddress,
@@ -321,9 +333,8 @@ form.addEventListener("submit", async (e) => {
   };
 
   try {
-    const response = await fetch("/api/match", {
+    const response = await authFetch("/api/match", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
@@ -498,9 +509,8 @@ async function goToPage(page) {
   addLogLine("system", `Fetching descriptions and scoring matches for Page ${currentPage}...`);
   
   try {
-    const res = await fetch("/api/match/page", {
+    const res = await authFetch("/api/match/page", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId: currentUserId,
         page: currentPage,

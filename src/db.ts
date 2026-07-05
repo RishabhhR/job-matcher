@@ -173,6 +173,12 @@ export async function upsertUser(
   return id;
 }
 
+export async function getUserClerkId(userId: string): Promise<string | null> {
+  const result = await client.execute({ sql: "SELECT clerk_id FROM jm_users WHERE id = ?", args: [userId] });
+  if (result.rows.length === 0) return null;
+  return (result.rows[0].clerk_id as string) ?? null;
+}
+
 export async function updateUserDigestSettings(userId: string, enabled: boolean, hour: number): Promise<void> {
   await client.execute({
     sql: "UPDATE jm_users SET digest_enabled = ?, digest_hour = ?, updated_at = datetime('now') WHERE id = ?",
