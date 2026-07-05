@@ -66,7 +66,7 @@ export async function scoreBatch(
   const jobsBlock = postings
     .map(
       (p, i) =>
-        `[${i}] Title: ${p.title}\nCompany: ${p.company}\nLocation: ${p.location}\nDescription: ${p.descriptionText.slice(0, 600)}`
+        `[${i}] Title: ${p.title}\nCompany: ${p.company}\nLocation: ${p.location}\nDescription: ${p.descriptionText.slice(0, 3000)}`
     )
     .join("\n\n---\n\n");
 
@@ -75,10 +75,10 @@ export async function scoreBatch(
   const system = `You are a career-matching assistant. Score how well a candidate's CV fits each job posting, considering their current employer, title, and salary.
 
 Apply these experience matching rules:
-- The candidate's total years of professional experience (YoE) is given explicitly below as a computed number - use that number, don't re-derive it from CV prose (CVs often list multiple roles/projects with overlapping or ambiguous dates, which is unreliable to parse).
+- The candidate's total years of professional experience (YoE) is given explicitly below as a computed number - use that number, don't re-derive it from CV prose.
 - Identify the minimum years of experience required by each job posting in its description.
-- If a job posting explicitly requires a minimum years of experience (e.g. 5+ years, 8+ years) and the candidate's given YoE is significantly lower (e.g. candidate has 2 years, job requires 5+ or 8+), you MUST penalize the fit_score heavily (cap fit_score at 30 or lower) and state the experience gap explicitly in the reasoning_text (e.g. "requires 8+ years, candidate has ~2").
-- Do not match senior/lead/staff/principal roles requiring high experience to junior or mid-level candidates, even if the title itself matches the target designation.
+- If a job posting explicitly requires a minimum years of experience (e.g. 5+ years, 8+ years) and the candidate's given YoE is lower than that minimum, you MUST penalize the fit_score heavily (cap fit_score at 20 or lower) and state the experience gap explicitly in the reasoning_text.
+- Strictly avoid matching senior, lead, staff, principal, group, or director roles (which inherently require high experience) to candidates who only have 2 years of experience. If the job title contains "Senior", "Staff", "Lead", "Principal", "Group", "Director", "VP", or "Head", cap the fit_score at 20 or lower.
 - If YoE is not provided (null) or a posting doesn't state an experience requirement, don't penalize for this.
 
 Apply these rules when deciding comp_fit_label (estimate the posting's likely compensation from its title, seniority, company, and location if salary isn't stated explicitly):
