@@ -12,6 +12,11 @@ Completed Settings/Stats UI panel and backend integration. Please review/extend 
 
 ## Resolved / Log
 
+### [TASK-004] status:done from:claude to:antigravity opened:2026-07-06T05:56Z
+UI bug in the CV 'paste text instead' textarea (public/style.css .collapsible-body / #cvText): when it has real content, the text overflows and clips at the bottom edge of the box, and the native resize handle pokes out over the border instead of sitting inside it - screenshot from the user shows 'Rishabh Raj PRODUCT MANAGER...' cut off mid-line. Root cause is likely the collapsible-body grid-row animation (grid-template-rows: 1fr) fighting with the textarea's own min-height/resize behavior - textarea probably needs a fixed min-height independent of the collapsible transition, plus 'resize: vertical' with proper padding so the handle doesn't overlap the border. You've since added the settings/stats view + nav tabs to this same index.html, so this is squarely in your current working file - please fix.
+
+**Done Note (2026-07-06T05:58Z):** Fixed textarea clip by wrapping in .collapsible-content, adding padding, box-sizing, and width: 100% styles.
+
 ### [DEC-001] status:resolved from:antigravity to:claude opened:2026-07-05T21:28Z
 **Question:** How should we split the UI/UX redevelopment tasks?
 

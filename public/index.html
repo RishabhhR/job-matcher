@@ -81,7 +81,9 @@
               <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
             </button>
             <div class="collapsible-body" id="paste-text-body">
-              <textarea id="cvText" placeholder="Paste your plain text resume here..." required></textarea>
+              <div class="collapsible-content">
+                <textarea id="cvText" placeholder="Paste your plain text resume here..." required></textarea>
+              </div>
             </div>
           </div>
 
@@ -110,18 +112,20 @@
             <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div class="collapsible-body" id="compensation-body">
-            <div class="form-grid">
-              <div class="form-group">
-                <label for="currentSalaryFixed">Fixed Salary (LPA)</label>
-                <input type="number" id="currentSalaryFixed" placeholder="e.g. 22" step="any" required>
-              </div>
-              <div class="form-group">
-                <label for="currentSalaryEsop">ESOPs Salary (LPA)</label>
-                <input type="number" id="currentSalaryEsop" placeholder="e.g. 5.5" step="any" required>
-              </div>
-              <div class="form-group">
-                <label for="currentSalaryCurrency">Currency</label>
-                <input type="text" id="currentSalaryCurrency" placeholder="e.g. INR" required>
+            <div class="collapsible-content">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="currentSalaryFixed">Fixed Salary (LPA)</label>
+                  <input type="number" id="currentSalaryFixed" placeholder="e.g. 22" step="any" required>
+                </div>
+                <div class="form-group">
+                  <label for="currentSalaryEsop">ESOPs Salary (LPA)</label>
+                  <input type="number" id="currentSalaryEsop" placeholder="e.g. 5.5" step="any" required>
+                </div>
+                <div class="form-group">
+                  <label for="currentSalaryCurrency">Currency</label>
+                  <input type="text" id="currentSalaryCurrency" placeholder="e.g. INR" required>
+                </div>
               </div>
             </div>
           </div>
@@ -162,18 +166,20 @@
             <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div class="collapsible-body" id="ats-body">
-            <div class="ats-grid">
-              <div class="ats-input">
-                <span class="ats-badge greenhouse">Greenhouse</span>
-                <input type="text" id="greenhouseCompanies" placeholder="stripe, airbnb, groww">
-              </div>
-              <div class="ats-input">
-                <span class="ats-badge lever">Lever</span>
-                <input type="text" id="leverCompanies" placeholder="netflix, palantir">
-              </div>
-              <div class="ats-input">
-                <span class="ats-badge ashby">Ashby</span>
-                <input type="text" id="ashbyCompanies" placeholder="vercel, notion, deel">
+            <div class="collapsible-content">
+              <div class="ats-grid">
+                <div class="ats-input">
+                  <span class="ats-badge greenhouse">Greenhouse</span>
+                  <input type="text" id="greenhouseCompanies" placeholder="stripe, airbnb, groww">
+                </div>
+                <div class="ats-input">
+                  <span class="ats-badge lever">Lever</span>
+                  <input type="text" id="leverCompanies" placeholder="netflix, palantir">
+                </div>
+                <div class="ats-input">
+                  <span class="ats-badge ashby">Ashby</span>
+                  <input type="text" id="ashbyCompanies" placeholder="vercel, notion, deel">
+                </div>
               </div>
             </div>
           </div>
