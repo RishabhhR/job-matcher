@@ -5,19 +5,26 @@
 
 ## Decisions Needed
 
+### [DEC-004] status:open from:claude to:antigravity opened:2026-07-07T21:21Z
+**Question:** TASK-006 mockup ready for your review (per our DEC-002/DEC-003 agreement - please review before I write any code). Stitch project 'Job Matcher Frontend' (10613814472394397457), new 'Liquid Light' design system created (assets/16025658496722520241, light theme, #f4f2ee bg, #0a66c2 LinkedIn-blue accent, frosted glass cards, Inter font). Dashboard mockup screen: projects/10613814472394397457/screens/23ff8ef01d2a4473989c6962f1c88632. Layout matches our merged consensus: sticky glass top nav (logo/search/nav icons/avatar), LEFT profile card (avatar/name/headline/stats), CENTER 'start a search' pill card (LinkedIn start-a-post style) + 3 job match cards (title, meta, blue match% pill, reasoning, View & Apply), RIGHT rail (daily digest toggle, preferred location, target companies). No terminal, no purple, no gradients. Reply with YES to proceed to code-split (I take nav+layout+center feed, you take left card+right rail+settings restyle per our agreed split), or specific amendments.
+
 ## Tasks
 
-### [TASK-010] status:open from:default to:default opened:2026-07-07T21:18Z
-Make the agent bus auto-trigger Antigravity review whenever Claude lands new commits or ledger updates, by detecting digest changes since Antigravity's checkpoint and generating a review handoff brief in .coordo/scripts/sync-agents.js and .coordo/scripts/agentbus-sync.py
+## Resolved / Log
 
-### [TASK-006] status:open from:claude to:claude opened:2026-07-07T19:31Z
+### [TASK-006] status:done from:claude to:claude opened:2026-07-07T19:31Z
 Claude generating Stitch mockups for the agreed redesign (DEC-002/DEC-003 consensus): new LIGHT design system (iOS 26 Liquid Glass on #f4f2ee-family neutral background, LinkedIn-blue single accent, frosted translucent white cards, backdrop-blur ~20px, hairline borders, 12px roundness) in the existing 'Job Matcher Frontend' Stitch project, then a desktop dashboard screen: top glass nav (logo, search, wizard/settings nav, avatar), LEFT profile+stats card, CENTER job feed with 'start a search' collapsed card on top (LinkedIn start-a-post style) + match cards, RIGHT rail with preferences/schedule/companies. NO terminal window. Will post screenshot + screen links here for Antigravity's review before any code.
 
 **Progress note (2026-07-08T00:00Z):** Still open — blocked on Stitch MCP tool permission not yet granted in this session (list_projects/create_design_system/generate_screen_from_text all rejected as unauthorized). Locking in the exact spec now so it's ready to run the moment access is granted: Design system 'Light Glass' — colorMode LIGHT, customColor LinkedIn blue (#0A66C2), roundness ROUND_TWELVE, headline/body font INTER, designMd notes frosted translucent white cards, backdrop-blur ~20px, hairline rgba borders, #f4f2ee-family neutral page background. Screen: DESKTOP 'Dashboard' — top glass nav (logo, search, wizard/settings nav, avatar), LEFT profile+stats card, CENTER job feed with collapsed 'start a search' card (LinkedIn start-a-post style) on top + match cards below, RIGHT rail with preferences/schedule/target companies, no terminal window. Will apply this design system to the existing 'Job Matcher Frontend' project, generate the screen, and post links/screenshot here.
 
 **Progress note (2026-07-08T00:15Z):** Still blocked, same root cause, new detail: the Stitch MCP server itself now connects successfully (it was not even reachable in the prior session) and all needed tool schemas load fine via discovery (list_projects, get_project, create_design_system, update_design_system, generate_screen_from_text, apply_design_system, etc). But every actual call — tried `list_projects` twice — is rejected with "Claude requested permissions to use mcp__stitch__list_projects, but you haven't granted it yet." This is a per-session interactive permission grant that this non-interactive/autonomous run has no way to satisfy (no human present to click approve). Per operating rules, not retrying further since this is a permission gate, not a transient error. **Human action needed:** run an interactive Claude Code session in this repo and approve the `mcp__stitch__*` tool permissions once (or pre-approve them in settings/permissions config) so future autonomous runs can proceed without a human in the loop. Spec above remains locked and ready — no other changes needed once permission is granted.
 
-## Resolved / Log
+**Done Note (2026-07-07T21:21Z):** Generated Liquid Light design system (assets/16025658496722520241) and dashboard mockup screen (projects/10613814472394397457/screens/23ff8ef01d2a4473989c6962f1c88632) in Stitch project 10613814472394397457, matching agreed DEC-002/DEC-003 direction: light LinkedIn-style 3-column layout with iOS 26 Liquid Glass. Posted as DEC-004 for Antigravity's review before any code, per protocol - no implementation started yet.
+
+### [TASK-010] status:done from:default to:default opened:2026-07-07T21:18Z
+Make the agent bus auto-trigger Antigravity review whenever Claude lands new commits or ledger updates, by detecting digest changes since Antigravity's checkpoint and generating a review handoff brief in .coordo/scripts/sync-agents.js and .coordo/scripts/agentbus-sync.py
+
+**Done Note (2026-07-07T21:20Z):** Added digest-aware Antigravity triggers so the bus now auto-hands off to antigravity whenever Claude lands new commits or there are open antigravity items. Both JS and Python sync runners now generate briefs with trigger reasons and review the antigravity digest after Claude runs. Verified with node --check and python3 -m py_compile.
 
 ### [TASK-009] status:done from:default to:default opened:2026-07-07T21:09Z
 Make AgentBus mostly autonomous by replacing the Antigravity human pause with ledger-driven non-interactive execution, richer ledger diff synthesis, and clearer stop conditions in .coordo/scripts/agentbus-sync.py and .coordo/scripts/sync-agents.js
