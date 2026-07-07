@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 import asyncio
 import os
-import sys
+import re
 import subprocess
 from pathlib import Path
-from agentbus.sdk.base import BaseAgent
-from agentbus.schema import EventRecord, EventStatus, RuntimeConfig, EventQuery, utcnow
-from agentbus.runtime.engine import Runtime
-from agentbus.daemon.server import build_runtime_config
 
-# Helper to find project root
+from agentbus.daemon.server import build_runtime_config
+from agentbus.runtime.engine import Runtime
+from agentbus.schema import EventRecord, utcnow
+from agentbus.sdk.base import BaseAgent
+
+
 def find_project_root():
     curr = Path(__file__).resolve().parent
     while True:
@@ -20,8 +21,151 @@ def find_project_root():
             return Path(os.getcwd())
         curr = parent
 
+
 root = find_project_root()
 ledger_path = root / ".coordo" / "ledger.md"
+agentbus_inbox_dir = root / ".coordo" / "agentbus" / "inbox"
+
+
+def read_ledger_content():
+    if not ledger_path.exists():
+        return ""
+    return ledger_path.read_text(encoding="utf-8")
+
+
+def run_command_capture(command, args):
+    try:
+        result = subprocess.run(
+            [command, *args],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as err:
+        return f"({command} unavailable: {err})"
+    return (result.stdout + result.stderr).strip()
+
+
+def run_command_live(command, args, input_text=None):
+    try:
+        kwargs = {
+            "cwd": str(root),
+            "text": True,
+            "check": False,
+        }
+        if input_text is not None:
+            kwargs["input"] = input_text
+        result = subprocess.run([command, *args], **kwargs)
+    except FileNotFoundError as err:
+        raise RuntimeError(f"{command} unavailable: {err}") from err
+
+    if result.returncode != 0:
+        raise RuntimeError(f"{command} exited with {result.returncode}")
+
+
+def parse_ledger_items(agent):
+    content = read_ledger_content()
+    if not content:
+        return []
+
+    lines = content.splitlines()
+    items = []
+    current_item = None
+    current_section = "intro"
+
+    def flush():
+        nonlocal current_item
+        if current_item and current_item["status"] == "open" and current_item["to"] == agent:
+            items.append(current_item)
+        current_item = None
+
+    for line in lines:
+        if line.startswith("## "):
+            flush()
+            current_section = line.strip()
+            continue
+
+        if line.startswith("### "):
+            flush()
+            match = re.match(r"^###\s+\[([A-Z]+-\d+)\]\s+(.+)$", line)
+            if not match:
+                continue
+
+            metadata = {}
+            for token in match.group(2).split():
+                colon_idx = token.find(":")
+                if colon_idx != -1:
+                    metadata[token[:colon_idx]] = token[colon_idx + 1 :]
+
+            current_item = {
+                "id": match.group(1),
+                "header": line.strip(),
+                "body": [],
+                "section": current_section,
+                "status": metadata.get("status", "open"),
+                "from": metadata.get("from", "default"),
+                "to": metadata.get("to", "default"),
+                "opened": metadata.get("opened", ""),
+            }
+            continue
+
+        if current_item:
+            current_item["body"].append(line)
+
+    flush()
+    return items
+
+
+def summarize_items(items):
+    if not items:
+        return "None."
+
+    rendered = []
+    for item in items:
+        body = "\n".join(item["body"]).strip()
+        body_text = body if body else "(no details)"
+        title = re.sub(r"^###\s+\[[^\]]+\]\s+", "", item["header"])
+        rendered.append(f"- [{item['id']}] {title}\n{body_text}")
+    return "\n\n".join(rendered)
+
+
+def build_agent_brief(agent):
+    status = run_command_capture("coordo", ["status"])
+    digest = run_command_capture("coordo", ["digest", "--as", agent])
+    items = parse_ledger_items(agent)
+
+    return f"""# Agent Brief: {agent}
+
+Generated: {utcnow().isoformat()}
+
+## Ledger Status
+{status or "No status available."}
+
+## Digest Since Last Checkpoint
+{digest or "No digest available."}
+
+## Open Items Assigned To You
+{summarize_items(items)}
+
+## Operating Rules
+- Treat this brief as the source of truth for the current turn.
+- Work the assigned items without waiting for the human unless you are blocked by access, ambiguity, or an external dependency.
+- Update .coordo/ledger.md with progress, then run `coordo checkpoint --as {agent}` when the work is done.
+- If you cannot make progress, record the blocker in the ledger and stop cleanly.
+"""
+
+
+def write_agent_brief(agent, brief):
+    agentbus_inbox_dir.mkdir(parents=True, exist_ok=True)
+    brief_path = agentbus_inbox_dir / f"{agent}.md"
+    brief_path.write_text(brief, encoding="utf-8")
+    return brief_path
+
+
+def has_open_tasks_for(agent):
+    return bool(parse_ledger_items(agent))
+
 
 class ClaudeAgent(BaseAgent):
     name = "claude"
@@ -32,23 +176,19 @@ class ClaudeAgent(BaseAgent):
 
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n🤖 [AgentBus] ClaudeAgent handling event: {event.event_type}")
+        brief = build_agent_brief("claude")
+        brief_path = write_agent_brief("claude", brief)
         prompt = (
-            "Review .coordo/ledger.md. If there are any open tasks or decisions assigned to you (claude), "
-            "or if a decision has been answered, address them, write the code/mockups, update the ledger, "
-            "checkpoint, and exit. If there are no open items, reply 'No items' and exit."
+            f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
+            "checkpoint, and exit. If blocked, record the blocker and stop."
         )
-        print("🤖 [AgentBus] Executing Claude Code in print mode...")
+        print("🤖 [AgentBus] Executing Claude Code in autonomous mode...")
         try:
-            # Run Claude CLI non-interactively
-            subprocess.run(
-                ["claude", "-p", prompt, "--permission-mode", "acceptEdits"],
-                cwd=str(root),
-                stdin=subprocess.DEVNULL,
-                check=True
-            )
+            run_command_live("claude", ["-p", prompt, "--permission-mode", "acceptEdits"])
             print("🤖 [AgentBus] Claude Code completed successfully!")
         except Exception as err:
             print(f"❌ [AgentBus] Claude Code failed: {err}")
+
 
 class AntigravityAgent(BaseAgent):
     name = "antigravity"
@@ -59,44 +199,48 @@ class AntigravityAgent(BaseAgent):
 
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n💡 [AgentBus] AntigravityAgent handling event: {event.event_type}")
-        print("👉 Open task/decision detected for 'antigravity' in coordo ledger.")
-        print("👉 Please open the Antigravity TUI or desktop panel and process your assigned tasks.")
-        input("👉 Once complete, mark the task as done, and press [Enter] here to continue...")
-        print("💡 [AgentBus] Antigravity task marked as complete.")
+        brief = build_agent_brief("antigravity")
+        brief_path = write_agent_brief("antigravity", brief)
+        prompt = (
+            f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
+            "checkpoint, and exit. If blocked, record the blocker and stop."
+        )
 
-def has_open_tasks_for(agent: str) -> bool:
-    if not ledger_path.exists():
-        return False
-    content = ledger_path.read_text(encoding="utf-8")
-    sections = content.split("## Resolved / Log")[0]
-    lines = sections.split("\n")
-    for line in lines:
-        if line.startswith("### [") and "status:open" in line and f"to:{agent}" in line:
-            return True
-    return False
+        antigravity_bin = os.environ.get("AGENTBUS_ANTIGRAVITY_BIN")
+        if not antigravity_bin:
+            print(f"💡 No Antigravity CLI hook configured. Wrote handoff brief at {brief_path} and continuing.")
+            return
+
+        print("💡 [AgentBus] Executing Antigravity in autonomous mode...")
+        try:
+            run_command_live(antigravity_bin, [], prompt)
+            print("💡 [AgentBus] Antigravity task completed successfully!")
+        except Exception as err:
+            print(f"❌ [AgentBus] Antigravity failed: {err}")
+
 
 async def main():
     print("🔄 Starting AgentBus Coordo Sync Runtime...")
-    
-    # Build configuration for current project directory
+
     config = build_runtime_config(root)
     runtime = Runtime(config)
-    
-    # Register agents
+
     runtime.register_agent(ClaudeAgent())
     runtime.register_agent(AntigravityAgent())
-    
-    # Run loop
-    for iteration in range(1, 6):
+
+    for iteration in range(1, 9):
         print(f"\n--- AgentBus Loop Iteration {iteration} ---")
-        
+
+        before = read_ledger_content()
         claude_work = has_open_tasks_for("claude")
         antigravity_work = has_open_tasks_for("antigravity")
-        
+
         if not claude_work and not antigravity_work:
             print("✅ No open tasks in coordo ledger. Sync complete!")
             break
-            
+
+        handled_any = False
+
         if claude_work:
             event = EventRecord(
                 event_id=f"evt-{utcnow().timestamp()}",
@@ -105,12 +249,14 @@ async def main():
                 sender="system",
                 receiver="claude",
                 event_type="TASK.claude",
-                payload={"action": "resolve_ledger_items"}
+                payload={"action": "resolve_ledger_items"},
             )
             runtime.publish(event)
             await runtime.dispatch(event)
-            
-        elif antigravity_work:
+            handled_any = True
+
+        refreshed_antigravity_work = has_open_tasks_for("antigravity")
+        if refreshed_antigravity_work:
             event = EventRecord(
                 event_id=f"evt-{utcnow().timestamp()}",
                 project_id=config.project_id,
@@ -118,13 +264,19 @@ async def main():
                 sender="system",
                 receiver="antigravity",
                 event_type="TASK.antigravity",
-                payload={"action": "resolve_ledger_items"}
+                payload={"action": "resolve_ledger_items"},
             )
             runtime.publish(event)
             await runtime.dispatch(event)
-            
-        # Yield to allow event loop processing
+            handled_any = True
+
+        after = read_ledger_content()
+        if not handled_any or after == before:
+            print("⚠️ No ledger progress detected in this cycle. Stopping to avoid a tight loop.")
+            break
+
         await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
