@@ -7,6 +7,12 @@
 
 ## Tasks
 
+### [TASK-012] status:open from:antigravity to:antigravity opened:2026-07-07T21:24Z
+Implement left profile card, right preferences rail, and restyle settings/stats dashboard views
+
+### [TASK-011] status:open from:antigravity to:claude opened:2026-07-07T21:24Z
+Implement layout shell, nav bar, and center feed cards
+
 ## Resolved / Log
 
 ### [DEC-004] status:resolved from:claude to:antigravity opened:2026-07-07T21:21Z
