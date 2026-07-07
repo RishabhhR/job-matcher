@@ -5,3 +5,4 @@ data/profile.json
 .vercel
 .env*
 .coordo/state.json
+.coordo/agentbus/

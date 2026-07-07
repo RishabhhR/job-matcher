@@ -33,6 +33,14 @@ def read_ledger_content():
     return ledger_path.read_text(encoding="utf-8")
 
 
+def read_digest(agent):
+    return run_command_capture("coordo", ["digest", "--as", agent])
+
+
+def digest_has_changes(digest_text):
+    return "✅ No new commits since last checkpoint." not in digest_text
+
+
 def run_command_capture(command, args):
     try:
         result = subprocess.run(
@@ -130,10 +138,12 @@ def summarize_items(items):
     return "\n\n".join(rendered)
 
 
-def build_agent_brief(agent):
-    status = run_command_capture("coordo", ["status"])
-    digest = run_command_capture("coordo", ["digest", "--as", agent])
-    items = parse_ledger_items(agent)
+def build_agent_brief(agent, status_text=None, digest_text=None, items=None, trigger_reasons=None):
+    status = status_text if status_text is not None else run_command_capture("coordo", ["status"])
+    digest = digest_text if digest_text is not None else read_digest(agent)
+    items = items if items is not None else parse_ledger_items(agent)
+    trigger_reasons = trigger_reasons or []
+    trigger_block = "\n".join(f"- {reason}" for reason in trigger_reasons) if trigger_reasons else "- none"
 
     return f"""# Agent Brief: {agent}
 
@@ -141,6 +151,9 @@ Generated: {utcnow().isoformat()}
 
 ## Ledger Status
 {status or "No status available."}
+
+## Trigger Reasons
+{trigger_block}
 
 ## Digest Since Last Checkpoint
 {digest or "No digest available."}
@@ -176,7 +189,12 @@ class ClaudeAgent(BaseAgent):
 
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n🤖 [AgentBus] ClaudeAgent handling event: {event.event_type}")
-        brief = build_agent_brief("claude")
+        brief = build_agent_brief(
+            "claude",
+            digest_text=read_digest("claude"),
+            items=parse_ledger_items("claude"),
+            trigger_reasons=["Open work assigned to claude in the coordo ledger."],
+        )
         brief_path = write_agent_brief("claude", brief)
         prompt = (
             f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
@@ -199,10 +217,23 @@ class AntigravityAgent(BaseAgent):
 
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n💡 [AgentBus] AntigravityAgent handling event: {event.event_type}")
-        brief = build_agent_brief("antigravity")
+        antigravity_items = parse_ledger_items("antigravity")
+        antigravity_digest = read_digest("antigravity")
+        trigger_reasons = []
+        if antigravity_items:
+            trigger_reasons.append("Open work assigned to antigravity in the coordo ledger.")
+        if digest_has_changes(antigravity_digest):
+            trigger_reasons.append("Claude or another agent landed new commits since antigravity's last checkpoint.")
+
+        brief = build_agent_brief(
+            "antigravity",
+            digest_text=antigravity_digest,
+            items=antigravity_items,
+            trigger_reasons=trigger_reasons,
+        )
         brief_path = write_agent_brief("antigravity", brief)
         prompt = (
-            f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
+            f"Open {brief_path}. {' '.join(trigger_reasons)} Resolve the assigned work, update .coordo/ledger.md, "
             "checkpoint, and exit. If blocked, record the blocker and stop."
         )
 
@@ -236,8 +267,11 @@ async def main():
         antigravity_work = has_open_tasks_for("antigravity")
 
         if not claude_work and not antigravity_work:
-            print("✅ No open tasks in coordo ledger. Sync complete!")
-            break
+            if digest_has_changes(read_digest("antigravity")):
+                antigravity_work = True
+            else:
+                print("✅ No open tasks in coordo ledger and no reviewable Claude changes. Sync complete!")
+                break
 
         handled_any = False
 
@@ -256,7 +290,9 @@ async def main():
             handled_any = True
 
         refreshed_antigravity_work = has_open_tasks_for("antigravity")
-        if refreshed_antigravity_work:
+        antigravity_digest = read_digest("antigravity")
+        antigravity_digest_changed = digest_has_changes(antigravity_digest)
+        if refreshed_antigravity_work or antigravity_digest_changed:
             event = EventRecord(
                 event_id=f"evt-{utcnow().timestamp()}",
                 project_id=config.project_id,

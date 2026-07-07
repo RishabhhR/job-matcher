@@ -29,6 +29,14 @@ function readLedgerContent() {
   return readFileSync(ledgerPath, "utf-8");
 }
 
+function readDigest(agent) {
+  return runCommandCapture("coordo", ["digest", "--as", agent]);
+}
+
+function digestHasChanges(digestText) {
+  return !digestText.includes("✅ No new commits since last checkpoint.");
+}
+
 function runCommandCapture(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -135,10 +143,14 @@ function summarizeItems(items) {
     .join("\n\n");
 }
 
-function buildAgentBrief(agent) {
-  const status = runCommandCapture("coordo", ["status"]);
-  const digest = runCommandCapture("coordo", ["digest", "--as", agent]);
-  const items = parseLedgerItems(agent);
+function buildAgentBrief(agent, options = {}) {
+  const status = options.statusText ?? runCommandCapture("coordo", ["status"]);
+  const digest = options.digestText ?? readDigest(agent);
+  const items = options.items ?? parseLedgerItems(agent);
+  const triggerReasons = options.triggerReasons ?? [];
+  const triggerBlock = triggerReasons.length > 0
+    ? triggerReasons.map((reason) => `- ${reason}`).join("\n")
+    : "- none";
 
   return `# Agent Brief: ${agent}
 
@@ -146,6 +158,9 @@ Generated: ${new Date().toISOString()}
 
 ## Ledger Status
 ${status || "No status available."}
+
+## Trigger Reasons
+${triggerBlock}
 
 ## Digest Since Last Checkpoint
 ${digest || "No digest available."}
@@ -179,9 +194,9 @@ function runClaude(briefPath) {
   }
 }
 
-function runAntigravity(briefPath) {
+function runAntigravity(briefPath, reasonText) {
   const antigravityBin = process.env.AGENTBUS_ANTIGRAVITY_BIN;
-  const prompt = `Open ${briefPath}. Resolve the assigned work, update .coordo/ledger.md, checkpoint, and exit. If blocked, record the blocker and stop.`;
+  const prompt = `Open ${briefPath}. ${reasonText ? `Primary trigger: ${reasonText}. ` : ""}Resolve the assigned work, update .coordo/ledger.md, checkpoint, and exit. If blocked, record the blocker and stop.`;
 
   if (!antigravityBin) {
     console.log(`💡 No Antigravity CLI hook configured. Wrote handoff brief at ${briefPath} and continuing.`);
@@ -220,17 +235,36 @@ async function runLoop() {
     let handledAny = false;
 
     if (claudeItems.length > 0) {
-      const brief = buildAgentBrief("claude");
+      const claudeDigestBefore = readDigest("claude");
+      const brief = buildAgentBrief("claude", {
+        digestText: claudeDigestBefore,
+        items: claudeItems,
+        triggerReasons: ["Open work assigned to claude in the coordo ledger."]
+      });
       const briefPath = writeAgentBrief("claude", brief);
       runClaude(briefPath);
       handledAny = true;
     }
 
-    const refreshedAntigravityItems = parseLedgerItems("antigravity");
-    if (refreshedAntigravityItems.length > 0) {
-      const brief = buildAgentBrief("antigravity");
+    const antigravityItemsAfterClaude = parseLedgerItems("antigravity");
+    const antigravityDigest = readDigest("antigravity");
+    const antigravityDigestChanged = digestHasChanges(antigravityDigest);
+    const antigravityReasons = [];
+    if (antigravityItemsAfterClaude.length > 0) {
+      antigravityReasons.push("Open work assigned to antigravity in the coordo ledger.");
+    }
+    if (antigravityDigestChanged) {
+      antigravityReasons.push("Claude or another agent landed new commits since antigravity's last checkpoint.");
+    }
+
+    if (antigravityReasons.length > 0) {
+      const brief = buildAgentBrief("antigravity", {
+        digestText: antigravityDigest,
+        items: antigravityItemsAfterClaude,
+        triggerReasons: antigravityReasons
+      });
       const briefPath = writeAgentBrief("antigravity", brief);
-      const antigravityRan = runAntigravity(briefPath);
+      const antigravityRan = runAntigravity(briefPath, antigravityReasons.join(" "));
       handledAny = handledAny || antigravityRan || !process.env.AGENTBUS_ANTIGRAVITY_BIN;
     }
 
