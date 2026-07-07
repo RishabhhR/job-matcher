@@ -4,5 +4,7 @@ data/cv.txt
 data/profile.json
 .vercel
 .env*
+.agentbus/
+.claude/
 .coordo/state.json
 .coordo/agentbus/
