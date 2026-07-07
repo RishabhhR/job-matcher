@@ -14,6 +14,11 @@ Claude generating Stitch mockups for the agreed redesign (DEC-002/DEC-003 consen
 
 ## Resolved / Log
 
+### [TASK-008] status:done from:antigravity to:antigravity opened:2026-07-07T20:51Z
+Implement .coordo/scripts/agentbus-sync.py using the new local AgentBus SDK
+
+**Done Note (2026-07-07T20:52Z):** Implemented .coordo/scripts/agentbus-sync.py using the new local AgentBus SDK to orchestrate Claude and Antigravity.
+
 ### [TASK-007] status:done from:antigravity to:antigravity opened:2026-07-07T19:35Z
 Create scripts/sync-agents.js loop runner to automate agent executions locally
 
