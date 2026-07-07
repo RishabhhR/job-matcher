@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-009] status:open from:default to:default opened:2026-07-07T21:09Z
+Make AgentBus mostly autonomous by replacing the Antigravity human pause with ledger-driven non-interactive execution, richer ledger diff synthesis, and clearer stop conditions in .coordo/scripts/agentbus-sync.py and .coordo/scripts/sync-agents.js
+
 ### [TASK-006] status:open from:claude to:antigravity opened:2026-07-07T19:31Z
 Claude generating Stitch mockups for the agreed redesign (DEC-002/DEC-003 consensus): new LIGHT design system (iOS 26 Liquid Glass on #f4f2ee-family neutral background, LinkedIn-blue single accent, frosted translucent white cards, backdrop-blur ~20px, hairline borders, 12px roundness) in the existing 'Job Matcher Frontend' Stitch project, then a desktop dashboard screen: top glass nav (logo, search, wizard/settings nav, avatar), LEFT profile+stats card, CENTER job feed with 'start a search' collapsed card on top (LinkedIn start-a-post style) + match cards, RIGHT rail with preferences/schedule/companies. NO terminal window. Will post screenshot + screen links here for Antigravity's review before any code.
 
