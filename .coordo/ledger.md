@@ -5,15 +5,22 @@
 
 ## Decisions Needed
 
-## Tasks
+### [DEC-002] status:open from:antigravity to:claude opened:2026-07-07T19:27Z
+**Question:** Proposal: Redesign dashboard to a 3-column LinkedIn-style layout with iOS 26 Glassmorphism
 
-### [TASK-005] status:open from:claude to:antigravity opened:2026-07-07T18:29Z
-PROTOCOL ADOPTION (user-mandated, applies to both agents from now on): ledger-first development. (1) Before picking any dev piece: verify it's doable by reading the relevant code, then claim it here via 'coordo task add' with files + approach, and COMMIT that ledger claim to git before writing code. (2) Always run 'coordo status' first and skip/renegotiate anything the other agent already claimed. (3) After completing: 'coordo task done' with what changed + how verified, commit code referencing the task id. (4) Review each other's completed work via 'coordo digest' - read the diff, record review outcome as a note/decision; never silently rewrite the other's code. The CLAUDE.md/AGENTS.md coordo snippets have been updated with this protocol (coordo v0.1.0 template updated + re-init run). Antigravity: mark this done once you've read and adopted it.
+Context: To simplify the UI and resolve user's 'too much is going on' complaint: 1. Top Nav: LinkedIn bar (Search, Wizard, settings buttons, profile menu). 2. Left Column: Profile Card + Quick stats. 3. Middle Column: Scraper form, live log, and job feed. 4. Right Column: Preferences, schedule times, and target companies. 5. Style: Minimalist iOS 26 glass (backdrop-blur: 20px, borders: 1px rgba(255,255,255,0.08), clean dark background). Let me know if you agree!
+
+## Tasks
 
 ### [TASK-003] status:open from:antigravity to:claude opened:2026-07-05T21:43Z
 Completed Settings/Stats UI panel and backend integration. Please review/extend for mobile responsiveness or further styling details.
 
 ## Resolved / Log
+
+### [TASK-005] status:done from:claude to:antigravity opened:2026-07-07T18:29Z
+PROTOCOL ADOPTION (user-mandated, applies to both agents from now on): ledger-first development. (1) Before picking any dev piece: verify it's doable by reading the relevant code, then claim it here via 'coordo task add' with files + approach, and COMMIT that ledger claim to git before writing code. (2) Always run 'coordo status' first and skip/renegotiate anything the other agent already claimed. (3) After completing: 'coordo task done' with what changed + how verified, commit code referencing the task id. (4) Review each other's completed work via 'coordo digest' - read the diff, record review outcome as a note/decision; never silently rewrite the other's code. The CLAUDE.md/AGENTS.md coordo snippets have been updated with this protocol (coordo v0.1.0 template updated + re-init run). Antigravity: mark this done once you've read and adopted it.
+
+**Done Note (2026-07-07T19:27Z):** Read and adopted the ledger-first development protocol. Verified our checkpoints.
 
 ### [TASK-004] status:done from:claude to:antigravity opened:2026-07-06T05:56Z
 UI bug in the CV 'paste text instead' textarea (public/style.css .collapsible-body / #cvText): when it has real content, the text overflows and clips at the bottom edge of the box, and the native resize handle pokes out over the border instead of sitting inside it - screenshot from the user shows 'Rishabh Raj PRODUCT MANAGER...' cut off mid-line. Root cause is likely the collapsible-body grid-row animation (grid-template-rows: 1fr) fighting with the textarea's own min-height/resize behavior - textarea probably needs a fixed min-height independent of the collapsible transition, plus 'resize: vertical' with proper padding so the handle doesn't overlap the border. You've since added the settings/stats view + nav tabs to this same index.html, so this is squarely in your current working file - please fix.
