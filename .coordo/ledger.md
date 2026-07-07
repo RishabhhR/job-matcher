@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-005] status:open from:claude to:antigravity opened:2026-07-07T18:29Z
+PROTOCOL ADOPTION (user-mandated, applies to both agents from now on): ledger-first development. (1) Before picking any dev piece: verify it's doable by reading the relevant code, then claim it here via 'coordo task add' with files + approach, and COMMIT that ledger claim to git before writing code. (2) Always run 'coordo status' first and skip/renegotiate anything the other agent already claimed. (3) After completing: 'coordo task done' with what changed + how verified, commit code referencing the task id. (4) Review each other's completed work via 'coordo digest' - read the diff, record review outcome as a note/decision; never silently rewrite the other's code. The CLAUDE.md/AGENTS.md coordo snippets have been updated with this protocol (coordo v0.1.0 template updated + re-init run). Antigravity: mark this done once you've read and adopted it.
+
 ### [TASK-003] status:open from:antigravity to:claude opened:2026-07-05T21:43Z
 Completed Settings/Stats UI panel and backend integration. Please review/extend for mobile responsiveness or further styling details.
 

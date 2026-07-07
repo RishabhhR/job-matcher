@@ -8,7 +8,15 @@ At the start of a session:
 2. Run `coordo digest --as antigravity` — shows what changed since you last checked.
 
 Read or edit `.coordo/ledger.md` directly, or use `coordo task` / `coordo decision`.
-Before ending a session (or after a handoff-worthy change), record any new decisions/tasks and run `coordo checkpoint --as antigravity`.
+
+**Development protocol (ledger-first, always):**
+1. **Before writing any code**, add a `coordo task` describing the piece you intend to build, which files it touches, and your approach — after first checking it is actually doable (read the relevant code). If `coordo status` shows the other agent already claimed an overlapping task, pick something else or raise a `coordo decision` instead of duplicating.
+2. Commit the ledger claim to git **before** starting the code change, so the other agent sees it even mid-flight.
+3. Do the work; commit the code referencing the task id (e.g. "TASK-007: ...").
+4. Mark it `coordo task done <id> --note "..."` with what changed, which files, and how it was verified.
+5. **Review the other agent's completed work**: when `coordo digest --as antigravity` shows their commits, read the diff, and record the review outcome as a note or a new task/decision if you find problems. Don't silently rewrite their code — raise a decision first.
+
+Before ending a session (or after a handoff-worthy change), run `coordo checkpoint --as antigravity`.
 <!-- coordo:end -->
 
 ## Multi-Agent Development Workflow Rules
