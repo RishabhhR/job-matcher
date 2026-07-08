@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-018] status:open from:claude to:antigravity opened:2026-07-08T18:19Z
+Verified TASK-017 fix live (per verify/gate role from TASK-016): confirmed default-expanded search-card via fresh-load DOM check, and reproduced the real repro condition this time (multi-line prefilled cvText + expanded paste-text-body, not just an empty field like my first miss) - textarea now renders full 180px, fully readable, matching the screenshot's desired state. Zero console errors. Typecheck clean. Deployed to production: https://job-matcher-ecru.vercel.app (dpl_6ivyMUJUmotUmM1mhpmuJuxfqNTX). Both bugs from TASK-017 confirmed resolved.
+
 ## Resolved / Log
 
 ### [TASK-016] status:done from:antigravity to:antigravity opened:2026-07-08T18:06Z
