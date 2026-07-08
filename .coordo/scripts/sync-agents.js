@@ -23,6 +23,8 @@ function findProjectRoot() {
 const root = findProjectRoot();
 const ledgerPath = path.join(root, ".coordo", "ledger.md");
 const agentbusInboxDir = path.join(root, ".coordo", "agentbus", "inbox");
+const agentbusLogPath = path.join(root, ".coordo", "agentbus", "handoff.log");
+const maxClaudeChunksPerRun = 1;
 
 function readLedgerContent() {
   if (!existsSync(ledgerPath)) return "";
@@ -79,9 +81,11 @@ function parseLedgerItems(agent) {
   let currentItem = null;
   let currentSection = "intro";
 
+  const isActionable = (status) => status === "open" || status === "in-progress";
+
   const flush = () => {
     if (!currentItem) return;
-    if (currentItem.status === "open" && currentItem.to === agent) {
+    if (isActionable(currentItem.status) && currentItem.to === agent) {
       items.push(currentItem);
     }
     currentItem = null;
@@ -183,8 +187,14 @@ function writeAgentBrief(agent, brief) {
   return briefPath;
 }
 
+function appendHandoffLog(line) {
+  mkdirSync(path.dirname(agentbusLogPath), { recursive: true });
+  writeFileSync(agentbusLogPath, `${line}\n`, { flag: "a" });
+}
+
 function runClaude(briefPath) {
-  console.log("\n🤖 [Sync] Executing Claude Code in print mode...");
+  console.log(`\n🤖 [Sync] Dispatching Claude with brief ${briefPath}`);
+  appendHandoffLog(`[${new Date().toISOString()}] dispatch claude ${briefPath}`);
   const prompt = `Open ${briefPath}. Resolve the assigned work, update .coordo/ledger.md, checkpoint, and exit. If blocked, record the blocker and stop.`;
 
   try {
@@ -194,16 +204,30 @@ function runClaude(briefPath) {
   }
 }
 
+function checkpointAgent(agent) {
+  console.log(`🧭 [Sync] Forcing checkpoint for ${agent}`);
+  appendHandoffLog(`[${new Date().toISOString()}] checkpoint ${agent}`);
+  try {
+    runCommandLive("coordo", ["checkpoint", "--as", agent]);
+    return true;
+  } catch (err) {
+    console.error(`❌ Checkpoint for ${agent} failed: ${err.message}`);
+    return false;
+  }
+}
+
 function runAntigravity(briefPath, reasonText) {
   const antigravityBin = process.env.AGENTBUS_ANTIGRAVITY_BIN;
   const prompt = `Open ${briefPath}. ${reasonText ? `Primary trigger: ${reasonText}. ` : ""}Resolve the assigned work, update .coordo/ledger.md, checkpoint, and exit. If blocked, record the blocker and stop.`;
 
   if (!antigravityBin) {
     console.log(`💡 No Antigravity CLI hook configured. Wrote handoff brief at ${briefPath} and continuing.`);
+    appendHandoffLog(`[${new Date().toISOString()}] queued antigravity ${briefPath} (no launcher configured)`);
     return false;
   }
 
-  console.log("\n💡 [Sync] Executing Antigravity in autonomous mode...");
+  console.log(`\n💡 [Sync] Dispatching Antigravity with brief ${briefPath}`);
+  appendHandoffLog(`[${new Date().toISOString()}] dispatch antigravity ${briefPath} :: ${reasonText || "no explicit reason"}`);
   try {
     runCommandLive(antigravityBin, [], prompt);
     return true;
@@ -233,16 +257,24 @@ async function runLoop() {
     }
 
     let handledAny = false;
+    let claudeChunksRun = 0;
 
-    if (claudeItems.length > 0) {
+    if (claudeItems.length > 0 && claudeChunksRun < maxClaudeChunksPerRun) {
       const claudeDigestBefore = readDigest("claude");
+      const claudeReason = `Open work assigned to claude in the coordo ledger (${claudeItems.length} item${claudeItems.length === 1 ? "" : "s"}).`;
       const brief = buildAgentBrief("claude", {
         digestText: claudeDigestBefore,
         items: claudeItems,
-        triggerReasons: ["Open work assigned to claude in the coordo ledger."]
+        triggerReasons: [claudeReason]
       });
       const briefPath = writeAgentBrief("claude", brief);
+      console.log(`🟦 Claude trigger: ${claudeReason}`);
       runClaude(briefPath);
+      if (!checkpointAgent("claude")) {
+        console.log("⚠️ Stopping sync because claude checkpoint failed.");
+        break;
+      }
+      claudeChunksRun += 1;
       handledAny = true;
     }
 
@@ -264,6 +296,7 @@ async function runLoop() {
         triggerReasons: antigravityReasons
       });
       const briefPath = writeAgentBrief("antigravity", brief);
+      console.log(`🟪 Antigravity trigger: ${antigravityReasons.join(" | ")}`);
       const antigravityRan = runAntigravity(briefPath, antigravityReasons.join(" "));
       handledAny = handledAny || antigravityRan || !process.env.AGENTBUS_ANTIGRAVITY_BIN;
     }

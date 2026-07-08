@@ -25,6 +25,8 @@ def find_project_root():
 root = find_project_root()
 ledger_path = root / ".coordo" / "ledger.md"
 agentbus_inbox_dir = root / ".coordo" / "agentbus" / "inbox"
+agentbus_log_path = root / ".coordo" / "agentbus" / "handoff.log"
+MAX_CLAUDE_CHUNKS_PER_RUN = 1
 
 
 def read_ledger_content():
@@ -81,10 +83,11 @@ def parse_ledger_items(agent):
     items = []
     current_item = None
     current_section = "intro"
+    actionable_statuses = {"open", "in-progress"}
 
     def flush():
         nonlocal current_item
-        if current_item and current_item["status"] == "open" and current_item["to"] == agent:
+        if current_item and current_item["status"] in actionable_statuses and current_item["to"] == agent:
             items.append(current_item)
         current_item = None
 
@@ -176,6 +179,23 @@ def write_agent_brief(agent, brief):
     return brief_path
 
 
+def append_handoff_log(line):
+    agentbus_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with agentbus_log_path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
+def checkpoint_agent(agent):
+    print(f"🧭 [AgentBus] Forcing checkpoint for {agent}")
+    append_handoff_log(f"[{utcnow().isoformat()}] checkpoint {agent}")
+    try:
+        run_command_live("coordo", ["checkpoint", "--as", agent])
+        return True
+    except Exception as err:
+        print(f"❌ [AgentBus] Checkpoint for {agent} failed: {err}")
+        return False
+
+
 def has_open_tasks_for(agent):
     return bool(parse_ledger_items(agent))
 
@@ -189,13 +209,17 @@ class ClaudeAgent(BaseAgent):
 
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n🤖 [AgentBus] ClaudeAgent handling event: {event.event_type}")
+        claude_items = parse_ledger_items("claude")
+        claude_reason = f"Open work assigned to claude in the coordo ledger ({len(claude_items)} item{'s' if len(claude_items) != 1 else ''})."
         brief = build_agent_brief(
             "claude",
             digest_text=read_digest("claude"),
-            items=parse_ledger_items("claude"),
-            trigger_reasons=["Open work assigned to claude in the coordo ledger."],
+            items=claude_items,
+            trigger_reasons=[claude_reason],
         )
         brief_path = write_agent_brief("claude", brief)
+        print(f"🟦 Claude trigger: {claude_reason}")
+        append_handoff_log(f"[{utcnow().isoformat()}] dispatch claude {brief_path}")
         prompt = (
             f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
             "checkpoint, and exit. If blocked, record the blocker and stop."
@@ -240,9 +264,16 @@ class AntigravityAgent(BaseAgent):
         antigravity_bin = os.environ.get("AGENTBUS_ANTIGRAVITY_BIN")
         if not antigravity_bin:
             print(f"💡 No Antigravity CLI hook configured. Wrote handoff brief at {brief_path} and continuing.")
+            append_handoff_log(
+                f"[{utcnow().isoformat()}] queued antigravity {brief_path} (no launcher configured)"
+            )
             return
 
-        print("💡 [AgentBus] Executing Antigravity in autonomous mode...")
+        print(f"🟪 Antigravity trigger: {' | '.join(trigger_reasons) if trigger_reasons else 'no explicit reason'}")
+        print(f"💡 [AgentBus] Dispatching Antigravity with brief {brief_path}")
+        append_handoff_log(
+            f"[{utcnow().isoformat()}] dispatch antigravity {brief_path} :: {' '.join(trigger_reasons) if trigger_reasons else 'no explicit reason'}"
+        )
         try:
             run_command_live(antigravity_bin, [], prompt)
             print("💡 [AgentBus] Antigravity task completed successfully!")
@@ -274,8 +305,9 @@ async def main():
                 break
 
         handled_any = False
+        claude_chunks_run = 0
 
-        if claude_work:
+        if claude_work and claude_chunks_run < MAX_CLAUDE_CHUNKS_PER_RUN:
             event = EventRecord(
                 event_id=f"evt-{utcnow().timestamp()}",
                 project_id=config.project_id,
@@ -287,6 +319,10 @@ async def main():
             )
             runtime.publish(event)
             await runtime.dispatch(event)
+            if not checkpoint_agent("claude"):
+                print("⚠️ [AgentBus] Stopping sync because claude checkpoint failed.")
+                break
+            claude_chunks_run += 1
             handled_any = True
 
         refreshed_antigravity_work = has_open_tasks_for("antigravity")
