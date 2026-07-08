@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-012] status:open from:antigravity to:antigravity opened:2026-07-07T21:24Z
+## Resolved / Log
+
+### [TASK-012] status:done from:antigravity to:antigravity opened:2026-07-07T21:24Z
 Implement left profile card, right preferences rail, and restyle settings/stats dashboard views
 
-## Resolved / Log
+**Done Note (2026-07-08T18:00Z):** Implemented left profile card and right preferences rail in public/index.html, added supporting Vanilla CSS rules in public/style.css, and wired dynamic updates and click handlers in public/app.js. Verified Express server launches successfully.
 
 ### [TASK-011] status:done from:antigravity to:claude opened:2026-07-07T21:24Z
 Implement layout shell, nav bar, and center feed cards
