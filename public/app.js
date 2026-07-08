@@ -223,6 +223,7 @@ function showApp() {
   const displayName = clerkUser.fullName || clerkUser.primaryEmailAddress.emailAddress;
   userNameLabel.textContent = `Hello, ${displayName}!`;
   navAvatar.textContent = getInitials(displayName);
+  updateRails();
 }
 
 function getInitials(name) {
@@ -287,6 +288,7 @@ async function initializeUserData() {
     // Automatically load existing matched job roles for the user, if any
     currentPage = 1;
     await fetchMatchesPage(currentPage);
+    updateRails();
   } catch (error) {
     addLogLine("error", "Sync error: " + error.message);
   }
@@ -673,6 +675,7 @@ navBtnWizard.addEventListener("click", () => {
   navBtnSettings.classList.remove("active");
   viewWizard.classList.remove("hidden");
   viewSettings.classList.add("hidden");
+  updateRails();
 });
 
 navBtnSettings.addEventListener("click", async () => {
@@ -739,6 +742,7 @@ settingsForm.addEventListener("submit", async (e) => {
     
     // Also sync the wizard's timezone/hour groups visibility
     syncDigestHourVisibility();
+    updateRails();
 
     alert("Settings saved successfully!");
   } catch (err) {
@@ -790,6 +794,7 @@ async function fetchAndRenderStats() {
         companyListEl.appendChild(li);
       });
     }
+    updateRails();
   } catch (err) {
     console.error("Error fetching dashboard statistics:", err);
   }
@@ -804,3 +809,151 @@ function escapeHTML(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+function updateRails() {
+  if (!clerkUser) return;
+  const displayName = clerkUser.fullName || clerkUser.primaryEmailAddress.emailAddress;
+
+  // Left Rail: Profile Card
+  const profileCardName = document.getElementById("profile-card-name");
+  const profileCardHeadline = document.getElementById("profile-card-headline");
+  const profileAvatar = document.getElementById("profile-avatar-placeholder");
+
+  if (profileCardName) profileCardName.textContent = displayName;
+  if (profileCardHeadline) {
+    const designation = targetDesignationInput ? targetDesignationInput.value : "";
+    const employer = currentEmployerInput ? currentEmployerInput.value : "";
+    profileCardHeadline.textContent = (designation && employer) ? `${designation} @ ${employer}` : (designation || "Job Seeker");
+  }
+  if (profileAvatar) {
+    if (clerkUser.imageUrl) {
+      profileAvatar.textContent = "";
+      profileAvatar.style.backgroundImage = `url(${clerkUser.imageUrl})`;
+      profileAvatar.style.backgroundSize = "cover";
+      profileAvatar.style.backgroundPosition = "center";
+    } else {
+      profileAvatar.textContent = getInitials(displayName);
+      profileAvatar.style.backgroundImage = "none";
+    }
+  }
+
+  // Left Rail: Profile Stats
+  const matchesVal = document.getElementById("profile-stat-matches");
+  const searchesVal = document.getElementById("profile-stat-searches");
+  if (matchesVal) matchesVal.textContent = totalMatchesCount || 0;
+  if (searchesVal) {
+    const totalScrapedVal = document.getElementById("stat-total-scraped") ? document.getElementById("stat-total-scraped").textContent : "0";
+    searchesVal.textContent = totalScrapedVal !== "0" ? totalScrapedVal : "0";
+  }
+
+  // Left Rail: Recent Activity
+  const recentRole = document.getElementById("recent-activity-role");
+  if (recentRole && targetDesignationInput && targetDesignationInput.value) {
+    recentRole.textContent = `${targetDesignationInput.value} roles`;
+  }
+
+  // Right Rail: Daily Digest
+  const railDigestDot = document.getElementById("rail-digest-status-dot");
+  const railDigestDesc = document.getElementById("rail-digest-status-desc");
+  if (railDigestDot && railDigestDesc) {
+    const isEnabled = digestEnabledInput ? digestEnabledInput.checked : false;
+    if (isEnabled) {
+      railDigestDot.classList.add("active");
+      const hour = parseInt(digestHourInput ? digestHourInput.value : "9", 10);
+      const ampm = hour >= 12 ? "PM" : "AM";
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      railDigestDesc.textContent = `Daily digest enabled at ${displayHour}:00 ${ampm}.`;
+    } else {
+      railDigestDot.classList.remove("active");
+      railDigestDesc.textContent = "Daily digest is disabled. Enable in Settings.";
+    }
+  }
+
+  // Right Rail: Preferred Location
+  const railLocation = document.getElementById("rail-location-text");
+  if (railLocation) {
+    const city = preferredCityInput ? preferredCityInput.value : "";
+    const country = preferredCountryInput ? preferredCountryInput.value : "";
+    if (city || country) {
+      railLocation.textContent = [city, country].filter(Boolean).join(", ");
+    } else {
+      railLocation.textContent = "Not specified";
+    }
+  }
+
+  // Right Rail: Target Companies
+  const railCompaniesList = document.getElementById("rail-companies-list");
+  if (railCompaniesList) {
+    railCompaniesList.innerHTML = "";
+    const list = [];
+    const collect = (inputVal, iconChar) => {
+      if (inputVal) {
+        inputVal.split(",").map(s => s.trim()).filter(Boolean).forEach(c => {
+          list.push({ name: c, icon: iconChar });
+        });
+      }
+    };
+    if (greenhouseInput) collect(greenhouseInput.value, "G");
+    if (leverInput) collect(leverInput.value, "L");
+    if (ashbyInput) collect(ashbyInput.value, "A");
+
+    if (list.length === 0) {
+      railCompaniesList.innerHTML = '<li class="companies-empty-text">No target boards configured.</li>';
+    } else {
+      list.slice(0, 5).forEach(item => {
+        const li = document.createElement("li");
+        li.className = "rail-company-item";
+        li.innerHTML = `
+          <div class="rail-company-icon">${item.icon}</div>
+          <span class="rail-company-name">${escapeHTML(item.name)}</span>
+        `;
+        railCompaniesList.appendChild(li);
+      });
+    }
+  }
+}
+
+// Wire Left/Right Rail Click Handlers
+document.addEventListener("click", (e) => {
+  const shortcutMatches = e.target.closest("#shortcut-matches-btn");
+  if (shortcutMatches) {
+    const grid = document.getElementById("results-grid");
+    if (grid) grid.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  const shortcutSearches = e.target.closest("#shortcut-searches-btn");
+  if (shortcutSearches) {
+    const settingsTab = document.getElementById("nav-btn-settings");
+    if (settingsTab) settingsTab.click();
+    return;
+  }
+
+  const recentRoles = e.target.closest("#recent-roles-btn");
+  if (recentRoles) {
+    const wizardTab = document.getElementById("nav-btn-wizard");
+    if (wizardTab) wizardTab.click();
+    const searchCardToggle = document.getElementById("search-card-toggle");
+    const searchCardBody = document.getElementById("search-card-body");
+    if (searchCardToggle && searchCardBody) {
+      searchCardToggle.classList.add("expanded");
+      searchCardBody.classList.add("expanded");
+    }
+    showStep("profile");
+    return;
+  }
+
+  const recentCompanies = e.target.closest("#recent-companies-btn");
+  if (recentCompanies) {
+    const wizardTab = document.getElementById("nav-btn-wizard");
+    if (wizardTab) wizardTab.click();
+    const searchCardToggle = document.getElementById("search-card-toggle");
+    const searchCardBody = document.getElementById("search-card-body");
+    if (searchCardToggle && searchCardBody) {
+      searchCardToggle.classList.add("expanded");
+      searchCardBody.classList.add("expanded");
+    }
+    showStep("preferences");
+    return;
+  }
+});

@@ -1262,12 +1262,14 @@ textarea:focus, input[type="text"]:focus, input[type="number"]:focus, input[type
 .metric-card {
   background: var(--panel-bg);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  backdrop-filter: blur(10px);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
 }
 
 .metric-label {
@@ -1305,9 +1307,11 @@ textarea:focus, input[type="text"]:focus, input[type="number"]:focus, input[type
 .chart-card {
   background: var(--panel-bg);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
-  backdrop-filter: blur(10px);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
 }
 
 .chart-card h3 {
@@ -1404,10 +1408,12 @@ textarea:focus, input[type="text"]:focus, input[type="number"]:focus, input[type
 .settings-card {
   background: var(--panel-bg);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   margin-bottom: 1rem;
-  backdrop-filter: blur(10px);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1493,7 +1499,7 @@ input:checked + .slider:before {
 .form-select {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 0.5rem 0.75rem;
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -1512,9 +1518,9 @@ input:checked + .slider:before {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.02);
   padding: 1rem;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
@@ -1540,4 +1546,268 @@ input:checked + .slider:before {
 .info-link-container {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ---------------- Left Rail (Profile and Recent Activity) ---------------- */
+.profile-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.profile-cover {
+  height: 62px;
+  width: 100%;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.profile-avatar-container {
+  margin-top: -35px;
+  position: relative;
+  z-index: 2;
+  margin-bottom: 0.5rem;
+}
+
+.profile-avatar-placeholder {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.profile-info {
+  text-align: center;
+  padding: 0 1.25rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  width: 100%;
+}
+
+.profile-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.15rem;
+}
+
+.profile-headline {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.profile-stats {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+}
+
+.profile-stat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.4rem 1.25rem;
+  font-size: 0.75rem;
+  transition: background 0.2s ease;
+  cursor: pointer;
+}
+
+.profile-stat-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.profile-stat-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.profile-stat-value {
+  color: var(--accent-color);
+  font-weight: 700;
+}
+
+.recent-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
+  padding: 1.25rem;
+}
+
+.recent-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.recent-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.recent-item svg {
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.recent-item:hover, .recent-item:hover svg {
+  color: var(--accent-color);
+}
+
+/* ---------------- Right Rail ---------------- */
+.digest-card, .location-card, .companies-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 4px 24px rgba(20, 30, 40, 0.04);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.digest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.digest-title, .location-title, .companies-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.digest-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s ease;
+}
+
+.digest-status-dot.active {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.digest-desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.location-value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent-color);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.companies-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.rail-company-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rail-company-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid rgba(10, 102, 194, 0.15);
+}
+
+.rail-company-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.companies-empty-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.footer-block {
+  padding: 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.footer-links a {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-links a:hover {
+  color: var(--accent-color);
+  text-decoration: underline;
+}
+
+.copyright-text {
+  font-size: 0.7rem;
+  color: var(--text-muted);
 }

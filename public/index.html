@@ -54,7 +54,44 @@
     <!-- VIEW 1: Match Wizard -->
     <div id="view-wizard" class="view-pane active">
       <div class="layout-grid">
-        <aside class="left-rail" id="left-rail"><!-- antigravity: TASK-012 profile card slot --></aside>
+        <aside class="left-rail" id="left-rail">
+          <!-- Profile Card -->
+          <div class="profile-card">
+            <div class="profile-cover"></div>
+            <div class="profile-avatar-container">
+              <div class="profile-avatar-placeholder" id="profile-avatar-placeholder">?</div>
+            </div>
+            <div class="profile-info">
+              <h2 class="profile-name" id="profile-card-name">Loading...</h2>
+              <p class="profile-headline" id="profile-card-headline">Job Matcher AI User</p>
+            </div>
+            <div class="profile-stats">
+              <div class="profile-stat-item" id="shortcut-matches-btn">
+                <span class="profile-stat-label">Matches Found</span>
+                <span class="profile-stat-value" id="profile-stat-matches">-</span>
+              </div>
+              <div class="profile-stat-item" id="shortcut-searches-btn">
+                <span class="profile-stat-label">Searches Run</span>
+                <span class="profile-stat-value" id="profile-stat-searches">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity -->
+          <div class="recent-card">
+            <p class="recent-title">Recent Activity</p>
+            <ul class="recent-list">
+              <li class="recent-item" id="recent-roles-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span id="recent-activity-role">Job searching...</span>
+              </li>
+              <li class="recent-item" id="recent-companies-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m12-10a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                <span>Target boards list</span>
+              </li>
+            </ul>
+          </div>
+        </aside>
 
         <div class="center-feed">
           <section class="search-card" id="search-card">
@@ -311,7 +348,47 @@
           </div>
         </div> <!-- End of center-feed -->
 
-        <aside class="right-rail" id="right-rail"><!-- antigravity: TASK-012 preferences rail slot --></aside>
+        <aside class="right-rail" id="right-rail">
+          <!-- Daily Digest summary -->
+          <div class="digest-card">
+            <div class="digest-header">
+              <h4 class="digest-title">Daily Digest</h4>
+              <span class="digest-status-dot" id="rail-digest-status-dot"></span>
+            </div>
+            <p class="digest-desc" id="rail-digest-status-desc">
+              Daily digest is disabled. Enable in Settings.
+            </p>
+          </div>
+
+          <!-- Preferred Location -->
+          <div class="location-card">
+            <h4 class="location-title">Preferred Location</h4>
+            <div class="location-value">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 00-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span id="rail-location-text">Not specified</span>
+            </div>
+          </div>
+
+          <!-- Target Companies -->
+          <div class="companies-card">
+            <h4 class="companies-title">Target Companies</h4>
+            <ul class="companies-list" id="rail-companies-list">
+              <li class="companies-empty-text">No target company boards configured.</li>
+            </ul>
+          </div>
+
+          <!-- Footer Links -->
+          <div class="footer-block">
+            <div class="footer-links">
+              <a href="#" id="footer-about-btn">About</a>
+              <a href="#" id="footer-help-btn">Help Center</a>
+              <a href="#" id="footer-privacy-btn">Privacy & Terms</a>
+            </div>
+            <p class="copyright-text">
+              <strong>Job Matcher AI</strong> Corporation © 2026
+            </p>
+          </div>
+        </aside>
       </div> <!-- End of layout-grid -->
     </div> <!-- End of view-wizard -->
 
