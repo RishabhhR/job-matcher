@@ -21,44 +21,69 @@
   <div id="auth-container" class="auth-container hidden"></div>
   <div class="app-container hidden" id="app-container">
     <header class="app-header">
-      <div class="header-top-row">
+      <div class="nav-inner">
         <div class="header-logo">
           <span class="logo-icon">🎯</span>
           <h1>Job<span class="text-gradient">Matcher</span></h1>
         </div>
+        <div class="nav-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="search" id="feed-search-input" placeholder="Search your matches...">
+        </div>
         <div class="user-profile-header hidden" id="user-profile-header">
-          <span id="user-name-label" class="user-name-label">Loading user...</span>
           <nav class="header-nav">
-            <button type="button" class="nav-btn active" id="nav-btn-wizard">Match Wizard</button>
-            <button type="button" class="nav-btn" id="nav-btn-settings">Settings & Stats</button>
+            <button type="button" class="nav-btn active" id="nav-btn-wizard">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+              Match Wizard
+            </button>
+            <button type="button" class="nav-btn" id="nav-btn-settings">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Settings & Stats
+            </button>
           </nav>
+          <div class="nav-avatar-group">
+            <span class="nav-avatar" id="nav-avatar">?</span>
+            <span id="user-name-label" class="user-name-label">Loading user...</span>
+          </div>
           <button type="button" class="btn-secondary btn-sm" id="logout-btn">Log Out</button>
         </div>
       </div>
-      <p class="header-subtitle">Autonomously scrape public boards, target LinkedIn listings, and rank roles via LLM evaluation.</p>
     </header>
 
+    <div class="app-body">
     <!-- VIEW 1: Match Wizard -->
     <div id="view-wizard" class="view-pane active">
-      <!-- Step Progress Indicator -->
-      <nav class="stepper" id="stepper">
-      <button type="button" class="stepper-step active" data-step="profile" id="stepper-nav-profile">
-        <span class="stepper-dot">1</span>
-        <span class="stepper-label">Profile</span>
-      </button>
-      <span class="stepper-line"></span>
-      <button type="button" class="stepper-step" data-step="preferences" id="stepper-nav-preferences">
-        <span class="stepper-dot">2</span>
-        <span class="stepper-label">Search Preferences</span>
-      </button>
-      <span class="stepper-line"></span>
-      <button type="button" class="stepper-step" data-step="results" id="stepper-nav-results" disabled>
-        <span class="stepper-dot">3</span>
-        <span class="stepper-label">Results</span>
-      </button>
-    </nav>
+      <div class="layout-grid">
+        <aside class="left-rail" id="left-rail"><!-- antigravity: TASK-012 profile card slot --></aside>
 
-    <main class="app-main">
+        <div class="center-feed">
+          <section class="search-card" id="search-card">
+            <button type="button" class="search-card-pill" id="search-card-toggle">
+              <span class="search-card-pill-icon">🎯</span>
+              <span id="search-card-pill-label">Start a new search…</span>
+              <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+
+            <div class="collapsible-body" id="search-card-body">
+              <div class="collapsible-content">
+                <!-- Step Progress Indicator -->
+                <nav class="stepper" id="stepper">
+                <button type="button" class="stepper-step active" data-step="profile" id="stepper-nav-profile">
+                  <span class="stepper-dot">1</span>
+                  <span class="stepper-label">Profile</span>
+                </button>
+                <span class="stepper-line"></span>
+                <button type="button" class="stepper-step" data-step="preferences" id="stepper-nav-preferences">
+                  <span class="stepper-dot">2</span>
+                  <span class="stepper-label">Search Preferences</span>
+                </button>
+                <span class="stepper-line" id="stepper-line-results"></span>
+                <button type="button" class="stepper-step" data-step="results" id="stepper-nav-results" disabled>
+                  <span class="stepper-dot">3</span>
+                  <span class="stepper-label">Results</span>
+                </button>
+              </nav>
+
       <form id="matcher-form">
 
         <!-- STEP 1: Profile -->
@@ -236,36 +261,42 @@
           </div>
         </section>
 
-        <!-- STEP 3: Results -->
-        <section class="panel wizard-step wide" id="step-results" data-step-panel="results">
-          <div class="runner-header">
-            <h2 class="panel-title">Match Execution & Results</h2>
+      </form>
+              </div>
+            </div>
+          </section>
+
+          <!-- Always-visible run status + feed (formerly "Step 3") -->
+          <section class="feed-status-row">
             <div id="status-badge" class="status-badge idle">Idle</div>
+            <div class="feed-status-actions">
+              <button type="button" class="link-btn" id="back-to-preferences-btn">← Edit search</button>
+              <button type="button" class="collapsible-toggle run-logs-toggle" id="run-logs-toggle">
+                <span>View run logs</span>
+                <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+            </div>
+          </section>
+
+          <div class="collapsible-body" id="run-logs-body">
+            <div class="collapsible-content">
+              <!-- Run Log -->
+              <div id="terminal-body" class="terminal-body">
+                <div class="log-line system">Waiting to start job matching pipeline...</div>
+              </div>
+
+              <!-- Progress Bar -->
+              <div class="progress-bar-container hidden" id="progress-container">
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill" id="progress-bar"></div>
+                </div>
+                <span class="progress-percent" id="progress-percent">0%</span>
+              </div>
+            </div>
           </div>
 
-          <!-- Terminal Output -->
-          <div class="terminal-container">
-            <div class="terminal-header">
-              <span class="dot red"></span>
-              <span class="dot yellow"></span>
-              <span class="dot green"></span>
-              <span class="terminal-title">system_logs</span>
-            </div>
-            <div id="terminal-body" class="terminal-body">
-              <div class="log-line system">Waiting to start job matching pipeline...</div>
-            </div>
-          </div>
-
-          <!-- Progress Bar -->
-          <div class="progress-bar-container hidden" id="progress-container">
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill" id="progress-bar"></div>
-            </div>
-            <span class="progress-percent" id="progress-percent">0%</span>
-          </div>
-
-          <!-- Scored Results Grid -->
-          <div class="results-container">
+          <!-- Scored Results Feed -->
+          <div class="results-container" id="step-results" data-step-panel="results">
             <div class="results-header hidden" id="results-count-container">
               <h3>Top Matches Found (<span id="results-count">0</span>)</h3>
             </div>
@@ -278,15 +309,10 @@
               <button id="next-page-btn" class="btn-secondary btn-sm">Next</button>
             </div>
           </div>
+        </div> <!-- End of center-feed -->
 
-          <div class="wizard-actions">
-            <button type="button" class="btn-secondary btn-wizard-back" id="back-to-preferences-btn">← Edit Preferences</button>
-            <span></span>
-          </div>
-        </section>
-
-      </form>
-    </main>
+        <aside class="right-rail" id="right-rail"><!-- antigravity: TASK-012 preferences rail slot --></aside>
+      </div> <!-- End of layout-grid -->
     </div> <!-- End of view-wizard -->
 
     <!-- VIEW 2: Settings & Stats -->
@@ -434,6 +460,7 @@
         </div>
       </main>
     </div>
+    </div> <!-- End of app-body -->
   </div>
 
   <!-- JavaScript -->

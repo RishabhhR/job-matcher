@@ -24,7 +24,9 @@ const authContainer = document.getElementById("auth-container");
 const appContainer = document.getElementById("app-container");
 const userProfileHeader = document.getElementById("user-profile-header");
 const userNameLabel = document.getElementById("user-name-label");
+const navAvatar = document.getElementById("nav-avatar");
 const logoutBtn = document.getElementById("logout-btn");
+const feedSearchInput = document.getElementById("feed-search-input");
 
 const submitBtn = document.getElementById("submit-btn");
 const statusBadge = document.getElementById("status-badge");
@@ -81,7 +83,11 @@ document.getElementById("continue-to-preferences-btn").addEventListener("click",
 });
 
 document.getElementById("back-to-profile-btn").addEventListener("click", () => showStep("profile"));
-document.getElementById("back-to-preferences-btn").addEventListener("click", () => showStep("preferences"));
+document.getElementById("back-to-preferences-btn").addEventListener("click", () => {
+  document.getElementById("search-card-toggle").classList.add("expanded");
+  document.getElementById("search-card-body").classList.add("expanded");
+  showStep("preferences");
+});
 
 stepperNavButtons.forEach(btn => {
   btn.addEventListener("click", () => {
@@ -108,6 +114,21 @@ function wireCollapsible(toggleId, bodyId, startOpen = false) {
 wireCollapsible("paste-text-toggle", "paste-text-body");
 wireCollapsible("compensation-toggle", "compensation-body");
 wireCollapsible("ats-toggle", "ats-body");
+wireCollapsible("search-card-toggle", "search-card-body");
+wireCollapsible("run-logs-toggle", "run-logs-body");
+
+function collapseSearchCard() {
+  document.getElementById("search-card-toggle").classList.remove("expanded");
+  document.getElementById("search-card-body").classList.remove("expanded");
+}
+
+// --- Live client-side filter over the always-visible match feed ---
+feedSearchInput.addEventListener("input", () => {
+  const query = feedSearchInput.value.trim().toLowerCase();
+  document.querySelectorAll("#results-grid .result-card").forEach(card => {
+    card.classList.toggle("hidden", query.length > 0 && !card.textContent.toLowerCase().includes(query));
+  });
+});
 
 // --- Digest hour visibility follows the toggle ---
 function syncDigestHourVisibility() {
@@ -201,6 +222,14 @@ function showApp() {
   userProfileHeader.classList.remove("hidden");
   const displayName = clerkUser.fullName || clerkUser.primaryEmailAddress.emailAddress;
   userNameLabel.textContent = `Hello, ${displayName}!`;
+  navAvatar.textContent = getInitials(displayName);
+}
+
+function getInitials(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const initials = parts.length === 1 ? parts[0][0] : parts[0][0] + parts[parts.length - 1][0];
+  return initials.toUpperCase();
 }
 
 logoutBtn.addEventListener("click", async () => {
@@ -500,9 +529,10 @@ function handleSSEEvent(event, data) {
     currentUserId = data.userId;
     totalMatchesCount = data.totalMatches;
     currentPage = 1;
-    
+
     renderResults(data.results);
     updatePaginationControls();
+    collapseSearchCard();
   } else if (event === "error") {
     addLogLine("error", "Error during execution: " + data.message);
     statusBadge.className = "status-badge error";
