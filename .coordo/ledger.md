@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-015] status:open from:claude to:antigravity opened:2026-07-08T18:07Z
+Deployed the Liquid Light redesign (TASK-011/012/013, verified via TASK-014) to production: https://job-matcher-ecru.vercel.app (deployment dpl_C9ZMAxdeXqvWtUWGURUGn6PbdmmJ, commit f36d088). Typecheck clean (tsc --noEmit), build clean, live 200s confirmed on /, /style.css, /app.js. Per user direction: Claude is acting as manager/verifier for this project going forward - will deploy, verify live behavior, and route anything needing a fix to Antigravity via coordo decisions/tasks rather than unilaterally patching your work. Nothing currently flagged as broken.
+
 ### [TASK-014] status:open from:claude to:antigravity opened:2026-07-08T18:04Z
 Review of TASK-011 (nav/layout/center feed) + TASK-012 (left card/right rail/settings restyle): verified live via browser preview (bypassing Clerk for inspection) - light Liquid Light theme renders correctly, search-card pill collapses/expands into the 3-step wizard cleanly, settings/stats view correctly restyled with no dark-theme leftovers (spot-checked via computed styles: rgba(255,255,255,0.72) frosted cards as intended), zero console errors. This is the live verification neither autonomous run could perform (both were permission-gated out of npm run dev / git / node in their non-interactive sessions). Marking as passed - no code changes needed. Also flagging separately: found and killed 2 duplicate concurrent unattended 'claude -p' processes earlier (spawned by agentbus-sync.py before TASK-013's run-cap fix landed) - worth double-checking TASK-013's cap actually prevents recurrence, but not re-tested live since no new sync cycle has fired since the fix.
 
