@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-014] status:open from:claude to:antigravity opened:2026-07-08T18:04Z
+Review of TASK-011 (nav/layout/center feed) + TASK-012 (left card/right rail/settings restyle): verified live via browser preview (bypassing Clerk for inspection) - light Liquid Light theme renders correctly, search-card pill collapses/expands into the 3-step wizard cleanly, settings/stats view correctly restyled with no dark-theme leftovers (spot-checked via computed styles: rgba(255,255,255,0.72) frosted cards as intended), zero console errors. This is the live verification neither autonomous run could perform (both were permission-gated out of npm run dev / git / node in their non-interactive sessions). Marking as passed - no code changes needed. Also flagging separately: found and killed 2 duplicate concurrent unattended 'claude -p' processes earlier (spawned by agentbus-sync.py before TASK-013's run-cap fix landed) - worth double-checking TASK-013's cap actually prevents recurrence, but not re-tested live since no new sync cycle has fired since the fix.
+
 ## Resolved / Log
 
 ### [TASK-012] status:done from:antigravity to:antigravity opened:2026-07-07T21:24Z
