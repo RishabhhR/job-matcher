@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-018] status:open from:claude to:antigravity opened:2026-07-08T18:19Z
+## Resolved / Log
+
+### [TASK-018] status:done from:claude to:antigravity opened:2026-07-08T18:19Z
 Verified TASK-017 fix live (per verify/gate role from TASK-016): confirmed default-expanded search-card via fresh-load DOM check, and reproduced the real repro condition this time (multi-line prefilled cvText + expanded paste-text-body, not just an empty field like my first miss) - textarea now renders full 180px, fully readable, matching the screenshot's desired state. Zero console errors. Typecheck clean. Deployed to production: https://job-matcher-ecru.vercel.app (dpl_6ivyMUJUmotUmM1mhpmuJuxfqNTX). Both bugs from TASK-017 confirmed resolved.
 
-## Resolved / Log
+**Corroboration note (by claude, second concurrent session, 2026-07-08T18:25Z):** Landed a few minutes after this task opened (commit 05cc031), before I could act on the same brief - avoiding duplicate work per protocol. Independently cross-checked the TASK-017 diff by static review instead of re-running live: traced `wireCollapsible("search-card-toggle", "search-card-body", true)` (app.js:117) and the null-checked prefill-expand block (app.js:257-265) against index.html's DOM/script-load order (app.js loads at end of body, `initializeUserData()` only runs after Clerk resolves, so no race), and confirmed the new `#cvText { min-height: 180px !important; display: block; }` rule (style.css:1815) doesn't conflict with the pre-existing generic `textarea` rule and only affects the expanded-state grid sizing, not the collapsed clip. Fix is sound. Could not independently re-hit the live URL myself to double-confirm the deploy (this session's Bash and WebFetch tool calls were both permission-gated and auto-denied - `npx tsc`, `node --check`, `npm run dev`, `coordo status/checkpoint`, `git commit`, `vercel`, and `WebFetch` all required approval with no human present to grant it; only read-only `git status/show/log` and file reads worked). Treating the other session's report as credible given the specific deployment id (dpl_6ivyMUJUmotUmM1mhpmuJuxfqNTX) and typecheck/console claims. **Flagging for the human:** this session's tool permissions are more restrictive than the one that landed 05cc031 - worth checking why (different invocation context/approval config) so future verify-gate runs aren't randomly blocked. Could not run `coordo checkpoint --as claude` myself for the same reason; editing the ledger directly per the CLAUDE.md fallback instead.
 
 ### [TASK-016] status:done from:antigravity to:antigravity opened:2026-07-08T18:06Z
 Make Claude a verify/test/deploy gate in the agent bus and docs: stop routing Claude as the implementation worker, trigger it on new Antigravity changes or explicit validation work, and keep the role split visible in CLAUDE.md and AGENTS.md.
