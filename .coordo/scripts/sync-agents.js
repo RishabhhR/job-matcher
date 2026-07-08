@@ -24,7 +24,6 @@ const root = findProjectRoot();
 const ledgerPath = path.join(root, ".coordo", "ledger.md");
 const agentbusInboxDir = path.join(root, ".coordo", "agentbus", "inbox");
 const agentbusLogPath = path.join(root, ".coordo", "agentbus", "handoff.log");
-const maxClaudeChunksPerRun = 1;
 
 function readLedgerContent() {
   if (!existsSync(ledgerPath)) return "";
@@ -172,6 +171,12 @@ ${digest || "No digest available."}
 ## Open Items Assigned To You
 ${summarizeItems(items)}
 
+${agent === "claude" ? `## Claude Role
+- You are the verification and release gate.
+- Verify, test, and deploy the current implementation instead of building new features.
+- If a test fails or a release blocker appears, make only the minimum fix needed to complete verification, then checkpoint and exit.
+` : ""}
+
 ## Operating Rules
 - Treat this brief as the source of truth for the current turn.
 - Work the assigned items without waiting for the human unless you are blocked by access, ambiguity, or an external dependency.
@@ -195,7 +200,7 @@ function appendHandoffLog(line) {
 function runClaude(briefPath) {
   console.log(`\n🤖 [Sync] Dispatching Claude with brief ${briefPath}`);
   appendHandoffLog(`[${new Date().toISOString()}] dispatch claude ${briefPath}`);
-  const prompt = `Open ${briefPath}. Resolve the assigned work, update .coordo/ledger.md, checkpoint, and exit. If blocked, record the blocker and stop.`;
+  const prompt = `Open ${briefPath}. Your role is to verify, test, and deploy the current changes. Do not build new features unless required to fix a failing test or release blocker. Update .coordo/ledger.md with the verification result, checkpoint, and exit. If blocked, record the blocker and stop.`;
 
   try {
     runCommandLive("claude", ["-p", prompt, "--permission-mode", "acceptEdits"]);
@@ -248,41 +253,26 @@ async function runLoop() {
     console.log(`\n--- Iteration ${iterations} ---`);
 
     const before = readLedgerContent();
-    const claudeItems = parseLedgerItems("claude");
     const antigravityItems = parseLedgerItems("antigravity");
+    const claudeItems = parseLedgerItems("claude");
+    const antigravityDigest = readDigest("antigravity");
+    const claudeDigest = readDigest("claude");
+    const antigravityDigestChanged = digestHasChanges(antigravityDigest);
+    const claudeDigestChanged = digestHasChanges(claudeDigest);
 
-    if (claudeItems.length === 0 && antigravityItems.length === 0) {
+    if (
+      claudeItems.length === 0 &&
+      antigravityItems.length === 0 &&
+      !claudeDigestChanged &&
+      !antigravityDigestChanged
+    ) {
       console.log("✅ No open tasks or decisions in the ledger. Sync complete!");
       break;
     }
 
     let handledAny = false;
-    let claudeChunksRun = 0;
-
-    if (claudeItems.length > 0 && claudeChunksRun < maxClaudeChunksPerRun) {
-      const claudeDigestBefore = readDigest("claude");
-      const claudeReason = `Open work assigned to claude in the coordo ledger (${claudeItems.length} item${claudeItems.length === 1 ? "" : "s"}).`;
-      const brief = buildAgentBrief("claude", {
-        digestText: claudeDigestBefore,
-        items: claudeItems,
-        triggerReasons: [claudeReason]
-      });
-      const briefPath = writeAgentBrief("claude", brief);
-      console.log(`🟦 Claude trigger: ${claudeReason}`);
-      runClaude(briefPath);
-      if (!checkpointAgent("claude")) {
-        console.log("⚠️ Stopping sync because claude checkpoint failed.");
-        break;
-      }
-      claudeChunksRun += 1;
-      handledAny = true;
-    }
-
-    const antigravityItemsAfterClaude = parseLedgerItems("antigravity");
-    const antigravityDigest = readDigest("antigravity");
-    const antigravityDigestChanged = digestHasChanges(antigravityDigest);
     const antigravityReasons = [];
-    if (antigravityItemsAfterClaude.length > 0) {
+    if (antigravityItems.length > 0) {
       antigravityReasons.push("Open work assigned to antigravity in the coordo ledger.");
     }
     if (antigravityDigestChanged) {
@@ -292,13 +282,40 @@ async function runLoop() {
     if (antigravityReasons.length > 0) {
       const brief = buildAgentBrief("antigravity", {
         digestText: antigravityDigest,
-        items: antigravityItemsAfterClaude,
+        items: antigravityItems,
         triggerReasons: antigravityReasons
       });
       const briefPath = writeAgentBrief("antigravity", brief);
       console.log(`🟪 Antigravity trigger: ${antigravityReasons.join(" | ")}`);
       const antigravityRan = runAntigravity(briefPath, antigravityReasons.join(" "));
       handledAny = handledAny || antigravityRan || !process.env.AGENTBUS_ANTIGRAVITY_BIN;
+    }
+
+    const refreshedClaudeItems = parseLedgerItems("claude");
+    const refreshedClaudeDigest = readDigest("claude");
+    const refreshedClaudeDigestChanged = digestHasChanges(refreshedClaudeDigest);
+    const claudeReasons = [];
+    if (refreshedClaudeItems.length > 0) {
+      claudeReasons.push("Verification work assigned to claude in the coordo ledger.");
+    }
+    if (refreshedClaudeDigestChanged) {
+      claudeReasons.push("New commits landed since Claude's last checkpoint; verify, test, and prepare deployment.");
+    }
+
+    if (claudeReasons.length > 0) {
+      const brief = buildAgentBrief("claude", {
+        digestText: refreshedClaudeDigest,
+        items: refreshedClaudeItems,
+        triggerReasons: claudeReasons
+      });
+      const briefPath = writeAgentBrief("claude", brief);
+      console.log(`🟦 Claude trigger: ${claudeReasons.join(" | ")}`);
+      runClaude(briefPath);
+      if (!checkpointAgent("claude")) {
+        console.log("⚠️ Stopping sync because claude checkpoint failed.");
+        break;
+      }
+      handledAny = true;
     }
 
     const after = readLedgerContent();

@@ -16,6 +16,8 @@ Read or edit `.coordo/ledger.md` directly, or use `coordo task` / `coordo decisi
 4. Mark it `coordo task done <id> --note "..."` with what changed, which files, and how it was verified.
 5. **Review the other agent's completed work**: when `coordo digest --as antigravity` shows their commits, read the diff, and record the review outcome as a note or a new task/decision if you find problems. Don't silently rewrite their code — raise a decision first.
 
+Claude's default lane in this project is verification and release: verify, test, and deploy Antigravity's implementation changes. If something needs implementation to complete a release, keep the fix minimal and treat the result as a verification step rather than a new feature sprint.
+
 Before ending a session (or after a handoff-worthy change), run `coordo checkpoint --as antigravity`.
 <!-- coordo:end -->
 
@@ -28,3 +30,7 @@ Before ending a session (or after a handoff-worthy change), run `coordo checkpoi
   1. Register the completion details by marking your task as done in `coordo` (e.g., `coordo task done TASK-NNN --note "..."`).
   2. Set your checkpoint (e.g., `coordo checkpoint --as antigravity`) and commit/push your changes.
   3. Review the other agent's done notes and code approaches before starting the next cycle.
+
+Default role split:
+- Antigravity owns implementation work.
+- Claude owns verification, testing, and deploy validation.

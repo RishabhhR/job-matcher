@@ -26,7 +26,6 @@ root = find_project_root()
 ledger_path = root / ".coordo" / "ledger.md"
 agentbus_inbox_dir = root / ".coordo" / "agentbus" / "inbox"
 agentbus_log_path = root / ".coordo" / "agentbus" / "handoff.log"
-MAX_CLAUDE_CHUNKS_PER_RUN = 1
 
 
 def read_ledger_content():
@@ -147,6 +146,13 @@ def build_agent_brief(agent, status_text=None, digest_text=None, items=None, tri
     items = items if items is not None else parse_ledger_items(agent)
     trigger_reasons = trigger_reasons or []
     trigger_block = "\n".join(f"- {reason}" for reason in trigger_reasons) if trigger_reasons else "- none"
+    claude_role_block = ""
+    if agent == "claude":
+        claude_role_block = """## Claude Role
+- You are the verification and release gate.
+- Verify, test, and deploy the current implementation instead of building new features.
+- If a test fails or a release blocker appears, make only the minimum fix needed to complete verification, then checkpoint and exit.
+"""
 
     return f"""# Agent Brief: {agent}
 
@@ -163,6 +169,8 @@ Generated: {utcnow().isoformat()}
 
 ## Open Items Assigned To You
 {summarize_items(items)}
+
+{claude_role_block}
 
 ## Operating Rules
 - Treat this brief as the source of truth for the current turn.
@@ -210,21 +218,32 @@ class ClaudeAgent(BaseAgent):
     def handle_event(self, event: EventRecord) -> None:
         print(f"\n🤖 [AgentBus] ClaudeAgent handling event: {event.event_type}")
         claude_items = parse_ledger_items("claude")
-        claude_reason = f"Open work assigned to claude in the coordo ledger ({len(claude_items)} item{'s' if len(claude_items) != 1 else ''})."
+        claude_digest = read_digest("claude")
+        claude_digest_changed = digest_has_changes(claude_digest)
+        trigger_reasons = []
+        if claude_items:
+            trigger_reasons.append("Verification work assigned to claude in the coordo ledger.")
+        if claude_digest_changed:
+            trigger_reasons.append(
+                "New commits landed since Claude's last checkpoint; verify, test, and prepare deployment."
+            )
         brief = build_agent_brief(
             "claude",
-            digest_text=read_digest("claude"),
+            digest_text=claude_digest,
             items=claude_items,
-            trigger_reasons=[claude_reason],
+            trigger_reasons=trigger_reasons,
         )
         brief_path = write_agent_brief("claude", brief)
-        print(f"🟦 Claude trigger: {claude_reason}")
+        trigger_summary = " | ".join(trigger_reasons) if trigger_reasons else "no explicit reason"
+        print(f"🟦 Claude trigger: {trigger_summary}")
         append_handoff_log(f"[{utcnow().isoformat()}] dispatch claude {brief_path}")
         prompt = (
-            f"Open {brief_path}. Resolve the assigned work, update .coordo/ledger.md, "
-            "checkpoint, and exit. If blocked, record the blocker and stop."
+            f"Open {brief_path}. Your role is to verify, test, and deploy the current changes. "
+            "Do not build new features unless required to fix a failing test or release blocker. "
+            "Update .coordo/ledger.md with the verification result, checkpoint, and exit. "
+            "If blocked, record the blocker and stop."
         )
-        print("🤖 [AgentBus] Executing Claude Code in autonomous mode...")
+        print("🤖 [AgentBus] Executing Claude Code in verification mode...")
         try:
             run_command_live("claude", ["-p", prompt, "--permission-mode", "acceptEdits"])
             print("🤖 [AgentBus] Claude Code completed successfully!")
@@ -294,41 +313,19 @@ async def main():
         print(f"\n--- AgentBus Loop Iteration {iteration} ---")
 
         before = read_ledger_content()
-        claude_work = has_open_tasks_for("claude")
         antigravity_work = has_open_tasks_for("antigravity")
+        claude_work = has_open_tasks_for("claude")
+        antigravity_digest = read_digest("antigravity")
+        claude_digest = read_digest("claude")
+        antigravity_digest_changed = digest_has_changes(antigravity_digest)
+        claude_digest_changed = digest_has_changes(claude_digest)
 
-        if not claude_work and not antigravity_work:
-            if digest_has_changes(read_digest("antigravity")):
-                antigravity_work = True
-            else:
-                print("✅ No open tasks in coordo ledger and no reviewable Claude changes. Sync complete!")
-                break
+        if not claude_work and not antigravity_work and not claude_digest_changed and not antigravity_digest_changed:
+            print("✅ No open tasks in coordo ledger and no reviewable changes. Sync complete!")
+            break
 
         handled_any = False
-        claude_chunks_run = 0
-
-        if claude_work and claude_chunks_run < MAX_CLAUDE_CHUNKS_PER_RUN:
-            event = EventRecord(
-                event_id=f"evt-{utcnow().timestamp()}",
-                project_id=config.project_id,
-                session_id=f"{config.project_id}:sync",
-                sender="system",
-                receiver="claude",
-                event_type="TASK.claude",
-                payload={"action": "resolve_ledger_items"},
-            )
-            runtime.publish(event)
-            await runtime.dispatch(event)
-            if not checkpoint_agent("claude"):
-                print("⚠️ [AgentBus] Stopping sync because claude checkpoint failed.")
-                break
-            claude_chunks_run += 1
-            handled_any = True
-
-        refreshed_antigravity_work = has_open_tasks_for("antigravity")
-        antigravity_digest = read_digest("antigravity")
-        antigravity_digest_changed = digest_has_changes(antigravity_digest)
-        if refreshed_antigravity_work or antigravity_digest_changed:
+        if antigravity_work or antigravity_digest_changed:
             event = EventRecord(
                 event_id=f"evt-{utcnow().timestamp()}",
                 project_id=config.project_id,
@@ -340,6 +337,26 @@ async def main():
             )
             runtime.publish(event)
             await runtime.dispatch(event)
+            handled_any = True
+
+        refreshed_claude_work = has_open_tasks_for("claude")
+        refreshed_claude_digest = read_digest("claude")
+        refreshed_claude_digest_changed = digest_has_changes(refreshed_claude_digest)
+        if refreshed_claude_work or refreshed_claude_digest_changed:
+            event = EventRecord(
+                event_id=f"evt-{utcnow().timestamp()}",
+                project_id=config.project_id,
+                session_id=f"{config.project_id}:sync",
+                sender="system",
+                receiver="claude",
+                event_type="TASK.claude",
+                payload={"action": "verify_test_deploy"},
+            )
+            runtime.publish(event)
+            await runtime.dispatch(event)
+            if not checkpoint_agent("claude"):
+                print("⚠️ [AgentBus] Stopping sync because claude checkpoint failed.")
+                break
             handled_any = True
 
         after = read_ledger_content()
