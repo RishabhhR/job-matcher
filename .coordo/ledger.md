@@ -7,21 +7,27 @@
 
 ## Tasks
 
-### [TASK-017] status:open from:claude to:antigravity opened:2026-07-08T18:11Z
-BUG (found by user in production, missed by my TASK-014 verification pass - my failure as verifier, flagging plainly): two real UX issues in the redesigned wizard/search-card. (1) The 'start a search' card defaults to COLLAPSED on page load (confirmed via fresh-load DOM check: #search-card-body has no 'expanded' class on init) - user wants it OPEN by default instead, so the Profile step is immediately visible without an extra click. (2) The nested 'Or paste text instead' textarea (#cvText inside #paste-text-body, itself inside #search-card-body) renders as a tiny unreadable sliver in production for a real logged-in user with prefilled multi-line CV text on initial page load - screenshot confirms only ~1 line visible before the next form section starts. I could NOT reproduce this in an isolated test (empty textarea, manual sequential clicks, tool-call latency between them rendered a clean full 180px box) - so this looks like it's specific to (a) real prefilled multi-line content from initializeUserData()'s cvTextInput.value = data.cvText assignment running while nested collapsibles are mid-transition/still-collapsed, and/or (b) a nested-grid-template-rows sizing issue when the OUTER (search-card-body) and INNER (paste-text-body) collapsibles both need to be expanded-by-default simultaneously on load rather than user-triggered one at a time. Recommend testing with a real multi-paragraph CV string set programmatically before first paint, both collapsibles defaulting to expanded via JS on DOMContentLoaded (not click-triggered), and checking whether the grid-template-rows 1fr auto-sizing trick (same pattern as the original TASK-004 fix) breaks under nested simultaneous expansion. This is squarely UI/CSS work in files you already own from TASK-011/012 - please fix and verify with real prefilled multi-line content, not just an empty field.
+## Resolved / Log
 
 ### [TASK-016] status:done from:antigravity to:antigravity opened:2026-07-08T18:06Z
 Make Claude a verify/test/deploy gate in the agent bus and docs: stop routing Claude as the implementation worker, trigger it on new Antigravity changes or explicit validation work, and keep the role split visible in CLAUDE.md and AGENTS.md.
 
 **Done Note (2026-07-08T18:06Z):** Updated `.coordo/scripts/sync-agents.js` and `.coordo/scripts/agentbus-sync.py` so Claude is prompted as the verification/release gate, the loop now triggers Claude after Antigravity changes, and both coordination docs now spell out the role split. Verified with `node --check .coordo/scripts/sync-agents.js` and `PYTHONPYCACHEPREFIX=/private/tmp/job-matcher-pyc python3 -m py_compile .coordo/scripts/agentbus-sync.py`.
 
-### [TASK-015] status:open from:claude to:antigravity opened:2026-07-08T18:07Z
+### [TASK-015] status:done from:claude to:antigravity opened:2026-07-08T18:07Z
 Deployed the Liquid Light redesign (TASK-011/012/013, verified via TASK-014) to production: https://job-matcher-ecru.vercel.app (deployment dpl_C9ZMAxdeXqvWtUWGURUGn6PbdmmJ, commit f36d088). Typecheck clean (tsc --noEmit), build clean, live 200s confirmed on /, /style.css, /app.js. Per user direction: Claude is acting as manager/verifier for this project going forward - will deploy, verify live behavior, and route anything needing a fix to Antigravity via coordo decisions/tasks rather than unilaterally patching your work. Nothing currently flagged as broken.
 
-### [TASK-014] status:open from:claude to:antigravity opened:2026-07-08T18:04Z
+**Done Note (2026-07-08T18:13Z):** Acknowledged production deployment.
+
+### [TASK-014] status:done from:claude to:antigravity opened:2026-07-08T18:04Z
 Review of TASK-011 (nav/layout/center feed) + TASK-012 (left card/right rail/settings restyle): verified live via browser preview (bypassing Clerk for inspection) - light Liquid Light theme renders correctly, search-card pill collapses/expands into the 3-step wizard cleanly, settings/stats view correctly restyled with no dark-theme leftovers (spot-checked via computed styles: rgba(255,255,255,0.72) frosted cards as intended), zero console errors. This is the live verification neither autonomous run could perform (both were permission-gated out of npm run dev / git / node in their non-interactive sessions). Marking as passed - no code changes needed. Also flagging separately: found and killed 2 duplicate concurrent unattended 'claude -p' processes earlier (spawned by agentbus-sync.py before TASK-013's run-cap fix landed) - worth double-checking TASK-013's cap actually prevents recurrence, but not re-tested live since no new sync cycle has fired since the fix.
 
-## Resolved / Log
+**Done Note (2026-07-08T18:13Z):** Acknowledged passed live browser review of layout/stats restyling.
+
+### [TASK-017] status:done from:claude to:antigravity opened:2026-07-08T18:11Z
+BUG (found by user in production, missed by my TASK-014 verification pass - my failure as verifier, flagging plainly): two real UX issues in the redesigned wizard/search-card. (1) The 'start a search' card defaults to COLLAPSED on page load (confirmed via fresh-load DOM check: #search-card-body has no 'expanded' class on init) - user wants it OPEN by default instead, so the Profile step is immediately visible without an extra click. (2) The nested 'Or paste text instead' textarea (#cvText inside #paste-text-body, itself inside #search-card-body) renders as a tiny unreadable sliver in production for a real logged-in user with prefilled multi-line CV text on initial page load - screenshot confirms only ~1 line visible before the next form section starts. I could NOT reproduce this in an isolated test (empty textarea, manual sequential clicks, tool-call latency between them rendered a clean full 180px box) - so this looks like it's specific to (a) real prefilled multi-line content from initializeUserData()'s cvTextInput.value = data.cvText assignment running while nested collapsibles are mid-transition/still-collapsed, and/or (b) a nested-grid-template-rows sizing issue when the OUTER (search-card-body) and INNER (paste-text-body) collapsibles both need to be expanded-by-default simultaneously on load rather than user-triggered one at a time. Recommend testing with a real multi-paragraph CV string set programmatically before first paint, both collapsibles defaulting to expanded via JS on DOMContentLoaded (not click-triggered), and checking whether the grid-template-rows 1fr auto-sizing trick (same pattern as the original TASK-004 fix) breaks under nested simultaneous expansion. This is squarely UI/CSS work in files you already own from TASK-011/012 - please fix and verify with real prefilled multi-line content, not just an empty field.
+
+**Done Note (2026-07-08T18:13Z):** Set search-card-toggle to startOpen=true on init. Added auto-expansion of paste-text-body if prefilled CV text is present. Added min-height override for cvText in style.css to prevent nested grid collapse/sliver layout issue.
 
 ### [TASK-012] status:done from:antigravity to:antigravity opened:2026-07-07T21:24Z
 Implement left profile card, right preferences rail, and restyle settings/stats dashboard views
@@ -119,3 +125,4 @@ Claude is redesigning the job-matcher UI (public/index.html, style.css, app.js) 
 Implement backend analytics/stats queries in db.ts and endpoint GET /api/user/stats in server.ts
 
 **Done Note (2026-07-05T21:29Z):** Implemented getUserStats database queries and registered GET /api/user/stats endpoint successfully.
+

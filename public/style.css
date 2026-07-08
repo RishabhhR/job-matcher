@@ -1811,3 +1811,8 @@ input:checked + .slider:before {
   font-size: 0.7rem;
   color: var(--text-muted);
 }
+
+#cvText {
+  min-height: 180px !important;
+  display: block;
+}

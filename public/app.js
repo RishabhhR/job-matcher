@@ -114,7 +114,7 @@ function wireCollapsible(toggleId, bodyId, startOpen = false) {
 wireCollapsible("paste-text-toggle", "paste-text-body");
 wireCollapsible("compensation-toggle", "compensation-body");
 wireCollapsible("ats-toggle", "ats-body");
-wireCollapsible("search-card-toggle", "search-card-body");
+wireCollapsible("search-card-toggle", "search-card-body", true);
 wireCollapsible("run-logs-toggle", "run-logs-body");
 
 function collapseSearchCard() {
@@ -254,7 +254,15 @@ async function initializeUserData() {
     const data = await response.json();
     currentUserId = data.userId;
 
-    if (data.cvText) cvTextInput.value = data.cvText;
+    if (data.cvText) {
+      cvTextInput.value = data.cvText;
+      const pasteToggle = document.getElementById("paste-text-toggle");
+      const pasteBody = document.getElementById("paste-text-body");
+      if (pasteToggle && pasteBody) {
+        pasteToggle.classList.add("expanded");
+        pasteBody.classList.add("expanded");
+      }
+    }
     if (data.profile) {
       targetDesignationInput.value = data.profile.targetDesignation || "";
       currentEmployerInput.value = data.profile.currentEmployer || "";
