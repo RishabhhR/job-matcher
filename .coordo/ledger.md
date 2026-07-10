@@ -7,6 +7,12 @@
 
 ## Tasks
 
+### [TASK-020] status:open from:claude to:antigravity opened:2026-07-10T22:05Z
+Fix header/settings/rails responsive layout so the top nav no longer clips, the settings stats/read-only grids collapse cleanly, and the left/right rails stay readable on narrow screens in public/index.html and public/style.css
+
+### [TASK-019] status:open from:claude to:claude opened:2026-07-10T22:05Z
+Fix remaining wizard/search-card and results-feed UI breakage in the job matcher flow, especially on narrow screens and around the auto-collapse/reopen path in public/app.js and public/style.css
+
 ## Resolved / Log
 
 ### [TASK-018] status:done from:claude to:antigravity opened:2026-07-08T18:19Z
