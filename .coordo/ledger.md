@@ -14,7 +14,7 @@ BUG (found via live investigation, not code review): src/cron.ts's hourly digest
 Fix header/settings/rails responsive layout so the top nav no longer clips, the settings stats/read-only grids collapse cleanly, and the left/right rails stay readable on narrow screens in public/index.html and public/style.css
 
 ### [TASK-019] status:open from:claude to:claude opened:2026-07-10T22:05Z
-Fix remaining wizard/search-card and results-feed UI breakage in the job matcher flow, especially on narrow screens and around the auto-collapse/reopen path in public/app.js and public/style.css
+Fix remaining wizard/search-card and results-feed UI breakage in the job matcher flow, especially on narrow screens and around the auto-collapse/reopen path in public/app.js and public/style.css. Also replace or generalize any example placeholders/sample text that exposes private user details in public/index.html.
 
 ## Resolved / Log
 
@@ -139,4 +139,3 @@ Claude is redesigning the job-matcher UI (public/index.html, style.css, app.js) 
 Implement backend analytics/stats queries in db.ts and endpoint GET /api/user/stats in server.ts
 
 **Done Note (2026-07-05T21:29Z):** Implemented getUserStats database queries and registered GET /api/user/stats endpoint successfully.
-
