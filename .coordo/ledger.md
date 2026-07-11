@@ -7,18 +7,22 @@
 
 ## Tasks
 
-### [TASK-021] status:in-progress from:claude to:claude opened:2026-07-10T22:06Z
-BUG (found via live investigation, not code review): src/cron.ts's hourly digest cron has no catch-up/miss-detection logic. It only checks 'does the current run's local hour == user's digest_hour' at execution time - if a run lands outside that exact hour window (confirmed via GitHub Actions run history: on 2026-07-07 and 2026-07-10 the hourly job's actual execution drifted from ~06:40 UTC straight to ~10:20 UTC, skipping the 07:30-08:29 UTC window entirely that day), any user whose digest_hour falls in the skipped window gets silently no digest for that entire day, with no retry/catch-up and no error logged (it just never matches, so it's indistinguishable from 'nothing to do'). Verified concretely for rishabhraj.ug20@nsut.ac.in: digest_hour=13 (Asia/Kolkata), all preconditions met (active CV, complete profile), but jm_email_send_log has zero rows because no run has landed in the 13:00 IST window since digest_hour was set. Root cause is GitHub Actions' known schedule-timing unreliability (documented earlier in this project) combined with cron.ts's exact-hour-match-only logic. Fix options to consider: (a) widen the match to 'local hour is within N hours of digest_hour and not yet sent today' instead of exact match, (b) add a daily catch-up pass late in the day that catches anyone who should have received a digest but didn't, (c) increase cron frequency / reduce GH Actions drift some other way.
-
-**Claim note (2026-07-10T22:15Z):** Reassigning to myself per explicit user instruction. Plan: widen the match to "local hour >= digest_hour AND not yet sent today" (option a, bounded catch-up within the same day) rather than exact-hour match - since the cron runs multiple times an hour-ish, the next run after a missed window will now catch it, instead of waiting a full day. Scoped to src/cron.ts only.
-
-### [TASK-020] status:open from:claude to:antigravity opened:2026-07-10T22:05Z
-Fix header/settings/rails responsive layout so the top nav no longer clips, the settings stats/read-only grids collapse cleanly, and the left/right rails stay readable on narrow screens in public/index.html and public/style.css
-
 ### [TASK-019] status:open from:claude to:claude opened:2026-07-10T22:05Z
 Fix remaining wizard/search-card and results-feed UI breakage in the job matcher flow, especially on narrow screens and around the auto-collapse/reopen path in public/app.js and public/style.css. Also replace or generalize any example placeholders/sample text that exposes private user details in public/index.html.
 
 ## Resolved / Log
+
+### [TASK-021] status:done from:claude to:claude opened:2026-07-10T22:06Z
+BUG (found via live investigation, not code review): src/cron.ts's hourly digest cron has no catch-up/miss-detection logic. It only checks 'does the current run's local hour == user's digest_hour' at execution time - if a run lands outside that exact hour window (confirmed via GitHub Actions run history: on 2026-07-07 and 2026-07-10 the hourly job's actual execution drifted from ~06:40 UTC straight to ~10:20 UTC, skipping the 07:30-08:29 UTC window entirely that day), any user whose digest_hour falls in the skipped window gets silently no digest for that entire day, with no retry/catch-up and no error logged (it just never matches, so it's indistinguishable from 'nothing to do'). Verified concretely for rishabhraj.ug20@nsut.ac.in: digest_hour=13 (Asia/Kolkata), all preconditions met (active CV, complete profile), but jm_email_send_log has zero rows because no run has landed in the 13:00 IST window since digest_hour was set. Root cause is GitHub Actions' known schedule-timing unreliability (documented earlier in this project) combined with cron.ts's exact-hour-match-only logic. Fix options to consider: (a) widen the match to 'local hour is within N hours of digest_hour and not yet sent today' instead of exact match, (b) add a daily catch-up pass late in the day that catches anyone who should have received a digest but didn't, (c) increase cron frequency / reduce GH Actions drift some other way.
+
+**Claim note (2026-07-10T22:15Z):** Reassigning to myself per explicit user instruction. Plan: widen the match to "local hour >= digest_hour AND not yet sent today" (option a, bounded catch-up within the same day) rather than exact-hour match - since the cron runs multiple times an hour-ish, the next run after a missed window will now catch it, instead of waiting a full day. Scoped to src/cron.ts only.
+
+**Done Note (2026-07-11T08:16Z):** Updated scheduling logic in src/cron.ts to check if localHour >= digestHour, supporting catch-ups if GitHub Actions workflow ticks drift or skip hours. Also converted sendDate to use the user's local calendar date so daily idempotency checks are correctly timezone-aligned.
+
+### [TASK-020] status:done from:claude to:antigravity opened:2026-07-10T22:05Z
+Fix header/settings/rails responsive layout so the top nav no longer clips, the settings stats/read-only grids collapse cleanly, and the left/right rails stay readable on narrow screens in public/index.html and public/style.css
+
+**Done Note (2026-07-11T08:16Z):** Wrapped navigation button text in span.nav-btn-text in index.html. Added media queries in style.css to hide user name label < 860px, hide search box & button text < 680px, scale logo/avatar < 480px, collapse metrics-row to 2-columns < 800px and 1-column < 520px, and collapse readonly-grid to 1-column < 480px.
 
 ### [TASK-018] status:done from:claude to:antigravity opened:2026-07-08T18:19Z
 Verified TASK-017 fix live (per verify/gate role from TASK-016): confirmed default-expanded search-card via fresh-load DOM check, and reproduced the real repro condition this time (multi-line prefilled cvText + expanded paste-text-body, not just an empty field like my first miss) - textarea now renders full 180px, fully readable, matching the screenshot's desired state. Zero console errors. Typecheck clean. Deployed to production: https://job-matcher-ecru.vercel.app (dpl_6ivyMUJUmotUmM1mhpmuJuxfqNTX). Both bugs from TASK-017 confirmed resolved.
@@ -141,3 +145,4 @@ Claude is redesigning the job-matcher UI (public/index.html, style.css, app.js) 
 Implement backend analytics/stats queries in db.ts and endpoint GET /api/user/stats in server.ts
 
 **Done Note (2026-07-05T21:29Z):** Implemented getUserStats database queries and registered GET /api/user/stats endpoint successfully.
+

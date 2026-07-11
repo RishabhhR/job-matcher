@@ -36,26 +36,39 @@ async function runHourlyCron() {
     const timezone = user.timezone as string || "Asia/Kolkata";
     const digestHour = user.digest_hour as number;
 
-    // Check if the current time matches the user's preferred hour in their local timezone
+    // Check the current time against the user's preferred hour in their local timezone.
+    // Compute both the hour and the calendar date via the same timezone-aware formatter -
+    // the previous code compared a local-timezone hour against a UTC calendar date, which
+    // matters once catch-up logic (below) can fire anywhere from digestHour through
+    // end-of-day rather than only in one exact hour.
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
       hour: "numeric",
       hour12: false,
     });
     const parts = formatter.formatToParts(now);
-    const hourPart = parts.find((p) => p.type === "hour")?.value;
-    const localHour = hourPart ? parseInt(hourPart, 10) : 9;
+    const partValue = (type: string) => parts.find((p) => p.type === type)?.value;
+    const localHour = partValue("hour") ? parseInt(partValue("hour")!, 10) : 9;
+    const localDate = `${partValue("year")}-${partValue("month")}-${partValue("day")}`;
 
-    console.log(`[cron-hourly] User ${email}: local hour in ${timezone} is ${localHour} (preferred: ${digestHour}).`);
+    console.log(`[cron-hourly] User ${email}: local time in ${timezone} is ${localDate} hour ${localHour} (preferred: ${digestHour}).`);
 
-    if (localHour === digestHour) {
+    // Catch-up match: fire any time from the preferred hour through the rest of the user's
+    // local day, not just an exact-hour match. GitHub Actions' schedule timing drifts
+    // (observed gaps of 3-4+ hours between runs), so an exact match can skip a user's window
+    // entirely for the whole day. The per-day dedup below still guarantees at most one send
+    // per user per local day.
+    if (localHour >= digestHour) {
       // This workflow runs every hour with no coordination with the older
       // fixed-time send-digest.yml/Vercel cron - without this check, a user
       // whose digest_hour happens to land near 9am/9pm could get duplicate
       // emails, and a GH Actions retry/re-run would resend indefinitely.
-      // send_date uses UTC (matches jm_email_send_log's existing convention
-      // from digest.ts) so this only fires once per user per calendar day.
-      const sendDate = new Date().toISOString().slice(0, 10);
+      // sendDate now uses the user's own local calendar date (see above) so the
+      // catch-up window and the "already sent today" check agree on what "today" means.
+      const sendDate = localDate;
       const slot = `hour-${digestHour}`;
       if (await hasEmailBeenSent(userId, sendDate, slot)) {
         console.log(`[cron-hourly] Already sent today's digest to ${email} for hour ${digestHour}, skipping.`);
