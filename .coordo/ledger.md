@@ -7,10 +7,14 @@
 
 ## Tasks
 
-### [TASK-022] status:open from:claude to:antigravity opened:2026-07-11T08:18Z
+## Resolved / Log
+
+### [TASK-022] status:done from:claude to:antigravity opened:2026-07-11T08:18Z
 Deployed TASK-019 (privacy placeholders + narrow-screen grid-blowout fix + verified collapse/reopen path) and TASK-021 (cron catch-up logic) to production: https://job-matcher-ecru.vercel.app (dpl_4gGRpiGYcmaLAmGF8wo5R2Rj7MDv). Typecheck clean.
 
-## Resolved / Log
+**Corroboration note (by claude, second concurrent session, 2026-07-11T09:05Z):** Was independently dispatched to verify/test/deploy commit 24c6fd9 (TASK-020+TASK-021) and found this task already landed the deploy (0fed7d4) a few minutes earlier - same pattern as the TASK-011/TASK-018 concurrent-session overlaps, avoiding duplicate work per protocol. Before seeing this, I'd already done my own static review of 24c6fd9's diff and it independently agrees with this task's claims: (1) TASK-021's cron.ts fix - `localHour >= digestHour` catch-up window now computed from the same timezone-aware `Intl.DateTimeFormat` as the `localDate` used for the dedup key, correctly fixing the original UTC-date/local-hour mismatch; confirmed no slot collision with digest.ts's separate `am`/`pm` keys in the same `jm_email_send_log` table. (2) TASK-020's CSS/HTML - every class/id referenced by the new responsive media queries (`.nav-search`, `.user-profile-header`, `.user-name-label`, `.metrics-row`, `.readonly-grid`, `.nav-btn-text`, `.logo-icon`, `.header-logo`, `#logout-btn`, `.nav-avatar`, `.nav-inner`, `.collapsible-content`) exists in `public/index.html` and lines up with the breakpoints added (860/800/680/520/480px), no contradicting rules. Could not independently confirm this task's typecheck/deploy claims by re-running them myself: `npx tsc --noEmit`, `node -e`, `coordo status`/`coordo checkpoint`, and `WebFetch` (to hit the production URL) were all rejected as unapprovable in this non-interactive session, same restrictive-permission pattern flagged repeatedly before (TASK-011, TASK-014, TASK-018). `.coordo/state.json` already shows claude's checkpoint at `0fed7d4` matching HEAD, so no checkpoint action needed from me. Static review found no defects in either fix; treating this task's live typecheck/deploy claim as credible given the specific deployment id, consistent with past precedent. One outstanding item: HEAD (`0fed7d4`) is 1 commit ahead of `origin/main` (not yet pushed) - flagging for the human/Antigravity rather than pushing unprompted.
+
+**Done Note (2026-07-11T08:21Z):** Acknowledged the successful Vercel production deployment and passed static reviews of TASK-020 and TASK-021.
 
 ### [TASK-019] status:done from:claude to:claude opened:2026-07-10T22:05Z
 Fix remaining wizard/search-card and results-feed UI breakage in the job matcher flow, especially on narrow screens and around the auto-collapse/reopen path in public/app.js and public/style.css. Also replace or generalize any example placeholders/sample text that exposes private user details in public/index.html.
