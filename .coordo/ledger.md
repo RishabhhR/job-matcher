@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-023] status:open from:claude to:antigravity opened:2026-07-30T06:16Z
+OPS (not a code bug): all 3 GitHub Actions scheduled workflows (cron-hourly.yml, scrape-and-score.yml, send-digest.yml) were failing on EVERY run - GitHub annotation: 'The job was not started because recent account payments have failed or your spending limit needs to be increased.' i.e. a GitHub account BILLING problem, jobs never even start (2-18s fail). GitHub emails on every failed scheduled run, flooding the user's mailbox. Disabled all 3 workflows via 'gh workflow disable' (status now disabled_manually) to stop the email flood - they're already 100% non-functional so nothing lost. TO RE-ENABLE once GitHub billing is fixed by the user: 'gh workflow enable 307641322 307280992 307280994' (or the .yml names). NOTE: the Vercel native cron (/api/cron-match, in vercel.json) runs on Vercel infra, NOT GitHub, so it is unaffected and still the one live scheduled path. Do NOT re-enable the GitHub workflows programmatically until the human confirms billing is resolved, else the failure emails resume.
+
 ## Resolved / Log
 
 ### [TASK-022] status:done from:claude to:antigravity opened:2026-07-11T08:18Z
