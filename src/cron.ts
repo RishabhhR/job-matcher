@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, getActiveCvText, getUserProfileRow, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, hasEmailBeenSent, logEmailSend } from "./db.js";
+import { client, getActiveCvText, getUserProfileRow, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, hasEmailBeenSent, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { sendDigestEmail } from "./mailer.js";
 import { canonicalizeUrl } from "./normalize.js";
@@ -122,6 +122,8 @@ async function runHourlyCron() {
           console.log(`[cron-hourly] Sending email digest to ${email} with ${topMatches.length} matches...`);
           const messageId = await sendDigestEmail(email, topMatches as any, displaySlot);
           await logEmailSend(userId, sendDate, slot, "sent", messageId);
+          // Mark these matches sent so they backfill (not lead) the next digest.
+          await markMatchesAsSent(topMatches.map((m: any) => m.match_id as string));
           console.log(`[cron-hourly] Email sent successfully to ${email} (messageId: ${messageId})`);
         } else {
           console.log(`[cron-hourly] No matches found for user ${email}, skipped email.`);

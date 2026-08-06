@@ -27,7 +27,11 @@
   "crons": [
     {
       "path": "/api/cron-match?mode=email",
-      "schedule": "30 3 * * *"
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron-match?mode=email",
+      "schedule": "30 16 * * *"
     }
   ]
 }

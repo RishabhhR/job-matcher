@@ -109,6 +109,11 @@ export async function migrate() {
     "ALTER TABLE jm_user_profiles ADD COLUMN career_start_date TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_country TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_city TEXT",
+    // Tracks when a match was last included in a sent digest, so the digest can
+    // lead with never-emailed matches (see getTopMatchesForUser). Deliberately a
+    // separate column, NOT the `status` field, which has its own pending/scored
+    // lifecycle that getUserStats and the scoring pipeline depend on.
+    "ALTER TABLE jm_user_job_matches ADD COLUMN emailed_at TEXT",
   ];
   for (const sql of addColumns) {
     try {
@@ -313,17 +318,37 @@ export async function upsertUserMatch(
 }
 
 export async function getTopMatchesForUser(userId: string, limit = 20) {
+  // "New-first, backfill with best older": lead with matches never included in a
+  // sent digest (emailed_at IS NULL), then by fit_score within each group. This
+  // stops month-old high-scorers from permanently dominating every digest - the
+  // user sees genuinely new roles first, and already-emailed ones only backfill
+  // to reach `limit` so the digest is never sparse. markMatchesAsSent (called
+  // after a successful send) is what moves today's fresh matches into backfill.
   const result = await client.execute({
-    sql: `SELECT jp.title, jp.company_name, jp.location, jp.apply_url, jp.source,
+    sql: `SELECT m.id AS match_id, m.emailed_at,
+                 jp.title, jp.company_name, jp.location, jp.apply_url, jp.source,
                  m.fit_score, m.comp_fit_label, m.reasoning_text
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
           WHERE m.user_id = ?
-          ORDER BY m.fit_score DESC
+          ORDER BY (CASE WHEN m.emailed_at IS NULL THEN 0 ELSE 1 END) ASC,
+                   m.fit_score DESC
           LIMIT ?`,
     args: [userId, limit],
   });
   return result.rows;
+}
+
+// Stamp emailed_at on the given match rows so they drop below never-emailed
+// matches in the next digest (see getTopMatchesForUser). Call only after the
+// email actually sent. Does NOT touch `status` (pending/scored/new lifecycle).
+export async function markMatchesAsSent(matchIds: string[]): Promise<void> {
+  if (matchIds.length === 0) return;
+  const placeholders = matchIds.map(() => "?").join(", ");
+  await client.execute({
+    sql: `UPDATE jm_user_job_matches SET emailed_at = datetime('now') WHERE id IN (${placeholders})`,
+    args: matchIds,
+  });
 }
 
 // slot is a free-form dedup key: "am"/"pm" for the original fixed-time cron,
