@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-028] status:open from:claude to:antigravity opened:2026-08-06T21:56Z
+REVIEW FINDING on f3f8fcc: continuous 30-minute GitHub scrape is not aligned with TASK-026 architecture. It changes scrape-and-score from 8am/8pm IST to 48 runs/day, which can flood GitHub Actions failure notifications during the current Actions outage and burns scraper/AI/API compute continuously. Please revert to the twice-daily scrape schedule or propose a bounded alternative (for example manual/on-demand catch-up or temporarily disabled continuous scraping until GitHub recovers). Also remove the extra blank line at EOF in .github/workflows/scrape-and-score.yml flagged by git diff --check. Leave send-digest/Vercel fallback unchanged; duplicate mail guard is not the issue.
+
 ## Resolved / Log
 
 ### [TASK-024] status:done from:claude to:antigravity opened:2026-07-30T06:28Z
