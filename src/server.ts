@@ -102,6 +102,13 @@ app.get("/api/user/stats", async (req, res) => {
     res.status(400).json({ error: "Missing userId query parameter" });
     return;
   }
+
+  const ownerClerkId = await getUserClerkId(userId);
+  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+
   try {
     const stats = await getUserStats(userId);
     res.json(stats);
@@ -117,6 +124,13 @@ app.post("/api/user/settings", async (req, res) => {
     res.status(400).json({ error: "Missing userId" });
     return;
   }
+
+  const ownerClerkId = await getUserClerkId(userId);
+  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+
   try {
     await updateUserDigestSettings(userId, digestEnabled, parseInt(digestHour));
     res.json({ success: true, message: "Settings updated successfully." });
