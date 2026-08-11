@@ -48,10 +48,30 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const { cvText, profile, companies, linkedin, onProgress = () => {}, patient = false } = options;
   const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
-  onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
-  const atsPostingsRaw = await fetchAllPostings(companies);
-  const atsPostings = filterByLocation(atsPostingsRaw, profile);
   const locationLabel = profile.preferredCity || profile.preferredCountry || "all locations";
+
+  // Per-source failure isolation: each source's scrape is wrapped so a throw/block
+  // in one (LinkedIn throttling, Naukri recaptcha, a headless-browser crash) never
+  // aborts the whole run and discards the other sources' already-fetched postings.
+  // `sourceHealth` records raw count per source (0 = returned nothing, e.g. a silent
+  // block) or an error, so "no new jobs" can be distinguished from "source is down".
+  const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
+  async function safeScrape(source: string, fn: () => Promise<RawPosting[]>): Promise<RawPosting[]> {
+    try {
+      const postings = await fn();
+      sourceHealth[source] = { count: postings.length, ok: true };
+      return postings;
+    } catch (err) {
+      const message = (err as Error).message || String(err);
+      sourceHealth[source] = { count: 0, ok: false, error: message };
+      onProgress("source_error", `Source "${source}" failed and was skipped (other sources continue): ${message}`);
+      return [];
+    }
+  }
+
+  onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
+  const atsPostingsRaw = await safeScrape("ats", () => fetchAllPostings(companies));
+  const atsPostings = filterByLocation(atsPostingsRaw, profile);
   onProgress("scraping_ats_complete", `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched ${locationLabel} location filter.`);
 
   const linkedinKeywords = profile.targetDesignation;
@@ -61,19 +81,31 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const linkedinMaxResults = linkedin?.maxResults || 25;
 
   onProgress("scraping_linkedin", `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...`);
-  const linkedinPostingsRaw = await fetchLinkedInPublic({
+  const linkedinPostingsRaw = await safeScrape("linkedin", () => fetchLinkedInPublic({
     keywords: linkedinKeywords,
     location: linkedinLocation,
     maxResults: linkedinMaxResults,
     fetchDescriptions: false,
-  });
+  }));
   // The location string above is only a loose search hint to LinkedIn's own guest
   // endpoint - it doesn't reliably restrict results, so apply the same explicit
   // regex filter used for ATS postings to keep filtering consistent across sources.
   const linkedinPostings = filterByLocation(linkedinPostingsRaw, profile);
   onProgress("scraping_linkedin_complete", `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched ${locationLabel} location filter.`);
 
+  // [B] Naukri (Antigravity, DEC-006): add another `await safeScrape("naukri", () => fetchNaukri(...))`
+  // here and spread its filtered results into rawPostings below. Wrapping it in safeScrape
+  // is REQUIRED - the headless/recaptcha path is expected to fail often and must not kill the run.
+
   const rawPostings = [...atsPostings, ...linkedinPostings];
+
+  // Scrape-health summary: surfaces per-source counts so a silent block (count 0 / ok:false)
+  // is visible in the run log rather than looking like "no new jobs today".
+  const healthSummary = Object.entries(sourceHealth)
+    .map(([s, h]) => `${s}=${h.ok ? h.count : `ERR(${h.error?.slice(0, 60)})`}`)
+    .join(", ");
+  onProgress("scrape_health", `Per-source scrape results: ${healthSummary}`);
+
   onProgress("processing", `Total raw postings collected: ${rawPostings.length}. Running deduplication...`);
 
   const deduped = dedupePostings(rawPostings);
