@@ -20,7 +20,12 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000): 
     const res = await fetch(GROQ_URL, {
       method: "POST",
       signal: controller.signal,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        // Groq/Cloudflare can reject requests with no recognizable user agent.
+        "User-Agent": "job-matcher/1.0",
+      },
       body: JSON.stringify({
         model,
         messages,
@@ -183,18 +188,18 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
 }
 
 export async function callLLM(messages: Message[]): Promise<{ content: string; provider: string; warning?: string }> {
-  // Fallback chain: Groq (70b) → Groq (8b, separate per-model quota - 14,400 req/day
-  // and 500K tokens/day vs the 70b model's 1K req/day/100K tokens/day, same API key,
-  // no new signup) → Gemini → Cerebras → Mistral → OpenRouter
-  const primaryModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  // Fallback chain: current Groq chat model → a second current Groq chat model
+  // → Gemini → Cerebras → Mistral → OpenRouter. Keep stale model names out of
+  // this chain: a decommissioned Groq default silently pushes every batch to Gemini.
+  const primaryModel = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
   const groq = await callGroq(messages, primaryModel);
   if (!groq.offline) return { content: groq.content, provider: "groq" };
   if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
 
-  const groqFallbackModel = "llama-3.1-8b-instant";
+  const groqFallbackModel = "qwen/qwen3.6-27b";
   if (primaryModel !== groqFallbackModel) {
     const groqSmall = await callGroq(messages, groqFallbackModel);
-    if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-8b", warning: "Used Groq 8B fallback model" };
+    if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-qwen", warning: "Used Groq Qwen fallback model" };
     if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
   }
 
