@@ -243,11 +243,7 @@ async function initializeUserData() {
   try {
     const response = await authFetch("/api/user/init", {
       method: "POST",
-      body: JSON.stringify({
-        clerkId: clerkUser.id,
-        email: clerkUser.primaryEmailAddress.emailAddress,
-        name: clerkUser.fullName
-      })
+      body: JSON.stringify({})
     });
 
     if (!response.ok) throw new Error("Failed to sync profile settings with backend.");
@@ -275,15 +271,12 @@ async function initializeUserData() {
       careerStartDateInput.value = data.profile.careerStartDate || "";
     }
 
-    // Prefill baseline companies
-    const configRes = await fetch("/api/initial-data");
-    if (configRes.ok) {
-      const configData = await configRes.json();
-      if (configData.companies) {
-        greenhouseInput.value = Array.isArray(configData.companies.greenhouse) ? configData.companies.greenhouse.join(", ") : "";
-        leverInput.value = Array.isArray(configData.companies.lever) ? configData.companies.lever.join(", ") : "";
-        ashbyInput.value = Array.isArray(configData.companies.ashby) ? configData.companies.ashby.join(", ") : "";
-      }
+    // Per-user company sources are stored with the account. A new account gets
+    // the public baseline seed returned by /api/user/init.
+    if (data.companies) {
+      greenhouseInput.value = Array.isArray(data.companies.greenhouse) ? data.companies.greenhouse.join(", ") : "";
+      leverInput.value = Array.isArray(data.companies.lever) ? data.companies.lever.join(", ") : "";
+      ashbyInput.value = Array.isArray(data.companies.ashby) ? data.companies.ashby.join(", ") : "";
     }
 
     if (data.digestSettings) {
@@ -323,7 +316,7 @@ fileInput.addEventListener("change", async (e) => {
   reader.onload = async () => {
     try {
       const base64Data = reader.result.split(",")[1];
-      const res = await fetch("/api/upload-cv", {
+      const res = await authFetch("/api/upload-cv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -456,9 +449,6 @@ form.addEventListener("submit", async (e) => {
       location: linkedinLocationInput.value || "India",
       maxResults: parseInt(linkedinMaxResultsInput.value) || 100,
     },
-    clerkId: clerkUser ? clerkUser.id : undefined,
-    email: clerkUser ? clerkUser.primaryEmailAddress.emailAddress : undefined,
-    name: clerkUser ? clerkUser.fullName : undefined,
     digestEnabled: digestEnabledInput.checked,
     digestHour: parseInt(digestHourInput.value)
   };

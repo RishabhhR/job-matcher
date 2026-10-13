@@ -1,34 +1,27 @@
-# Shared Implementation Plan: Clerk Auth, User-Specific Crons, and Real-Time Dashboard
+# Job Matcher: current implementation and follow-up criteria
 
-This is the approved plan for implementing Clerk Authentication, User-Specific Cron Scheduling, and Real-Time Dashboard suggestions.
+Last reconciled: 2026-10-14.
 
----
+## Current architecture
 
-## 🔒 Configuration Specs
+- Clerk identifies production users. The API verifies the session token, resolves the Clerk user server-side, and uses only that user's verified primary email to associate the Turso account.
+- Turso/libSQL remains the system of record for users, profile/CV, job postings, matches, digest attempts, and per-user ATS company selections. Tables use the `jm_` prefix because this database is shared with another project.
+- Express serves the API and `public/` serves the dashboard. Interactive matching and CV upload require an authenticated Clerk session in production.
+- `.github/workflows/cron-hourly.yml` is the only scheduled digest workflow. It evaluates each user's configured local hour, records an atomic per-user/day claim, and uses a stable Resend idempotency key. The legacy fixed-time workflows and Vercel cron schedule have been removed.
+- `.github/workflows/ci.yml` runs TypeScript typechecking and unit tests on pushes to `main` and pull requests.
+- LLM scoring validates complete, unique, in-range results. Exhausted scoring batches fail the run instead of appearing as a successful partial result.
+- Digest email HTML escapes scraped and generated content and only includes HTTPS apply links.
 
-### 1. Clerk Authentication
-- **Clerk Publishable Key**: `pk_test_c2tpbGxlZC1vcmNhLTc4LmNsZXJrLmFjY291bnRzLmRldiQ`
-- **Clerk Frontend SDK JS URL**: `https://skilled-orca-78.clerk.accounts.dev/npm/@clerk/clerk-js@4/dist/clerk.browser.js`
-- **Layout Flow**:
-  - Show a fullscreen or centered translucent `#auth-container` if the user is not authenticated.
-  - Show the main dashboard `#app-container` once Clerk is successfully loaded and authenticated.
-  - Integrate a user button or custom Logout button in the header.
+## Production configuration
 
-### 2. User DB Schema Migrations (`src/db.ts`)
-- Alter `jm_users` table to add two columns:
-  - `clerk_id TEXT UNIQUE` (to match Clerk's authenticated user ID).
-  - `digest_hour INTEGER NOT NULL DEFAULT 9` (to store their preferred hourly cron time, 0-23).
-- Update user registration to match by `clerk_id` or `email`.
+Keep credentials in GitHub Actions, Vercel, and local ignored `.env` files. Required values are `CLERK_SECRET_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, LLM provider keys, and `RESEND_API_KEY`. `CRON_SECRET` is needed only if the protected legacy `/api/cron-match` route is intentionally used. Do not put personal CV/profile data in the repository or workflow logs.
 
-### 3. Hourly Cron on GitHub Actions
-- A new GitHub Actions workflow file `.github/workflows/cron-hourly.yml` configured to trigger every hour (`0 * * * *`).
-- This executes a standalone script `npm run cron-hourly` (`src/cron.ts`) that runs sequentially on GitHub runner without hitting Vercel's 60-second limit.
-- **`src/cron.ts` Logic**:
-  - Checks the current hour.
-  - Queries active users (`digest_enabled = 1`).
-  - Converts current time to the user's local timezone (e.g. `user.timezone` defaults to `Asia/Kolkata`).
-  - If `localHour === user.digest_hour`, triggers the scrape + scoring + Resend email digest pipeline.
+## Database decision
 
-### 4. Frontend & Backend Form Integration
-- Add a checkbox to toggle `digest_enabled` and a select dropdown for `digest_hour` in the Scraping Configuration segment of the UI.
-- Prefill user details, CV text, and settings dynamically on login via a new `/api/user/init` endpoint.
+Do not migrate to MongoDB at this stage. The current schema is relational and uses SQL joins, uniqueness constraints, and atomic conditional writes for identity binding and digest claims. MongoDB would require rewriting queries, migrations, indexes, and transactional workflows without a demonstrated workload or product requirement that benefits from document storage. Revisit only with measured Turso limits or a concrete document-oriented requirement.
+
+## Follow-up criteria
+
+- Add integration tests against a disposable Turso-compatible database for account ownership and concurrent digest claims.
+- Add monitoring for scrape-source failures and provider usage so empty results can be distinguished from upstream outages.
+- Reassess database choice if measured latency, write volume, or relational scaling becomes a product constraint.

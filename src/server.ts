@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 import { runJobMatcher } from "./runner.js";
 import { runDigest } from "./digest.js";
+import { getVerifiedClerkIdentity } from "./clerkAuth.js";
 import {
+  ensureMigrated,
   upsertUser,
   upsertUserProfile,
   upsertCv,
@@ -21,13 +23,16 @@ import {
   updateMatchScore,
   getActiveCvText,
   getUserProfileRow,
-  getUserStats
+  getUserStats,
+  getUserCompanies,
+  upsertUserCompanies
 } from "./db.js";
 import { fetchAllPostings } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll } from "./match.js";
 import { attachVerifiedClerkUser } from "./clerkAuth.js";
+import { parseCompanySources } from "./inputValidation.js";
 
 // Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
 if (typeof (global as any).DOMMatrix === "undefined") {
@@ -45,6 +50,23 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(attachVerifiedClerkUser);
 app.use(express.static(publicDir));
+app.use("/api", async (_req, res, next) => {
+  try {
+    await ensureMigrated();
+    next();
+  } catch (error) {
+    console.error("Database schema initialization failed:", error);
+    res.status(503).json({ error: "Database is temporarily unavailable." });
+  }
+});
+
+const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
+
+async function userOwnsAccount(req: express.Request, userId: string): Promise<boolean> {
+  const ownerClerkId = await getUserClerkId(userId);
+  if (isProduction) return Boolean(ownerClerkId && req.verifiedClerkUserId === ownerClerkId);
+  return !ownerClerkId || req.verifiedClerkUserId === ownerClerkId;
+}
 
 // Initial data endpoint to prefill the UI forms
 app.get("/api/initial-data", (req, res) => {
@@ -53,8 +75,11 @@ app.get("/api/initial-data", (req, res) => {
     const profilePath = path.join(dataDir, "profile.json");
     const companiesPath = path.join(dataDir, "companies.json");
 
-    const cvText = existsSync(cvPath) ? readFileSync(cvPath, "utf-8") : "";
-    const profile = existsSync(profilePath) ? JSON.parse(readFileSync(profilePath, "utf-8")) : null;
+    // Personal files are only used for local development. A production request
+    // must never receive them, even if a CLI deployment accidentally includes them.
+    const localPersonalFilesAllowed = !isProduction;
+    const cvText = localPersonalFilesAllowed && existsSync(cvPath) ? readFileSync(cvPath, "utf-8") : "";
+    const profile = localPersonalFilesAllowed && existsSync(profilePath) ? JSON.parse(readFileSync(profilePath, "utf-8")) : null;
     const companies = existsSync(companiesPath) ? JSON.parse(readFileSync(companiesPath, "utf-8")) : null;
 
     res.json({ cvText, profile, companies });
@@ -64,35 +89,31 @@ app.get("/api/initial-data", (req, res) => {
 });
 
 app.post("/api/user/init", async (req, res) => {
-  const { clerkId, email, name } = req.body;
-  if (!clerkId || !email) {
-    res.status(400).json({ error: "Missing clerkId or email" });
-    return;
-  }
-  // This route always claims a specific logged-in identity, so unlike /api/match
-  // (which also supports anonymous use), a verified token matching the claimed
-  // clerkId is mandatory here - otherwise anyone could sync/read another user's
-  // profile, CV, and digest settings just by knowing/guessing their clerkId.
-  if (req.verifiedClerkUserId !== clerkId) {
-    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't match clerkId" });
+  if (!req.verifiedClerkUserId) {
+    res.status(401).json({ error: "Authentication required." });
     return;
   }
   try {
-    const userId = await upsertUser(email, name || "User", clerkId);
+    // Resolve the account email from Clerk's backend API. Never bind an account
+    // to the caller-supplied email, which could point at another user's record.
+    const identity = await getVerifiedClerkIdentity(req.verifiedClerkUserId);
+    const userId = await upsertUser(identity.email, identity.name, identity.clerkId);
     const profile = await getUserProfileRow(userId);
     const cvText = await getActiveCvText(userId);
     const digestSettings = await getUserDigestSettings(userId);
+    const companies = await getUserCompanies(userId) ?? JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
     
     res.json({
       success: true,
       userId,
       profile: profile || null,
       cvText: cvText || "",
+      companies,
       digestSettings: digestSettings || { digestEnabled: true, digestHour: 9 }
     });
   } catch (error) {
     console.error("Error in /api/user/init:", error);
-    res.status(500).json({ error: (error as Error).message });
+    res.status(500).json({ error: "Could not initialize the account." });
   }
 });
 
@@ -103,8 +124,7 @@ app.get("/api/user/stats", async (req, res) => {
     return;
   }
 
-  const ownerClerkId = await getUserClerkId(userId);
-  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+  if (!(await userOwnsAccount(req, userId))) {
     res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
     return;
   }
@@ -125,14 +145,19 @@ app.post("/api/user/settings", async (req, res) => {
     return;
   }
 
-  const ownerClerkId = await getUserClerkId(userId);
-  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+  if (!(await userOwnsAccount(req, userId))) {
     res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
     return;
   }
 
+  const parsedHour = Number(digestHour);
+  if (typeof digestEnabled !== "boolean" || !Number.isInteger(parsedHour) || parsedHour < 0 || parsedHour > 23) {
+    res.status(400).json({ error: "digestEnabled must be boolean and digestHour must be an integer from 0 to 23." });
+    return;
+  }
+
   try {
-    await updateUserDigestSettings(userId, digestEnabled, parseInt(digestHour));
+    await updateUserDigestSettings(userId, digestEnabled, parsedHour);
     res.json({ success: true, message: "Settings updated successfully." });
   } catch (error) {
     console.error("Error in /api/user/settings:", error);
@@ -142,6 +167,10 @@ app.post("/api/user/settings", async (req, res) => {
 
 // CV parsing endpoint to handle PDF, DOCX, and TXT files
 app.post("/api/upload-cv", async (req, res) => {
+  if (isProduction && !req.verifiedClerkUserId) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
   try {
     const { fileName, fileType, fileData } = req.body;
     if (!fileData) {
@@ -196,10 +225,16 @@ app.post("/api/upload-cv", async (req, res) => {
 // Cron endpoint to run the matcher periodically and email results
 app.get("/api/cron-match", async (req, res) => {
   const authHeader = req.headers.authorization;
-  const isTest = req.query.secret === "test";
-  if (process.env.VERCEL && process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}` && !isTest) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+  if (isProduction) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      res.status(503).json({ error: "CRON_SECRET is not configured." });
+      return;
+    }
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
   }
 
   try {
@@ -343,20 +378,39 @@ app.get("/api/cron-match", async (req, res) => {
 
 // SSE endpoint to run the initial scraper and stream progress updates, returning the first page of matches
 app.post("/api/match", async (req, res) => {
-  const { cvText, profile, companies, linkedin, clerkId, email, name, digestEnabled, digestHour } = req.body;
+  const { cvText, profile, linkedin, digestEnabled, digestHour } = req.body;
+  const companies = parseCompanySources(req.body.companies);
 
-  if (!cvText || !profile || !companies) {
-    res.status(400).json({ error: "Missing required fields (cvText, profile, or companies)" });
+  if (typeof cvText !== "string" || cvText.length === 0 || cvText.length > 250_000 || !profile || !companies) {
+    res.status(400).json({ error: "CV text, profile, or valid company sources are missing or invalid." });
     return;
   }
 
-  // Anonymous use (no clerkId claimed) stays allowed for local/no-login testing.
-  // But if the request DOES claim a logged-in identity, that claim must be backed
-  // by a verified session token - otherwise anyone could write matches/settings
-  // into another real user's account just by sending their clerkId.
-  if (clerkId && req.verifiedClerkUserId !== clerkId) {
-    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't match clerkId" });
+  if (isProduction && !req.verifiedClerkUserId) {
+    res.status(401).json({ error: "Authentication required." });
     return;
+  }
+
+  let identity: { clerkId: string; email: string; name: string } | null = null;
+  if (req.verifiedClerkUserId) {
+    try {
+      identity = await getVerifiedClerkIdentity(req.verifiedClerkUserId);
+    } catch (error) {
+      console.error("Could not resolve authenticated Clerk identity:", error);
+      res.status(401).json({ error: "Could not verify the account email." });
+      return;
+    }
+  } else if (req.body.clerkId) {
+    res.status(401).json({ error: "A Clerk identity cannot be claimed without a verified session." });
+    return;
+  }
+
+  if (digestEnabled !== undefined || digestHour !== undefined) {
+    const hour = Number(digestHour);
+    if (typeof digestEnabled !== "boolean" || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+      res.status(400).json({ error: "digestEnabled must be boolean and digestHour must be an integer from 0 to 23." });
+      return;
+    }
   }
 
   // Setup Server-Sent Events headers
@@ -371,17 +425,18 @@ app.post("/api/match", async (req, res) => {
   };
 
   try {
-    const userEmail = email || "anonymous@jobmatcher.dev";
-    const userName = name || "Anonymous User";
+    const userEmail = identity?.email || "anonymous@jobmatcher.dev";
+    const userName = identity?.name || "Anonymous User";
     
     sendEvent("progress", { status: "system", message: "Connecting to database..." });
-    const userId = await upsertUser(userEmail, userName, clerkId);
+    const userId = await upsertUser(userEmail, userName, identity?.clerkId);
     await upsertUserProfile(userId, profile);
     await upsertCv(userId, cvText);
+    await upsertUserCompanies(userId, companies);
 
     // Save user digest settings
     if (digestEnabled !== undefined && digestHour !== undefined) {
-      await updateUserDigestSettings(userId, digestEnabled, parseInt(digestHour));
+      await updateUserDigestSettings(userId, digestEnabled, Number(digestHour));
     }
 
     sendEvent("progress", { status: "scraping_ats", message: `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}` });
@@ -523,8 +578,7 @@ app.post("/api/match/page", async (req, res) => {
   // has a clerk_id on file, a verified session is required and must match;
   // pre-Clerk/anonymous rows (clerk_id is null) stay accessible without a
   // session, matching current behavior.
-  const ownerClerkId = await getUserClerkId(userId);
-  if (ownerClerkId && req.verifiedClerkUserId !== ownerClerkId) {
+  if (!(await userOwnsAccount(req, userId))) {
     res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
     return;
   }

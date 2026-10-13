@@ -7,7 +7,9 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/server.ts",
     "digest": "tsx src/digest.ts",
-    "cron-hourly": "tsx src/cron.ts"
+    "cron-hourly": "tsx src/cron.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.10.0",

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { verifyToken } from "@clerk/backend";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 
 // Augment Express's Request type so downstream handlers can read the verified,
 // server-derived Clerk user id instead of trusting whatever the client body claims.
@@ -31,4 +31,24 @@ export async function attachVerifiedClerkUser(req: Request, _res: Response, next
   }
 
   next();
+}
+
+export function getVerifiedPrimaryEmail(user: {
+  primaryEmailAddress: { emailAddress: string; verification: { status: string } | null } | null;
+}): string | null {
+  const email = user.primaryEmailAddress;
+  if (!email || email.verification?.status !== "verified") return null;
+  return email.emailAddress.trim().toLowerCase();
+}
+
+let clerkClient: ReturnType<typeof createClerkClient> | null = null;
+export async function getVerifiedClerkIdentity(clerkId: string): Promise<{ clerkId: string; email: string; name: string }> {
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) throw new Error("CLERK_SECRET_KEY is required to resolve the authenticated account.");
+  clerkClient ??= createClerkClient({ secretKey });
+  const user = await clerkClient.users.getUser(clerkId);
+  const email = getVerifiedPrimaryEmail(user);
+  if (!email) throw new Error("A verified primary email is required for this account.");
+  const name = user.fullName?.trim() || user.username?.trim() || email;
+  return { clerkId: user.id, email, name };
 }

@@ -98,6 +98,13 @@ const SCHEMA = [
     error_text TEXT,
     UNIQUE(user_id, send_date, slot)
   )`,
+  `CREATE TABLE IF NOT EXISTS jm_user_companies (
+    user_id TEXT PRIMARY KEY REFERENCES jm_users(id),
+    greenhouse_json TEXT NOT NULL,
+    lever_json TEXT NOT NULL,
+    ashby_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 export async function migrate() {
@@ -142,6 +149,17 @@ export async function migrate() {
   }
 }
 
+let migrationPromise: Promise<void> | null = null;
+export function ensureMigrated(): Promise<void> {
+  if (!migrationPromise) {
+    migrationPromise = migrate().catch((error) => {
+      migrationPromise = null;
+      throw error;
+    });
+  }
+  return migrationPromise;
+}
+
 export async function upsertUser(
   email: string,
   name: string,
@@ -149,9 +167,13 @@ export async function upsertUser(
   timezone = "Asia/Kolkata"
 ): Promise<string> {
   if (clerkId) {
-    const existing = await client.execute({ sql: "SELECT id FROM jm_users WHERE clerk_id = ?", args: [clerkId] });
+    const existing = await client.execute({ sql: "SELECT id, email FROM jm_users WHERE clerk_id = ?", args: [clerkId] });
     if (existing.rows.length > 0) {
       const id = existing.rows[0].id as string;
+      const emailOwner = await client.execute({ sql: "SELECT id, clerk_id FROM jm_users WHERE email = ?", args: [email] });
+      if (emailOwner.rows.length > 0 && emailOwner.rows[0].id !== id && emailOwner.rows[0].clerk_id) {
+        throw new Error("This verified email is already linked to another account.");
+      }
       await client.execute({
         sql: "UPDATE jm_users SET name = ?, email = ?, timezone = ?, updated_at = datetime('now') WHERE id = ?",
         args: [name, email, timezone, id],
@@ -163,6 +185,10 @@ export async function upsertUser(
   const existingEmail = await client.execute({ sql: "SELECT id, clerk_id FROM jm_users WHERE email = ?", args: [email] });
   if (existingEmail.rows.length > 0) {
     const id = existingEmail.rows[0].id as string;
+    const existingClerkId = existingEmail.rows[0].clerk_id as string | null;
+    if (existingClerkId && existingClerkId !== clerkId) {
+      throw new Error("This email is already linked to a different account.");
+    }
     await client.execute({
       sql: "UPDATE jm_users SET name = ?, clerk_id = COALESCE(clerk_id, ?), timezone = ?, updated_at = datetime('now') WHERE id = ?",
       args: [name, clerkId || null, timezone, id],
@@ -176,6 +202,37 @@ export async function upsertUser(
     args: [id, email, name, clerkId || null, timezone],
   });
   return id;
+}
+
+export interface CompanySources {
+  greenhouse: string[];
+  lever: string[];
+  ashby: string[];
+}
+
+export async function getUserCompanies(userId: string): Promise<CompanySources | null> {
+  const result = await client.execute({
+    sql: "SELECT greenhouse_json, lever_json, ashby_json FROM jm_user_companies WHERE user_id = ?",
+    args: [userId],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    greenhouse: JSON.parse(row.greenhouse_json as string),
+    lever: JSON.parse(row.lever_json as string),
+    ashby: JSON.parse(row.ashby_json as string),
+  };
+}
+
+export async function upsertUserCompanies(userId: string, companies: CompanySources): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO jm_user_companies (user_id, greenhouse_json, lever_json, ashby_json, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id) DO UPDATE SET greenhouse_json = excluded.greenhouse_json,
+        lever_json = excluded.lever_json, ashby_json = excluded.ashby_json,
+        updated_at = datetime('now')`,
+    args: [userId, JSON.stringify(companies.greenhouse), JSON.stringify(companies.lever), JSON.stringify(companies.ashby)],
+  });
 }
 
 export async function getUserClerkId(userId: string): Promise<string | null> {
@@ -362,23 +419,50 @@ export async function hasEmailBeenSent(userId: string, sendDate: string, slot: s
   return result.rows.length > 0;
 }
 
+export async function hasEmailBeenAttempted(userId: string, sendDate: string, slot: string): Promise<boolean> {
+  const result = await client.execute({
+    sql: `SELECT id FROM jm_email_send_log WHERE user_id = ? AND send_date = ? AND slot = ?
+      AND status IN ('processing', 'sent', 'empty')`,
+    args: [userId, sendDate, slot],
+  });
+  return result.rows.length > 0;
+}
+
+// An atomic claim prevents overlapping hourly workers from scraping/sending the
+// same user's daily digest twice. Failed work can retry; empty and sent attempts
+// are terminal for that user's local day. A stale processing claim can be taken
+// over after four hours if a runner died without recording a result.
+export async function claimEmailSend(userId: string, sendDate: string, slot: string): Promise<boolean> {
+  const result = await client.execute({
+    sql: `INSERT INTO jm_email_send_log (id, user_id, send_date, slot, status, sent_at)
+      VALUES (?, ?, ?, ?, 'processing', datetime('now'))
+      ON CONFLICT(user_id, send_date, slot) DO UPDATE SET
+        status = 'processing', provider_message_id = NULL, sent_at = datetime('now'), error_text = NULL
+      WHERE jm_email_send_log.status = 'failed'
+        OR jm_email_send_log.status = 'blocked'
+        OR (jm_email_send_log.status = 'processing' AND jm_email_send_log.sent_at < datetime('now', '-4 hours'))`,
+    args: [randomUUID(), userId, sendDate, slot],
+  });
+  return result.rowsAffected === 1;
+}
+
 export async function logEmailSend(
   userId: string,
   sendDate: string,
   slot: string,
-  status: "sent" | "failed",
+  status: "processing" | "sent" | "empty" | "blocked" | "failed",
   providerMessageId?: string,
   errorText?: string
 ): Promise<void> {
   await client.execute({
     sql: `INSERT INTO jm_email_send_log (id, user_id, send_date, slot, status, provider_message_id, sent_at, error_text)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
+      VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN datetime('now') ELSE NULL END, ?)
       ON CONFLICT(user_id, send_date, slot) DO UPDATE SET
         status = excluded.status,
         provider_message_id = excluded.provider_message_id,
-        sent_at = datetime('now'),
+        sent_at = excluded.sent_at,
         error_text = excluded.error_text`,
-    args: [randomUUID(), userId, sendDate, slot, status, providerMessageId ?? null, errorText ?? null],
+    args: [randomUUID(), userId, sendDate, slot, status, providerMessageId ?? null, status, errorText ?? null],
   });
 }
 

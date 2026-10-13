@@ -6,7 +6,7 @@ import { runJobMatcher } from "./runner.js";
 import { type Profile } from "./match.js";
 import { canonicalizeUrl } from "./normalize.js";
 import {
-  migrate,
+  ensureMigrated,
   upsertUser,
   upsertUserProfile,
   upsertCv,
@@ -14,11 +14,13 @@ import {
   upsertUserMatch,
   getTopMatchesForUser,
   markMatchesAsSent,
-  hasEmailBeenSent,
+  hasEmailBeenAttempted,
+  claimEmailSend,
   logEmailSend,
   startScrapeRun,
   finishScrapeRun,
   getUserByEmail,
+  getUserCompanies,
   getActiveCvText,
   getUserProfileRow,
 } from "./db.js";
@@ -47,11 +49,11 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
   const today = new Date().toISOString().slice(0, 10);
 
   console.log(`[digest] Running ${slot} digest for ${today} in mode: ${mode}`);
-  await migrate();
+  await ensureMigrated();
 
   const cvPath = path.join(dataDir, "cv.txt");
   const profilePath = path.join(dataDir, "profile.json");
-  const companies = JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
+  const baselineCompanies = JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
 
   let cvText: string;
   let profile: Profile;
@@ -66,7 +68,8 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
       throw new Error("profile.json is missing notifyEmail - nowhere to send the digest.");
     }
 
-    userId = await upsertUser(profile.notifyEmail, profile.currentTitle, "Asia/Kolkata");
+    const existingUser = await getUserByEmail(profile.notifyEmail);
+    userId = existingUser?.id ?? await upsertUser(profile.notifyEmail, profile.currentTitle);
     await upsertUserProfile(userId, profile);
     await upsertCv(userId, cvText);
   } else {
@@ -93,6 +96,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
   }
 
   const notifyEmail = profile.notifyEmail as string;
+  const companies = await getUserCompanies(userId) ?? baselineCompanies;
 
   // Idempotency only guards the actual email SEND, not scraping/scoring. GitHub
   // Actions' `schedule` trigger has no precise-timing guarantee (runs can be
@@ -100,9 +104,9 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
   // scrape cron finishes for the same slot, gating scrape on "already sent" would
   // mean fresh data never gets computed at all, and the send goes out (and stays)
   // stale indefinitely. Scrape mode always runs; only the send step is deduped.
-  const alreadySent = await hasEmailBeenSent(userId, today, slot);
-  if (alreadySent && mode !== "scrape") {
-    console.log(`[digest] Already sent ${slot} digest for ${today}, skipping.`);
+  const alreadyAttempted = await hasEmailBeenAttempted(userId, today, slot);
+  if (alreadyAttempted && mode !== "scrape") {
+    console.log(`[digest] Already attempted ${slot} digest for ${today}, skipping.`);
     return { skipped: true, count: 0 };
   }
 
@@ -153,14 +157,19 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
 
   const topMatches = await getTopMatchesForUser(userId, 15);
 
+  if (!(await claimEmailSend(userId, today, slot))) {
+    console.log(`[digest] Another worker already claimed ${slot} for ${today}, skipping send.`);
+    return { skipped: true, count: 0 };
+  }
+
   if (topMatches.length === 0) {
     console.log("[digest] No matches to send, skipping email.");
-    await logEmailSend(userId, today, slot, "sent", "no-matches");
+    await logEmailSend(userId, today, slot, "empty", undefined, "No matches were available for this digest attempt.");
     return { skipped: false, count: 0, sent: false };
   }
 
   try {
-    const messageId = await sendDigestEmail(notifyEmail, topMatches as any, slot);
+    const messageId = await sendDigestEmail(notifyEmail, topMatches as any, slot, `job-matcher/${userId}/${today}/${slot}`);
     await logEmailSend(userId, today, slot, "sent", messageId);
     // Mark these matches sent so they backfill (not lead) the next digest.
     await markMatchesAsSent(topMatches.map((m: any) => m.match_id as string));

@@ -129,19 +129,32 @@ Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score":
 
   const { content, provider, warning } = await callLLM(messages);
   const parsed = parseJSON<{ results: LLMScoreItem[] }>(content, { results: [] });
+  if (!Array.isArray(parsed.results) || parsed.results.length !== postings.length) {
+    throw new Error(`LLM returned ${Array.isArray(parsed.results) ? parsed.results.length : 0} scores for ${postings.length} postings.`);
+  }
 
-  // Sanity check and sanitize scores
-  const validatedResults = (parsed.results || []).map((r) => {
-    let score = typeof r.fit_score === "number" ? Math.max(0, Math.min(100, r.fit_score)) : 0;
-    const reasoning = typeof r.reasoning_text === "string" ? r.reasoning_text : "";
-    if (reasoning.toLowerCase().includes("prompt injection") || reasoning.toLowerCase().includes("redacted_injection")) {
+  const seenIndexes = new Set<number>();
+  const validLabels = new Set(["upgrade", "lateral", "downgrade", "unknown"]);
+  const validatedResults = parsed.results.map((r) => {
+    if (!Number.isInteger(r.job_index) || r.job_index < 0 || r.job_index >= postings.length || seenIndexes.has(r.job_index)) {
+      throw new Error("LLM returned a missing, duplicate, or invalid job_index.");
+    }
+    if (typeof r.fit_score !== "number" || !Number.isFinite(r.fit_score) || typeof r.reasoning_text !== "string") {
+      throw new Error(`LLM returned an invalid score object for job index ${r.job_index}.`);
+    }
+    if (!validLabels.has(r.comp_fit_label)) {
+      throw new Error(`LLM returned an invalid comp_fit_label for job index ${r.job_index}.`);
+    }
+    seenIndexes.add(r.job_index);
+    let score = Math.max(0, Math.min(100, r.fit_score));
+    if (r.reasoning_text.toLowerCase().includes("prompt injection") || r.reasoning_text.toLowerCase().includes("redacted_injection")) {
       score = 0;
     }
     return {
       job_index: r.job_index,
       fit_score: score,
-      comp_fit_label: r.comp_fit_label || "unknown",
-      reasoning_text: reasoning || "Evaluated by AI",
+      comp_fit_label: r.comp_fit_label,
+      reasoning_text: r.reasoning_text || "Evaluated by AI",
     };
   });
 
@@ -174,8 +187,8 @@ async function scoreBatchWithRetry(
       return await scoreBatch(cvText, profile, batch);
     } catch (err) {
       if (attempt === retries) {
-        console.warn(`[match] batch failed after ${retries} retries, skipping: ${(err as Error).message}`);
-        return { results: [], provider: "none" };
+        console.error(`[match] batch failed after ${retries} retries: ${(err as Error).message}`);
+        throw new Error(`Scoring batch failed after ${retries + 1} attempts: ${(err as Error).message}`);
       }
       const backoffMs = Math.min(baseBackoffMs * 2 ** attempt, maxBackoffMs);
       console.warn(`[match] all providers failed/rate-limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);

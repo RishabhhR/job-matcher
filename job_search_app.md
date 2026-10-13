@@ -1,121 +1,52 @@
-# job-matcher — project context (updated 2026-07-05)
+# job-matcher — current system guide
 
-## What this is
+Last reconciled with `main`: 2026-10-14.
 
-A personal job-matching product: scrapes job postings, scores them against Rishabh's CV via an LLM (factoring in current employer/title/salary), and surfaces ranked matches with apply links. Originally scoped as a phased multi-tenant SaaS (full plan at `/Users/rishabhraj/.claude/plans/original_plan_job_search.md`), but has organically grown past the original "Phase 1 CLI script" into a real web app with CV upload, faster than the plan's phase order — see "Current shape" below.
+## Product and runtime
 
-**Heads up for future sessions**: something in this repo auto-commits and auto-pushes changes (conventional-commit-style messages appear in `git log` that neither the user nor a Claude session explicitly requested — e.g. `fix: use dynamic imports for pdf-parse...`). Don't be surprised if `git status` is already clean after an edit, or if the working tree has drifted since you last looked — always re-read a file before editing it, and check `git log` for recent activity before assuming you know the current state.
+Job Matcher is a Clerk-authenticated app that scrapes Greenhouse, Lever, Ashby, and LinkedIn job listings, scores them against each user's saved CV/profile, stores results in Turso, and sends an email digest through Resend.
 
-## Current shape (not just the original Phase 1 CLI)
+- **API and UI:** Express in `src/server.ts`, static frontend in `public/`. `/api/match` runs an interactive scrape and scores the first results page; `/api/match/page` scores later pages on demand.
+- **Identity:** `src/clerkAuth.ts` verifies Clerk session tokens. Account emails are loaded server-side from Clerk and must be verified primary emails; request-body `email`/`clerkId` values are never used to select an account. Production matching and CV upload require authentication.
+- **Storage:** Turso/libSQL is the source of truth. Tables use the `jm_` prefix because the database is shared with another project. Schema initialization runs through `ensureMigrated()` on API and hourly-worker startup. User company-board selections are stored in `jm_user_companies` alongside profile, CV, matches, and digest settings.
+- **Scheduling:** `.github/workflows/cron-hourly.yml` is the only scheduled job workflow. It runs hourly, evaluates each enabled user's local time, and permits one daily attempt per local date and preferred hour. Empty results are recorded to prevent repeated work; blocked and failed attempts can retry. A database claim plus a stable Resend idempotency key prevents overlapping retries from sending duplicate emails. Public workflow logs use an internal user ID suffix rather than email addresses. Vercel has no cron schedule.
+- **Scoring:** `src/match.ts` requires one valid result for every posting. Exhausted providers, malformed JSON, or incomplete model output fail the run instead of silently dropping jobs.
+- **Email safety:** `src/mailer.ts` HTML-escapes scraped/model text and only emits HTTPS apply links.
 
-- **Web app**: Express server (`src/server.ts`) serving a frontend (`public/`) with CV upload (PDF/DOCX/TXT via `pdf-parse`/`mammoth`, dynamically imported inside the request handler — see "Fixed bugs" below), a config form, and SSE-streamed progress (`/api/match`) while the scrape+score pipeline runs.
-- **CLI entrypoint** (`src/index.ts`) still exists and still works — reads `data/cv.txt`/`data/profile.json`/`data/companies.json`, runs the same pipeline via `src/runner.ts`, writes `results/latest.md`.
-- **Shared pipeline logic** lives in `src/runner.ts` (orchestrator with progress callbacks), used by both the CLI and the server's SSE endpoint.
-- **GitHub Actions cron** is now two workflows (`scrape-and-score.yml` at 8am/8pm IST, `send-digest.yml` at 9am/9pm IST — see the dedicated section below) — independent of the new web app.
-- **Vercel deployment** is live (`vercel` CLI added as a devDependency, `vercel.json` exists) — the web app is hosted there, and it also has a native cron for the email phase only (see below).
+## Workflows and checks
 
-## Where everything lives (spans several locations)
+- `.github/workflows/ci.yml` runs `npm run typecheck` and `npm test` on pushes to `main` and pull requests.
+- `.github/workflows/cron-hourly.yml` runs `npm run cron-hourly` on an hourly schedule and supports manual dispatch.
+- Fixed-time legacy scrape/send workflows were retired to prevent conflicting schedules. `.github/workflows/` is the source of truth for active workflow behavior.
 
-| What | Where |
-|---|---|
-| Full original architecture plan (Phases 1–4) | `/Users/rishabhraj/.claude/plans/original_plan_job_search.md` |
-| This code | `/Users/rishabhraj/Claude Code/job-matcher/` (this directory) |
-| Remote repo (private) | [github.com/RishabhhR/job-matcher](https://github.com/RishabhhR/job-matcher) — holds 4 encrypted Action secrets (`CV_TEXT`, `PROFILE_JSON`, `GROQ_API_KEY`, `GEMINI_API_KEY`) for the GitHub Actions cron path |
-| Vercel project | Team "Rishabh's projects" (`rishabhs-projects-8310fc71`), project `job-matcher` — deployment via `vercel` CLI, separate from the GitHub Actions path and its secrets (Vercel needs its own env vars configured in its dashboard/CLI — not yet confirmed done) |
-| Cross-session memory about this project | `/Users/rishabhraj/.claude/projects/-Users-rishabhraj-Claude-Code/memory/project_job_matcher.md` |
-| Sibling project the LLM fallback code was copied from | `/Users/rishabhraj/Claude Code/contextual-labs/lib/ai.ts` → reused as `src/ai.ts` here |
-| Local dev launch config (for Claude Code's browser preview tooling) | `/Users/rishabhraj/Claude Code/.claude/launch.json` — entry `job-matcher-web` runs `npm run dev` on port 3000 (note: this is a **workspace-root-level** file shared across all sibling projects, not a per-project one) |
+## Local development
 
-## Code layout (in this directory)
+- `npm ci`
+- `npm run dev` starts the local Express app.
+- `npm run typecheck` checks TypeScript.
+- `npm test` runs focused security/input-validation tests.
+- `npm run cron-hourly` runs the per-user worker and requires Turso, LLM-provider, and Resend credentials.
+- `npm run digest` is a legacy single-profile/manual utility; it is not the production scheduler.
 
-- `src/server.ts` — Express app: `/api/initial-data` (prefill form from local `data/` files), `/api/upload-cv` (parse PDF/DOCX/TXT), `/api/match` (SSE-streamed scrape+score run), static frontend serving
-- `src/index.ts` — CLI entrypoint, same pipeline via `runJobMatcher`, writes `results/latest.md`
-- `src/runner.ts` — shared orchestrator (scrape ATS boards + LinkedIn → dedup → prefilter → score), used by both `index.ts` and `server.ts`
-- `src/scrapers.ts` — Greenhouse/Lever/Ashby public JSON API fetchers (ATS boards, fully ToS-compliant)
-- `src/scrapers/linkedin.ts` — LinkedIn via LinkedIn's own **logged-out "guest" job-search endpoint** (`linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search`) + public job-view pages for descriptions. Plain HTTP + cheerio, **no headless browser, no login, no LinkedIn account involved**
-- `src/normalize.ts` — URL-based dedup across sources
-- `src/match.ts` — keyword prefilter + batched LLM scoring, retry/backoff (Groq free tier hits a 12,000 TPM limit under load). **The scoring system prompt now encodes an explicit hike-% and role-level rule** (added 2026-07-05, see below) instead of leaving `comp_fit_label` to the LLM's unstated judgment
-- `src/ai.ts` — Groq→Gemini→OpenRouter fallback chain (copied from `contextual-labs/lib/ai.ts`)
-- `public/` — frontend (glassmorphic UI per recent commits)
-- `data/companies.json` — seed list of verified ATS board tokens (tracked in git)
-- `data/cv.txt`, `data/profile.json` — **gitignored, never committed**. Present locally for `npm start`/`npm run dev`; in GitHub Actions CI these are reconstructed from secrets and deleted after the run
-- `.github/workflows/scrape-and-score.yml` + `send-digest.yml` — the two-phase cron automation, see dedicated section below
-- `.env` — local-only `GROQ_API_KEY`/`GEMINI_API_KEY`/etc. (gitignored)
-- `vercel.json` — Vercel build config + a native cron for the email phase only (`/api/cron-match?mode=email`, once daily at 03:30 UTC/9am IST — Hobby plan limit)
+## Required configuration
 
-## The comp/hike rule now encoded in the matching prompt (2026-07-05)
+Store secrets in the host's secret manager or local ignored `.env`, never in Git:
 
-User asked for the general market rule for judging `comp_fit_label`; this is now baked into `src/match.ts`'s system prompt so scoring is consistent run-to-run instead of vibes-based:
+- `CLERK_SECRET_KEY` and the public Clerk publishable key in the frontend.
+- `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
+- `GROQ_API_KEY`, `GEMINI_API_KEY`, and any enabled fallback provider keys.
+- `RESEND_API_KEY`.
+- `CRON_SECRET` for the protected legacy `/api/cron-match` endpoint. Production returns 503 if this secret is missing and 401 for an incorrect bearer token; `?secret=test` is not a bypass.
 
-- **downgrade**: estimated total comp >10% below current, or a clear seniority step-down with no offsetting comp increase
-- **lateral**: estimated comp within roughly -10% to +20% of current, or same-level title switch without a strong (30%+) jump
-- **upgrade**: comp 20%+ above current (30–40%+ is the typical "good move" benchmark in Indian tech/product hiring, 40–60%+ is exceptional), OR one level above current title (e.g. APM → PM) even at similar comp
-- Two-or-more-level jumps (e.g. APM → Senior/Group PM) get flagged as a "stretch" in the reasoning text, not treated as routine
-- ESOP-heavy offers are discounted vs. fixed cash (illiquid, vesting-dependent) unless the company is late-stage/pre-IPO
+`data/companies.json` is the baseline for new accounts and local use. CV and profile files remain gitignored and are not used to identify production users.
 
-## Key decisions — don't relitigate these without new information
+## Storage choice
 
-- **LLM provider**: user explicitly rejected the Anthropic API for this project. Groq/Gemini/OpenRouter chain only.
-- **LinkedIn access**: individual, not an org. Proxycurl is dead (LinkedIn sued them in 2025, shut down under injunction). Solved via the logged-out guest endpoint instead — no account, no login, no ban risk. User initially offered to log into a secondary/burner LinkedIn account to shield their main one; **declined** — that's a ban-evasion pattern, and turned out to be unnecessary once the guest-endpoint approach worked. If the guest endpoint ever gets IP-blocked, the fallback is an Apify LinkedIn Jobs Scraper actor (self-serve, pay-per-result), not an account-based scraper.
-- **Hosting**: originally recommended GitHub Actions over Vercel (better fit for scraping workloads). User is now also pursuing a Vercel deployment for the web-app UI layer — both can coexist (Actions for the daily unattended cron, Vercel for an on-demand interactive tool), just note they need separate env var/secret configuration.
-- **Secrets discipline**: CV text and salary/employer data live only as GitHub Action secrets, never committed, even in this private repo. Keep this pattern for any new personal data added later (e.g. if Vercel env vars are set up, don't commit `data/cv.txt`/`data/profile.json` there either).
+Keep Turso for the current relational schema and SQLite-compatible queries. The data model uses joins, uniqueness constraints, and transactional claims across users, postings, matches, and email attempts. A MongoDB move would require a data migration and query rewrite without an identified product need. Reconsider only if measured workload or a specific document-oriented use case justifies that cost.
 
-## Fixed bugs (this session, 2026-07-05)
+## Historical development log
 
-1. **Vercel deploy failure**: `rishabhraj@Rishabhs-MacBook-Air.local attempted to deploy... not a member of the team`. Root cause: git had no `user.name`/`user.email` configured locally, so commits carried git's auto-generated fallback identity (`username@hostname`), which Vercel's Git-integration deploy check couldn't match to any real team member — nothing to do with which Vercel account the CLI was logged into. Fixed via `git config --global user.name "Rishabh Raj"` and `git config --global user.email "rishabh.raj.2002.rr@gmail.com"`. **Caveat**: verify that email actually matches what's listed for this account in the Vercel team's Members page — if Vercel/GitHub login uses a different address (e.g. a GitHub noreply email), this needs adjusting. Commits made before this fix still carry the broken author identity; only rewrite that history if it turns out to still cause problems.
-2. **pdf-parse ESM crash on cold start**: `pdf-parse`'s `pdfjs-dist` dependency touches `DOMMatrix` at module top-level scope. An earlier version of `src/server.ts` set a `DOMMatrix` polyfill via an inline `if` block placed textually before a *static* `import * as pdfParseModule from "pdf-parse"` — but ES module imports are hoisted above all other code regardless of source position, so the polyfill ran too late and the import crashed. This was already fixed (by the time this was investigated) by switching to a **dynamic** `await import("pdf-parse")` inside the `/api/upload-cv` handler, which is lazy and correctly runs after the top-level polyfill. Verified via browser preview: server now boots clean with no crash, CV text pre-fills correctly, no console errors.
-
-## How to operate it
-
-- Trigger a scrape+score run manually: `gh workflow run scrape-and-score.yml` (from this directory)
-- Trigger an email-send run manually: `gh workflow run send-digest.yml`
-- Check recent runs: `gh run list --workflow=scrape-and-score.yml --limit 3` (or `send-digest.yml`)
-- Rotate/update a GitHub secret: `gh secret set <NAME>` (e.g. `gh secret set PROFILE_JSON < data/profile.json` after editing salary/designation)
-- Run the CLI locally: `npm start` (writes `results/latest.md`, no DB/email involved — needs `.env` with `GROQ_API_KEY`/`GEMINI_API_KEY`, and `data/cv.txt` + `data/profile.json` present)
-- Run the full digest locally (DB + email, both phases at once): `npm run digest` (or `DIGEST_MODE=scrape npm run digest`, `DIGEST_MODE=email npm run digest` to test one phase; `DIGEST_SLOT=am`/`pm` to force a slot) — needs the same env vars plus `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`/`RESEND_API_KEY`
-- Run the web app locally: `npm run dev` (same env requirements; serves on port 3000)
-- Preview in Claude Code: use the `job-matcher-web` entry in the root `launch.json` (see table above) rather than a fresh Bash server — needed for `preview_*` tool verification
-
-## Mailer + Turso DB + twice-daily cron (built 2026-07-05)
-
-Implemented per the user's ask to "move to mailer at 9am/9pm, DB in Turso, and crons." **Verified working end-to-end**: a real test run wrote 1 user/profile/6 postings/6 matches to Turso and Resend returned a real message ID for a sent email.
-
-- **DB**: `src/db.ts` — full multi-tenant schema (`jm_users`, `jm_user_profiles`, `jm_cvs`, `jm_job_postings`, `jm_job_posting_requirements`, `jm_user_job_matches`, `jm_scrape_runs`, `jm_email_send_log`), `jm_`-prefixed since **this reuses the same Turso database as fittrack** (per the user's explicit instruction — same `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`, not a separate DB). `jm_email_send_log` has a `UNIQUE(user_id, send_date, slot)` constraint that makes re-running the same slot/day a no-op (idempotent).
-- **Mailer**: `src/mailer.ts` — Resend SDK, sends from `onboarding@resend.dev` (no domain verification needed for personal use), simple inline-HTML digest template.
-- **Orchestrator**: `src/digest.ts` — exports `runDigest({ slot?, mode? })`, also runnable directly via `npm run digest` (reads `DIGEST_SLOT`/`DIGEST_MODE` env vars if no options passed). Migrates the DB, resolves user/profile/CV (from local files or, if absent, from Turso via `DIGEST_USER_EMAIL`), checks `jm_email_send_log` for idempotency, then branches on `mode`.
-
-### Split into two crons with a "patience window" (2026-07-05, per user's request to avoid rate limits)
-
-Rather than one script doing scrape+score+email in a single run against a tight time budget, the pipeline is now split into two independent phases an hour apart, so the scoring phase can patiently ride out rate limits instead of racing the clock:
-
-- **`DIGEST_MODE=scrape`** (`.github/workflows/scrape-and-score.yml`, 8am/8pm IST i.e. 02:30/14:30 UTC) — scrapes + scores + persists postings/matches to Turso, does **not** send email. Runs with `patient: true` passed to `runJobMatcher` (`src/runner.ts`), which switches `src/match.ts`'s retry behavior from `FAST_RETRY` (3 retries, capped at 20s backoff) to `PATIENT_RETRY` (8 retries, backoff capped at 2 minutes) — since this phase has a full hour before anything actually gets sent, it's worth waiting out rate limits rather than giving up and skipping batches.
-- **`DIGEST_MODE=email`** (`.github/workflows/send-digest.yml`, 9am/9pm IST i.e. 03:30/15:30 UTC) — no scraping/LLM calls at all, just reads whatever's currently in `jm_user_job_matches` for the user and sends the digest. Cheap and fast regardless of how the scrape phase went.
-- Both workflows independently reconstruct `data/cv.txt`/`profile.json` from GitHub secrets and resolve their own slot (am/pm) from `github.event.schedule`, same pattern as before.
-- `patient` only applies when `mode === "scrape"` — the interactive web UI's `/api/match` (SSE) and manual `mode=all` runs stay on the fast/interactive retry settings, since nothing should hang for minutes on a live user-facing request.
-
-### Multiple triggers exist for the email phase — this is intentional and safe now
-
-Earlier in this project there were multiple *scrape-mode* triggers overlapping (my GH Actions path, a Gemini-built Vercel-hosted `/api/cron-match` path, and a native Vercel cron), which was a real problem: scraping calls the LLM, so redundant scrape triggers roughly doubled Groq/Gemini quota use — this is what caused a test run to hit Groq's 100k-token daily cap and Gemini's own quota mid-run, only scoring 6 of ~63 shortlisted postings that time.
-
-After the scrape/email split, this is much less risky: **only `scrape-and-score.yml` calls the LLM.** `vercel.json` still has a native cron hitting `/api/cron-match?mode=email` once daily (Hobby plan limit) at 03:30 UTC/9am IST, which overlaps with `send-digest.yml`'s "am" run — but `mode=email` is just a cheap DB read + Resend send, gated by `jm_email_send_log`'s `UNIQUE(user_id, send_date, slot)` constraint, so whichever fires first sends the email and the other harmlessly no-ops. Two other things worth knowing if touching this again:
-
-- **Vercel Deployment Protection (SSO wall) blocks external calls to `/api/cron-match`** — confirmed by curling the live production URL directly: an unauthenticated request gets a `302` redirect to `vercel.com/sso-api`. Vercel's *own* native cron invocations bypass this (trusted internal caller), but any external ping (e.g. a GH Actions curl step) would not — that path would need either Deployment Protection disabled for Production, or a "Protection Bypass for Automation" secret passed from the caller. Dashboard-only, not doable via the `vercel` CLI.
-- **Vercel's `includeFiles: ["data/**"]` doesn't rescue gitignored files** — confirmed deploys are git-integration-triggered (`Cloning github.com/RishabhhR/job-matcher` in build logs), so `data/cv.txt`/`profile.json` never exist in the build source regardless of `includeFiles`. That trick only works for local CLI-uploaded deploys. This is why `runDigest()` has the Turso DB-fallback path (`getUserByEmail`/`getActiveCvText`/`getUserProfileRow` in `src/db.ts`, gated on `DIGEST_USER_EMAIL`) — it's the actual fix, already wired up with the right env vars on Vercel.
-
-## Known rough edges
-
-- Groq free tier (12,000 TPM *and* 100k tokens/day) gets rate-limited under batch scoring load, worse when multiple sessions/workflows test concurrently (see above) — Gemini fallback catches per-minute limits automatically, but both providers hitting their daily cap simultaneously means some batches just get skipped (logged, not fatal, but fewer matches that run).
-- LinkedIn guest-endpoint scraping currently only targets India + the profile's `targetDesignation` as a single keyword — no multi-location or multi-title fan-out yet.
-- ATS seed company list (`data/companies.json`) is a small, manually verified set — extend it if match variety feels thin.
-- `results/latest.md` (from the old `npm start` CLI path) is no longer updated by the cron — the DB + email are now the source of truth. The CLI script and that file still exist for local ad-hoc runs.
-
-## Not built yet
-
-No multi-tenant auth/CV-upload-per-user wiring the DB schema was built for (schema supports it, but only one `jm_users` row exists — the app itself doesn't yet let a second person sign up and use it). No hosted dashboard reading from Turso (data's there, but only queryable via script/CLI right now). See the original plan file for the full Phase 3–4 roadmap if resuming that track.
-
-## Confirmed: both Vercel's native cron and GitHub Actions cron running is fine (2026-07-05)
-
-User explicitly confirmed running both is acceptable, not a bug to fix further. Recap of why it's safe: Vercel's native cron (`vercel.json`, `mode=email`, once daily at 9am IST) and GitHub's `send-digest.yml` (9am **and** 9pm IST) can both fire for the "am" slot — but `mode=email` never calls the LLM, it's just a DB read + Resend send gated by `jm_email_send_log`'s unique constraint on `(user_id, send_date, slot)`. Whichever fires first sends; the other sees "already sent" and no-ops. No wasted quota, no duplicate email. **Do not re-flag this as redundant/needs-fixing in future sessions** — it's a deliberately accepted final state, not leftover cleanup.
+The notes below are retained for history; they describe earlier implementations and incidents and are not the current runtime specification.
 
 ## Session log (running notes, kept up to date so context can be cleared)
 
