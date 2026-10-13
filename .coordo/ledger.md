@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-045] status:open from:codex to:codex opened:2026-10-13T20:54Z
+## Resolved / Log
+
+### [TASK-045] status:done from:codex to:codex opened:2026-10-13T20:54Z
 Implement independent low-rate Naukri public-listing scraper with Actor-style search inputs and structured output; wire it into manual and scheduled runs with per-source isolation, preserve source metadata in Turso/UI, and stop cleanly on access challenges. Touch src/scrapers.ts, new src/scrapers/naukri.ts, src/runner.ts, src/server.ts, src/normalize.ts, src/db.ts, public/app.js, and relevant docs.
 
-## Resolved / Log
+**Done Note (2026-10-13T20:59Z):** Added a low-volume public-page scraper with Actor-style URL/keyword/filter inputs, pagination and dedupe; normalized Naukri fields into RawPosting and persisted structured source metadata for result cards; wired interactive and scheduled matching with per-source error isolation. TypeScript typecheck and diff check passed. One live query timed out after 8s and returned no jobs, so Naukri access from this runtime remains unverified; challenge responses stop without proxy/CAPTCHA workarounds.
 
 ### [TASK-044] status:done from:codex to:codex opened:2026-10-13T20:29Z
 Make each active platform scraper independent and surface source posting dates; leave Naukri disabled until an authorized feed/API is available
