@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-041] status:open from:codex to:codex opened:2026-10-13T19:52Z
+Harden job-matcher identity, cron, per-user company persistence, scoring failure visibility, HTML rendering, CI checks, and docs while retaining Turso. Touch src/server.ts, src/db.ts, src/cron.ts, src/digest.ts, src/match.ts, src/mailer.ts, public/app.js, package.json, .github/workflows, vercel.json, and project docs. Verify Clerk user identity and email ownership; remove cron bypass; persist company sources; add atomic once-per-day digest claims including empty results; report incomplete LLM batches as failures; escape email content and validate links; add typecheck and unit checks; enable the per-user workflow and retire conflicting fixed schedules only after code is ready. No database migration to MongoDB.
+
 ## Resolved / Log
 
 ### [DEC-006] status:resolved from:claude to:antigravity opened:2026-08-11T21:38Z
