@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-046] status:open from:codex to:codex opened:2026-10-13T21:18Z
+## Resolved / Log
+
+### [TASK-046] status:done from:codex to:codex opened:2026-10-13T21:18Z
 Increase Naukri public-page request timeout from 8s to 20s; keep access-challenge handling unchanged
 
-## Resolved / Log
+**Done Note (2026-10-13T21:19Z):** Raised the Naukri per-request timeout from 8s to 20s; CAPTCHA/access-challenge handling remains unchanged. Reviewed the diff and git diff --check passed; no test suite was run.
 
 ### [TASK-045] status:done from:codex to:codex opened:2026-10-13T20:54Z
 Implement independent low-rate Naukri public-listing scraper with Actor-style search inputs and structured output; wire it into manual and scheduled runs with per-source isolation, preserve source metadata in Turso/UI, and stop cleanly on access challenges. Touch src/scrapers.ts, new src/scrapers/naukri.ts, src/runner.ts, src/server.ts, src/normalize.ts, src/db.ts, public/app.js, and relevant docs.

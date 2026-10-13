@@ -20,7 +20,9 @@ const MAX_RESULTS = 15;
 const MAX_QUERIES = 2;
 const MAX_PAGES = 3;
 const REQUEST_DELAY_MS = 2500;
-const REQUEST_TIMEOUT_MS = 8000;
+// Naukri's public search pages can respond more slowly than the ATS APIs.
+// Keep each request bounded while allowing a slower page to finish.
+const REQUEST_TIMEOUT_MS = 20_000;
 const USER_AGENT = "job-matcher/0.1 (+https://github.com/RishabhhR/job-matcher)";
 
 function slug(value: string): string {
