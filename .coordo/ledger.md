@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-048] status:open from:codex to:codex opened:2026-10-13T21:34Z
+## Resolved / Log
+
+### [TASK-048] status:done from:codex to:codex opened:2026-10-13T21:34Z
 Restore Naukri scraping with a real Chromium browser: inspect public search-page rendering, replace silent blocked raw requests with bounded browser navigation and DOM extraction, stop on CAPTCHA/access challenges, keep source isolation, and wire Chromium availability for the GH cron and Vercel runtime. Touch src/scrapers/naukri.ts, package.json/package-lock.json, workflow/deployment config, and docs as required.
 
-## Resolved / Log
+**Done Note (2026-10-13T21:38Z):** Reproduced root cause: raw job-matcher UA stalls at Naukri edge; standard Chromium browser navigation renders search results. Replaced direct fetch with bounded reusable Chromium navigation, visible challenge checks, and light-resource blocking; packaged Chromium for Linux Actions/Vercel and documented the RCA. npm run typecheck, git diff --check, and a live Product Manager/Bengaluru scrape returning 5 structured Naukri postings passed.
 
 ### [TASK-047] status:done from:codex to:codex opened:2026-10-13T21:29Z
 RCA Naukri silent response stalls; restore bounded fast-fail and document measured upstream behavior

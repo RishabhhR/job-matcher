@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import * as cheerio from "cheerio";
+import serverlessChromium from "@sparticuz/chromium";
+import { chromium as playwrightChromium, type Page } from "playwright-core";
 import type { RawPosting } from "../scrapers.js";
 
 export interface NaukriSearchInput {
@@ -20,10 +23,8 @@ const MAX_RESULTS = 15;
 const MAX_QUERIES = 2;
 const MAX_PAGES = 3;
 const REQUEST_DELAY_MS = 2500;
-// A 20s trial still received no response headers from Naukri's edge. Keep the
-// failed source from adding a long wait to every scheduled matching run.
-const REQUEST_TIMEOUT_MS = 8_000;
-const USER_AGENT = "job-matcher/0.1 (+https://github.com/RishabhhR/job-matcher)";
+const NAVIGATION_TIMEOUT_MS = 20_000;
+const CARD_TIMEOUT_MS = 8_000;
 
 function slug(value: string): string {
   return value
@@ -103,7 +104,10 @@ function toPostedAt(value: string): string | undefined {
 }
 
 function hasChallenge(html: string): boolean {
-  return /captcha|recaptcha|verify (that )?you are human|access denied|unusual traffic/i.test(html);
+  const $ = cheerio.load(html);
+  $("script, style, noscript, iframe").remove();
+  const visibleText = $("body").text().replace(/\s+/g, " ");
+  return /captcha|recaptcha|verify (that )?you are human|access denied|unusual traffic/i.test(visibleText);
 }
 
 function parseCards(html: string, sourceUrl: URL): RawPosting[] {
@@ -174,30 +178,60 @@ function parseCards(html: string, sourceUrl: URL): RawPosting[] {
   return postings;
 }
 
-async function fetchPage(url: URL): Promise<RawPosting[]> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-IN,en;q=0.8",
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+function localChromiumPath(): string | undefined {
+  const candidates = [
+    process.env.NAUKRI_CHROMIUM_PATH,
+    process.env.CHROME_PATH,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+  ].filter((value): value is string => Boolean(value));
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+async function launchBrowser() {
+  const executablePath = localChromiumPath();
+  if (executablePath) {
+    return playwrightChromium.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
     });
+  }
+
+  if (process.platform !== "linux") {
+    throw new Error("Naukri browser scraper needs Chrome; set NAUKRI_CHROMIUM_PATH to its executable.");
+  }
+  return playwrightChromium.launch({
+    args: serverlessChromium.args,
+    executablePath: await serverlessChromium.executablePath(),
+    headless: true,
+  });
+}
+
+async function fetchPage(page: Page, url: URL): Promise<RawPosting[]> {
+  let response;
+  try {
+    response = await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
   } catch (error) {
-    if ((error as Error).name === "TimeoutError" || (error as Error).name === "AbortError") {
-      throw new Error(`Naukri returned no response headers within ${REQUEST_TIMEOUT_MS / 1000}s for ${url.pathname}.`);
+    if ((error as Error).name === "TimeoutError") {
+      throw new Error(`Naukri browser navigation timed out after ${NAVIGATION_TIMEOUT_MS / 1000}s for ${url.pathname}.`);
     }
     throw error;
   }
 
-  if (response.status === 403 || response.status === 406 || response.status === 429) {
-    throw new Error(`Naukri returned HTTP ${response.status}; the public page is unavailable to this request.`);
+  const status = response?.status();
+  if (status === 403 || status === 406 || status === 429) {
+    throw new Error(`Naukri returned HTTP ${status}; the public page is unavailable to this request.`);
   }
-  if (!response.ok) throw new Error(`Naukri returned HTTP ${response.status}.`);
+  if (status && status >= 400) throw new Error(`Naukri returned HTTP ${status}.`);
 
-  const html = await response.text();
+  try {
+    await page.locator(".srp-jobtuple-wrapper").first().waitFor({ state: "attached", timeout: CARD_TIMEOUT_MS });
+  } catch {
+    // Challenge pages often load successfully at HTTP level but contain no job cards.
+  }
+  const html = await page.content();
   if (hasChallenge(html)) {
     throw new Error("Naukri returned an access or CAPTCHA challenge; scraper stopped without retrying around it.");
   }
@@ -206,6 +240,15 @@ async function fetchPage(url: URL): Promise<RawPosting[]> {
     throw new Error("Naukri returned no recognizable public job cards; page markup may have changed or jobs may be client-rendered.");
   }
   return postings;
+}
+
+function browserUserAgent(version: string): string {
+  const platform = process.platform === "darwin"
+    ? "Macintosh; Intel Mac OS X 10_15_7"
+    : process.platform === "win32"
+      ? "Windows NT 10.0; Win64; x64"
+      : "X11; Linux x86_64";
+  return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
 }
 
 export async function fetchNaukri(input: NaukriSearchInput): Promise<RawPosting[]> {
@@ -226,22 +269,40 @@ export async function fetchNaukri(input: NaukriSearchInput): Promise<RawPosting[
   const results: RawPosting[] = [];
   const seen = new Set<string>();
 
-  for (const [queryIndex, base] of bases.entries()) {
-    let queryCount = 0;
-    for (let page = 1; page <= MAX_PAGES && queryCount < maxResults; page += 1) {
-      if (page > 1 || queryIndex > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
-      const pagePostings = await fetchPage(pageUrl(base, page));
-      for (const posting of pagePostings) {
-        const key = posting.sourceJobId || posting.applyUrl;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push(posting);
-          queryCount += 1;
-          if (queryCount >= maxResults) break;
+  const browser = await launchBrowser();
+  try {
+    const context = await browser.newContext({
+      locale: "en-IN",
+      viewport: { width: 1365, height: 900 },
+      userAgent: browserUserAgent(browser.version()),
+    });
+    const page = await context.newPage();
+    await page.route("**/*", async (route) => {
+      const type = route.request().resourceType();
+      if (type === "image" || type === "font" || type === "media") await route.abort();
+      else await route.continue();
+    });
+
+    for (const [queryIndex, base] of bases.entries()) {
+      let queryCount = 0;
+      for (let pageNumber = 1; pageNumber <= MAX_PAGES && queryCount < maxResults; pageNumber += 1) {
+        if (pageNumber > 1 || queryIndex > 0) await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
+        const pagePostings = await fetchPage(page, pageUrl(base, pageNumber));
+        for (const posting of pagePostings) {
+          const key = posting.sourceJobId || posting.applyUrl;
+          if (!seen.has(key)) {
+            seen.add(key);
+            results.push(posting);
+            queryCount += 1;
+            if (queryCount >= maxResults) break;
+          }
         }
+        if (pagePostings.length < 10) break;
       }
-      if (pagePostings.length < 10) break;
     }
+    await context.close();
+  } finally {
+    await browser.close();
   }
   return results;
 }
