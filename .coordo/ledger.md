@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-045] status:open from:codex to:codex opened:2026-10-13T20:54Z
+Implement independent low-rate Naukri public-listing scraper with Actor-style search inputs and normalized output; wire it into manual and scheduled runs with per-source isolation, and stop cleanly on access challenges. Touch src/scrapers.ts, new src/scrapers/naukri.ts, src/runner.ts, src/server.ts, and relevant docs.
+
 ## Resolved / Log
 
 ### [TASK-044] status:done from:codex to:codex opened:2026-10-13T20:29Z
