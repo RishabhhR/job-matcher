@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-042] status:open from:codex to:codex opened:2026-10-13T20:22Z
+Fix scheduled digest delays and repeated listings: send due-user digests from precomputed matches before scrape/LLM work, scrape after all sends, and select only never-emailed matches while preserving each user’s configured local hour. Touch src/cron.ts, src/db.ts, tests as needed; verify schedule logic and deployment effects.
+
 ## Resolved / Log
 
 ### [TASK-041] status:done from:codex to:codex opened:2026-10-13T19:52Z
