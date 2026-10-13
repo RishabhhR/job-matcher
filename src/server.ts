@@ -29,6 +29,7 @@ import {
 } from "./db.js";
 import { fetchAshby, fetchGreenhouse, fetchLever } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
+import { fetchNaukri } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll } from "./match.js";
 import { attachVerifiedClerkUser } from "./clerkAuth.js";
@@ -378,7 +379,7 @@ app.get("/api/cron-match", async (req, res) => {
 
 // SSE endpoint to run the initial scraper and stream progress updates, returning the first page of matches
 app.post("/api/match", async (req, res) => {
-  const { cvText, profile, linkedin, digestEnabled, digestHour } = req.body;
+  const { cvText, profile, linkedin, naukri, digestEnabled, digestHour } = req.body;
   const companies = parseCompanySources(req.body.companies);
 
   if (typeof cvText !== "string" || cvText.length === 0 || cvText.length > 250_000 || !profile || !companies) {
@@ -508,8 +509,18 @@ app.post("/api/match", async (req, res) => {
     const linkedinPostings = filterByLoc(linkedinPostingsRaw);
     sendEvent("progress", { status: "scraping_linkedin_complete", message: `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched location filter.` });
 
+    const naukriInput = naukri && typeof naukri === "object" && !Array.isArray(naukri) ? naukri : {
+      keyword: profile.targetDesignation,
+      location: profile.preferredCity || profile.preferredCountry || "India",
+      maxResultsPerQuery: 15,
+    };
+    sendEvent("progress", { status: "scraping_naukri", message: `Scraping Naukri for "${naukriInput.keyword}" (max ${naukriInput.maxResultsPerQuery} results)...` });
+    const naukriRaw = await safeScrape("naukri", () => fetchNaukri(naukriInput));
+    const naukriPostings = filterByLoc(naukriRaw);
+    sendEvent("progress", { status: "scraping_naukri_complete", message: `Fetched ${naukriRaw.length} Naukri postings, ${naukriPostings.length} matched location filter.` });
+
     sendEvent("progress", { status: "scrape_health", message: Object.entries(sourceHealth).map(([source, health]) => `${source}=${health.ok ? health.count : `ERR(${health.error?.slice(0, 60)})`}`).join(", ") });
-    const rawPostings = [...atsPostings, ...linkedinPostings];
+    const rawPostings = [...atsPostings, ...linkedinPostings, ...naukriPostings];
     sendEvent("progress", { status: "processing", message: `Total raw postings collected: ${rawPostings.length}. Running deduplication...` });
     const deduped = dedupePostings(rawPostings);
     sendEvent("progress", { status: "processing", message: `Deduplication complete. Retained ${deduped.length} unique postings.` });
@@ -579,6 +590,7 @@ app.post("/api/match", async (req, res) => {
         postedAt: j.postedAt,
         scrapedAt: j.scrapedAt,
         descriptionText: j.descriptionText || "",
+        sourceMetadata: j.sourceMetadata,
         applyUrl: j.applyUrl,
       },
       fitScore: j.fitScore,
@@ -671,6 +683,7 @@ app.post("/api/match/page", async (req, res) => {
         postedAt: j.postedAt,
         scrapedAt: j.scrapedAt,
         descriptionText: j.descriptionText || "",
+        sourceMetadata: j.sourceMetadata,
         applyUrl: j.applyUrl,
       },
       fitScore: j.fitScore,

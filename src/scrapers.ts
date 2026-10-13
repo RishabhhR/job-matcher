@@ -1,5 +1,5 @@
 export interface RawPosting {
-  source: "greenhouse" | "lever" | "ashby" | "linkedin";
+  source: "greenhouse" | "lever" | "ashby" | "linkedin" | "naukri";
   sourceJobId: string;
   company: string;
   title: string;
@@ -8,6 +8,8 @@ export interface RawPosting {
   descriptionText: string;
   /** Source-provided posting/update date in ISO format when available. */
   postedAt?: string;
+  /** Optional source-specific public fields preserved for display and downstream use. */
+  sourceMetadata?: Record<string, unknown>;
 }
 
 function toIsoDate(value: unknown): string | undefined {

@@ -4,7 +4,9 @@ Last reconciled with `main`: 2026-10-14.
 
 ## Product and runtime
 
-Job Matcher is a Clerk-authenticated app that scrapes Greenhouse, Lever, Ashby, and LinkedIn job listings, scores them against each user's saved CV/profile, stores results in Turso, and sends an email digest through Resend.
+Job Matcher is a Clerk-authenticated app that scrapes Greenhouse, Lever, Ashby, LinkedIn, and public Naukri search listings, scores them against each user's saved CV/profile, stores results in Turso, and sends an email digest through Resend. Naukri searches are low-volume and stop with a source error when the public page challenges the request or its markup changes; the scraper does not retry around access controls.
+
+The Naukri adapter defaults to the saved target designation and preferred location. Callers can provide `startUrls` or `keyword`, `location`, `experience`, `companyName`, `jobAge`, `sort`, `ctcFilter`, `jobTypeFilter`, and `maxResultsPerQuery`. It normalizes job ID, title, company, location, description, application URL, and posting date into `RawPosting`, with Naukri-specific salary, experience, skills, ratings, and source URL retained in `sourceMetadata`.
 
 - **API and UI:** Express in `src/server.ts`, static frontend in `public/`. `/api/match` runs an interactive scrape and scores the first results page; `/api/match/page` scores later pages on demand.
 - **Identity:** `src/clerkAuth.ts` verifies Clerk session tokens. Account emails are loaded server-side from Clerk and must be verified primary emails; request-body `email`/`clerkId` values are never used to select an account. Production matching and CV upload require authentication.

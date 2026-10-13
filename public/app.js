@@ -563,6 +563,8 @@ function renderResults(results) {
   results.forEach(m => {
     const card = document.createElement("div");
     card.className = "result-card";
+    const sourceMetadata = m.posting.sourceMetadata || {};
+    const skills = Array.isArray(sourceMetadata.tagsAndSkills) ? sourceMetadata.tagsAndSkills.slice(0, 5) : [];
 
     let scoreClass = "low";
     if (m.fitScore >= 75) scoreClass = "high";
@@ -584,6 +586,8 @@ function renderResults(results) {
         <span class="meta-tag source">${escapeHTML(m.posting.source)}</span>
         <span class="meta-tag ${m.compFitLabel}">${escapeHTML(m.compFitLabel)}</span>
         ${m.posting.location ? `<span class="meta-tag">${escapeHTML(m.posting.location)}</span>` : ""}
+        ${sourceMetadata.experienceLabel ? `<span class="meta-tag">${escapeHTML(sourceMetadata.experienceLabel)}</span>` : ""}
+        ${sourceMetadata.salaryLabel ? `<span class="meta-tag">${escapeHTML(sourceMetadata.salaryLabel)}</span>` : ""}
         ${(() => {
           const dateValue = m.posting.postedAt || m.posting.scrapedAt;
           const date = dateValue ? new Date(dateValue) : null;
@@ -594,6 +598,7 @@ function renderResults(results) {
           return `<span class="meta-tag">${label} ${escapeHTML(date.toLocaleDateString())}</span>`;
         })()}
       </div>
+      ${skills.length ? `<div class="result-card-meta">${skills.map(skill => `<span class="meta-tag">${escapeHTML(skill)}</span>`).join("")}</div>` : ""}
       
       <p class="reasoning">${escapeHTML(m.reasoningText)}</p>
       

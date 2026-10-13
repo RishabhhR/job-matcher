@@ -58,6 +58,7 @@ const SCHEMA = [
     title TEXT,
     location TEXT,
     description_text TEXT,
+    source_metadata TEXT,
     apply_url TEXT,
     dedup_hash TEXT UNIQUE NOT NULL,
     posted_at TEXT,
@@ -118,6 +119,7 @@ export async function migrate() {
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_country TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_city TEXT",
     "ALTER TABLE jm_job_postings ADD COLUMN posted_at TEXT",
+    "ALTER TABLE jm_job_postings ADD COLUMN source_metadata TEXT",
     // Tracks when a match was last included in a sent digest, so the digest can
     // lead with never-emailed matches (see getTopMatchesForUser). Deliberately a
     // separate column, NOT the `status` field, which has its own pending/scored
@@ -559,12 +561,13 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
     const dedupHash = `${p.company.toLowerCase()}:${p.title.toLowerCase()}:${(p.location || "").toLowerCase()}`;
     
     batchStatements.push({
-      sql: `INSERT INTO jm_job_postings (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash, posted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO jm_job_postings (id, source, source_job_id, company_name, title, location, description_text, source_metadata, apply_url, dedup_hash, posted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(dedup_hash) DO UPDATE SET
               posted_at = COALESCE(excluded.posted_at, jm_job_postings.posted_at),
+              source_metadata = COALESCE(excluded.source_metadata, jm_job_postings.source_metadata),
               scraped_at = datetime('now')`,
-      args: [postingId, p.source, p.sourceJobId || null, p.company, p.title, p.location || null, p.descriptionText || "", p.applyUrl, dedupHash, p.postedAt || null],
+      args: [postingId, p.source, p.sourceJobId || null, p.company, p.title, p.location || null, p.descriptionText || "", p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null, p.applyUrl, dedupHash, p.postedAt || null],
     });
 
     batchStatements.push({
@@ -584,7 +587,7 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
 
 export async function getPaginatedMatchesForUser(userId: string, offset: number, limit: number) {
   const result = await client.execute({
-    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
+    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.source_metadata as sourceMetadata, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
                  m.status, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
@@ -593,7 +596,10 @@ export async function getPaginatedMatchesForUser(userId: string, offset: number,
           LIMIT ? OFFSET ?`,
     args: [userId, limit, offset],
   });
-  return result.rows;
+  return result.rows.map((row: any) => ({
+    ...row,
+    sourceMetadata: typeof row.sourceMetadata === "string" ? JSON.parse(row.sourceMetadata) : undefined,
+  }));
 }
 
 export async function getTotalMatchCountForUser(userId: string): Promise<number> {

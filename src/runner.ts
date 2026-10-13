@@ -1,5 +1,6 @@
 import { fetchAshby, fetchGreenhouse, fetchLever, type RawPosting } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
+import { fetchNaukri, type NaukriSearchInput } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
 
@@ -37,6 +38,7 @@ export interface RunnerOptions {
     location?: string;
     maxResults?: number;
   };
+  naukri?: NaukriSearchInput;
   onProgress?: (status: string, message: string) => void;
   // Scheduled scrape-only crons have a whole hour before the separate email cron
   // fires, so it's worth riding out rate limits with long waits instead of giving
@@ -45,7 +47,7 @@ export interface RunnerOptions {
 }
 
 export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch[]> {
-  const { cvText, profile, companies, linkedin, onProgress = () => {}, patient = false } = options;
+  const { cvText, profile, companies, linkedin, naukri, onProgress = () => {}, patient = false } = options;
   const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
   const locationLabel = profile.preferredCity || profile.preferredCountry || "all locations";
@@ -110,11 +112,17 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const linkedinPostings = filterByLocation(linkedinPostingsRaw, profile);
   onProgress("scraping_linkedin_complete", `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched ${locationLabel} location filter.`);
 
-  // Naukri's public search HTML currently has no server-rendered job data, and
-  // its data route challenges automated requests. Integrate it only via an
-  // authorized feed/API; do not automate around its CAPTCHA.
+  const naukriInput: NaukriSearchInput = naukri || {
+    keyword: profile.targetDesignation,
+    location: profile.preferredCity || profile.preferredCountry || "India",
+    maxResultsPerQuery: 15,
+  };
+  onProgress("scraping_naukri", `Scraping Naukri for "${naukriInput.keyword || "search URL"}" (max ${naukriInput.maxResultsPerQuery || 15} results)...`);
+  const naukriRaw = await safeScrape("naukri", () => fetchNaukri(naukriInput));
+  const naukriPostings = filterByLocation(naukriRaw, profile);
+  onProgress("scraping_naukri_complete", `Fetched ${naukriRaw.length} Naukri postings, ${naukriPostings.length} matched ${locationLabel} location filter.`);
 
-  const rawPostings = [...atsPostings, ...linkedinPostings];
+  const rawPostings = [...atsPostings, ...linkedinPostings, ...naukriPostings];
 
   // Scrape-health summary: surfaces per-source counts so a silent block (count 0 / ok:false)
   // is visible in the run log rather than looking like "no new jobs today".

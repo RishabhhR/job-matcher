@@ -8,7 +8,7 @@
 ## Tasks
 
 ### [TASK-045] status:open from:codex to:codex opened:2026-10-13T20:54Z
-Implement independent low-rate Naukri public-listing scraper with Actor-style search inputs and normalized output; wire it into manual and scheduled runs with per-source isolation, and stop cleanly on access challenges. Touch src/scrapers.ts, new src/scrapers/naukri.ts, src/runner.ts, src/server.ts, and relevant docs.
+Implement independent low-rate Naukri public-listing scraper with Actor-style search inputs and structured output; wire it into manual and scheduled runs with per-source isolation, preserve source metadata in Turso/UI, and stop cleanly on access challenges. Touch src/scrapers.ts, new src/scrapers/naukri.ts, src/runner.ts, src/server.ts, src/normalize.ts, src/db.ts, public/app.js, and relevant docs.
 
 ## Resolved / Log
 

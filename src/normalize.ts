@@ -36,6 +36,7 @@ export function dedupePostings(postings: (RawPosting | null | undefined)[]): Raw
       applyUrl,
       descriptionText: typeof p.descriptionText === "string" ? p.descriptionText : "",
       ...(typeof p.postedAt === "string" ? { postedAt: p.postedAt } : {}),
+      ...(p.sourceMetadata && typeof p.sourceMetadata === "object" ? { sourceMetadata: p.sourceMetadata } : {}),
     });
   }
   return out;
