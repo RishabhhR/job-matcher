@@ -71,6 +71,26 @@ test("per-user ATS company sources persist independently", async () => {
   assert.deepEqual(await db.getUserCompanies(userId), companies);
 });
 
+test("source posting dates persist in Turso-compatible storage", async () => {
+  const postedAt = "2026-10-13T08:30:00.000Z";
+  const postingId = await db.upsertJobPosting({
+    source: "lever",
+    sourceJobId: "date-test",
+    company: "Date Example",
+    title: "Product Manager",
+    location: "Bengaluru",
+    applyUrl: "https://jobs.example.com/date-test",
+    descriptionText: "",
+    dedupHash: "date-test-posting",
+    postedAt,
+  });
+  const result = await db.client.execute({
+    sql: "SELECT posted_at FROM jm_job_postings WHERE id = ?",
+    args: [postingId],
+  });
+  assert.equal(result.rows[0]?.posted_at, postedAt);
+});
+
 test("verified identities cannot take over an email already linked elsewhere", async () => {
   await db.upsertUser("other@example.com", "Other", "user_other_456");
   await assert.rejects(

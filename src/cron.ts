@@ -141,7 +141,7 @@ async function runHourlyCron() {
         cvText,
         profile: profile as any,
         companies: userCompanies,
-        linkedin: { maxResults: 1000 },
+        linkedin: { maxResults: 100 },
         onProgress: (status, message) => console.log(`[${due.userLogId}][${status.toUpperCase()}] ${message}`),
         patient: true,
       });
@@ -158,6 +158,7 @@ async function runHourlyCron() {
           applyUrl: match.posting.applyUrl,
           descriptionText: match.posting.descriptionText,
           dedupHash,
+          postedAt: match.posting.postedAt,
         });
         await upsertUserMatch(due.userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
       }

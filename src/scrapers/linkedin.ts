@@ -76,6 +76,8 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
         const title = card.find("h3.base-search-card__title").text().trim();
         const company = card.find("h4.base-search-card__subtitle a").text().trim();
         const jobLocation = card.find("span.job-search-card__location").text().trim();
+        const postedAtText = card.find("time[datetime]").first().attr("datetime");
+        const parsedPostedAt = postedAtText ? new Date(postedAtText) : null;
 
         if (!applyUrl || !title) return;
 
@@ -87,6 +89,9 @@ export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promi
           location: jobLocation,
           applyUrl,
           descriptionText: "",
+          ...(parsedPostedAt && !Number.isNaN(parsedPostedAt.getTime())
+            ? { postedAt: parsedPostedAt.toISOString() }
+            : {}),
         });
       });
     }

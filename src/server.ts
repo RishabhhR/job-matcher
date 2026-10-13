@@ -27,7 +27,7 @@ import {
   getUserCompanies,
   upsertUserCompanies
 } from "./db.js";
-import { fetchAllPostings } from "./scrapers.js";
+import { fetchAshby, fetchGreenhouse, fetchLever } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll } from "./match.js";
@@ -424,6 +424,20 @@ app.post("/api/match", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
+  const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
+  async function safeScrape<T>(source: string, fn: () => Promise<T[]>): Promise<T[]> {
+    try {
+      const rows = await fn();
+      sourceHealth[source] = { count: rows.length, ok: true };
+      return rows;
+    } catch (error) {
+      const message = (error as Error).message || String(error);
+      sourceHealth[source] = { count: 0, ok: false, error: message };
+      sendEvent("source_error", { source, message: `Source failed and was skipped: ${message}` });
+      return [];
+    }
+  }
+
   try {
     const userEmail = identity?.email || "anonymous@jobmatcher.dev";
     const userName = identity?.name || "Anonymous User";
@@ -439,9 +453,6 @@ app.post("/api/match", async (req, res) => {
       await updateUserDigestSettings(userId, digestEnabled, Number(digestHour));
     }
 
-    sendEvent("progress", { status: "scraping_ats", message: `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}` });
-    const atsPostingsRaw = await fetchAllPostings(companies);
-    
     // Filter ATS by location
     const patterns = [/remote/i, /\bhybrid\b/i, /anywhere/i];
     if (profile.preferredCountry) patterns.push(new RegExp(profile.preferredCountry, "i"));
@@ -456,29 +467,48 @@ app.post("/api/match", async (req, res) => {
       });
     };
 
-    const atsPostings = filterByLoc(atsPostingsRaw);
-    sendEvent("progress", { status: "scraping_ats_complete", message: `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched location filter.` });
+    const boardSources = [
+      { source: "greenhouse", companies: companies.greenhouse, fetch: fetchGreenhouse },
+      { source: "lever", companies: companies.lever, fetch: fetchLever },
+      { source: "ashby", companies: companies.ashby, fetch: fetchAshby },
+    ] as const;
+    const atsPostings = (await Promise.all(boardSources.map(async ({ source, companies: boards, fetch }) => {
+      sendEvent("progress", { status: `scraping_${source}`, message: `Scraping ${source} boards for ${boards.length} companies...` });
+      const rows = await safeScrape(source, async () => {
+        const settled = await Promise.allSettled(boards.map((company) => fetch(company)));
+        const failed = settled.filter((result) => result.status === "rejected").length;
+        if (failed > 0) sendEvent("source_warning", { source, message: `${failed}/${boards.length} company boards failed; successful boards are retained.` });
+        if (boards.length > 0 && failed === boards.length) {
+          throw new Error(`All ${source} company boards failed (${failed}/${boards.length}).`);
+        }
+        return settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      });
+      const filtered = filterByLoc(rows);
+      sendEvent("progress", { status: `scraping_${source}_complete`, message: `Fetched ${rows.length} ${source} postings, ${filtered.length} matched location filter.` });
+      return filtered;
+    }))).flat();
 
     const linkedinKeywords = profile.targetDesignation;
     const defaultLinkedinLocation = [profile.preferredCity, profile.preferredCountry].filter(Boolean).join(", ") || "worldwide";
     const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
-    // Clamped to 150: this handler still runs the LinkedIn search/scrape step
+    // Clamped to 100: this handler still runs the LinkedIn search/scrape step
     // synchronously (only per-job scoring got paginated), and Vercel's function
     // has a 60s hard cap (vercel.json) - a 1000-result search alone can exceed
     // that just from its own pagination delays, before any scoring even starts.
-    const linkedinMaxResults = Math.min(linkedin?.maxResults || 100, 150);
+    const linkedinMaxResults = Math.min(linkedin?.maxResults || 100, 100);
 
     sendEvent("progress", { status: "scraping_linkedin", message: `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...` });
-    const linkedinPostingsRaw = await fetchLinkedInPublic({
+    const linkedinPostingsRaw = await safeScrape("linkedin", () => fetchLinkedInPublic({
       keywords: linkedinKeywords,
       location: linkedinLocation,
       maxResults: linkedinMaxResults,
       fetchDescriptions: false,
-    });
+    }));
     
     const linkedinPostings = filterByLoc(linkedinPostingsRaw);
     sendEvent("progress", { status: "scraping_linkedin_complete", message: `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched location filter.` });
 
+    sendEvent("progress", { status: "scrape_health", message: Object.entries(sourceHealth).map(([source, health]) => `${source}=${health.ok ? health.count : `ERR(${health.error?.slice(0, 60)})`}`).join(", ") });
     const rawPostings = [...atsPostings, ...linkedinPostings];
     sendEvent("progress", { status: "processing", message: `Total raw postings collected: ${rawPostings.length}. Running deduplication...` });
     const deduped = dedupePostings(rawPostings);
@@ -546,6 +576,8 @@ app.post("/api/match", async (req, res) => {
         company: j.company,
         title: j.title,
         location: j.location,
+        postedAt: j.postedAt,
+        scrapedAt: j.scrapedAt,
         descriptionText: j.descriptionText || "",
         applyUrl: j.applyUrl,
       },
@@ -636,6 +668,8 @@ app.post("/api/match/page", async (req, res) => {
         company: j.company,
         title: j.title,
         location: j.location,
+        postedAt: j.postedAt,
+        scrapedAt: j.scrapedAt,
         descriptionText: j.descriptionText || "",
         applyUrl: j.applyUrl,
       },

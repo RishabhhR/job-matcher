@@ -119,7 +119,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
         cvText,
         profile,
         companies,
-        linkedin: { maxResults: 1000 },
+        linkedin: { maxResults: 100 },
         onProgress: (status, message) => console.log(`[${status.toUpperCase()}] ${message}`),
         // Scheduled scrape runs have a full hour before the separate email cron
         // fires, so it's worth patiently riding out rate limits (see match.ts's
@@ -143,6 +143,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
         applyUrl: match.posting.applyUrl,
         descriptionText: match.posting.descriptionText,
         dedupHash,
+        postedAt: match.posting.postedAt,
       });
       await upsertUserMatch(userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
       newCount++;

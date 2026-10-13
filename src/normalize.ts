@@ -35,6 +35,7 @@ export function dedupePostings(postings: (RawPosting | null | undefined)[]): Raw
       location: typeof p.location === "string" ? p.location : "Remote / Unspecified",
       applyUrl,
       descriptionText: typeof p.descriptionText === "string" ? p.descriptionText : "",
+      ...(typeof p.postedAt === "string" ? { postedAt: p.postedAt } : {}),
     });
   }
   return out;

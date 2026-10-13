@@ -1,4 +1,4 @@
-import { fetchAllPostings, type RawPosting } from "./scrapers.js";
+import { fetchAshby, fetchGreenhouse, fetchLever, type RawPosting } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
@@ -51,7 +51,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const locationLabel = profile.preferredCity || profile.preferredCountry || "all locations";
 
   // Per-source failure isolation: each source's scrape is wrapped so a throw/block
-  // in one (LinkedIn throttling, Naukri recaptcha, a headless-browser crash) never
+  // in one (for example, LinkedIn throttling or an unavailable board API) never
   // aborts the whole run and discards the other sources' already-fetched postings.
   // `sourceHealth` records raw count per source (0 = returned nothing, e.g. a silent
   // block) or an error, so "no new jobs" can be distinguished from "source is down".
@@ -69,10 +69,27 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     }
   }
 
-  onProgress("scraping_ats", `Scraping ATS boards for companies: ${[...companies.greenhouse, ...companies.lever, ...companies.ashby].join(", ")}`);
-  const atsPostingsRaw = await safeScrape("ats", () => fetchAllPostings(companies));
-  const atsPostings = filterByLocation(atsPostingsRaw, profile);
-  onProgress("scraping_ats_complete", `Fetched ${atsPostingsRaw.length} ATS postings, ${atsPostings.length} matched ${locationLabel} location filter.`);
+  const boardSources = [
+    { source: "greenhouse", companies: companies.greenhouse, fetch: fetchGreenhouse },
+    { source: "lever", companies: companies.lever, fetch: fetchLever },
+    { source: "ashby", companies: companies.ashby, fetch: fetchAshby },
+  ] as const;
+  const boardResults = await Promise.all(boardSources.map(async ({ source, companies: boards, fetch }) => {
+    onProgress(`scraping_${source}`, `Scraping ${source} boards for ${boards.length} companies...`);
+    const raw = await safeScrape(source, async () => {
+      const settled = await Promise.allSettled(boards.map((company) => fetch(company)));
+      const failed = settled.filter((result) => result.status === "rejected").length;
+      if (failed > 0) onProgress("source_warning", `${source}: ${failed}/${boards.length} company boards failed; successful boards are retained.`);
+      if (boards.length > 0 && failed === boards.length) {
+        throw new Error(`All ${source} company boards failed (${failed}/${boards.length}).`);
+      }
+      return settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    });
+    const filtered = filterByLocation(raw, profile);
+    onProgress(`scraping_${source}_complete`, `Fetched ${raw.length} ${source} postings, ${filtered.length} matched ${locationLabel} location filter.`);
+    return filtered;
+  }));
+  const atsPostings = boardResults.flat();
 
   const linkedinKeywords = profile.targetDesignation;
   // Build LinkedIn location from profile prefs, falling back to explicit option or worldwide
@@ -93,9 +110,9 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const linkedinPostings = filterByLocation(linkedinPostingsRaw, profile);
   onProgress("scraping_linkedin_complete", `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched ${locationLabel} location filter.`);
 
-  // [B] Naukri (Antigravity, DEC-006): add another `await safeScrape("naukri", () => fetchNaukri(...))`
-  // here and spread its filtered results into rawPostings below. Wrapping it in safeScrape
-  // is REQUIRED - the headless/recaptcha path is expected to fail often and must not kill the run.
+  // Naukri's public search HTML currently has no server-rendered job data, and
+  // its data route challenges automated requests. Integrate it only via an
+  // authorized feed/API; do not automate around its CAPTCHA.
 
   const rawPostings = [...atsPostings, ...linkedinPostings];
 

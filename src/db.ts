@@ -60,6 +60,7 @@ const SCHEMA = [
     description_text TEXT,
     apply_url TEXT,
     dedup_hash TEXT UNIQUE NOT NULL,
+    posted_at TEXT,
     scraped_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS jm_job_posting_requirements (
@@ -116,6 +117,7 @@ export async function migrate() {
     "ALTER TABLE jm_user_profiles ADD COLUMN career_start_date TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_country TEXT",
     "ALTER TABLE jm_user_profiles ADD COLUMN preferred_city TEXT",
+    "ALTER TABLE jm_job_postings ADD COLUMN posted_at TEXT",
     // Tracks when a match was last included in a sent digest, so the digest can
     // lead with never-emailed matches (see getTopMatchesForUser). Deliberately a
     // separate column, NOT the `status` field, which has its own pending/scored
@@ -326,6 +328,7 @@ export interface DbPosting {
   applyUrl: string;
   descriptionText: string;
   dedupHash: string;
+  postedAt?: string;
 }
 
 export async function upsertJobPosting(posting: DbPosting): Promise<string> {
@@ -333,13 +336,20 @@ export async function upsertJobPosting(posting: DbPosting): Promise<string> {
     sql: "SELECT id FROM jm_job_postings WHERE dedup_hash = ?",
     args: [posting.dedupHash],
   });
-  if (existing.rows.length > 0) return existing.rows[0].id as string;
+  if (existing.rows.length > 0) {
+    const id = existing.rows[0].id as string;
+    await client.execute({
+      sql: "UPDATE jm_job_postings SET posted_at = COALESCE(?, posted_at), scraped_at = datetime('now') WHERE id = ?",
+      args: [posting.postedAt ?? null, id],
+    });
+    return id;
+  }
 
   const id = randomUUID();
   await client.execute({
     sql: `INSERT INTO jm_job_postings
-      (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash, posted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       posting.source,
@@ -350,6 +360,7 @@ export async function upsertJobPosting(posting: DbPosting): Promise<string> {
       posting.descriptionText,
       posting.applyUrl,
       posting.dedupHash,
+      posting.postedAt ?? null,
     ],
   });
   return id;
@@ -548,10 +559,12 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
     const dedupHash = `${p.company.toLowerCase()}:${p.title.toLowerCase()}:${(p.location || "").toLowerCase()}`;
     
     batchStatements.push({
-      sql: `INSERT INTO jm_job_postings (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(dedup_hash) DO UPDATE SET title = title`,
-      args: [postingId, p.source, p.sourceJobId || null, p.company, p.title, p.location || null, p.descriptionText || "", p.applyUrl, dedupHash],
+      sql: `INSERT INTO jm_job_postings (id, source, source_job_id, company_name, title, location, description_text, apply_url, dedup_hash, posted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dedup_hash) DO UPDATE SET
+              posted_at = COALESCE(excluded.posted_at, jm_job_postings.posted_at),
+              scraped_at = datetime('now')`,
+      args: [postingId, p.source, p.sourceJobId || null, p.company, p.title, p.location || null, p.descriptionText || "", p.applyUrl, dedupHash, p.postedAt || null],
     });
 
     batchStatements.push({
@@ -571,12 +584,12 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
 
 export async function getPaginatedMatchesForUser(userId: string, offset: number, limit: number) {
   const result = await client.execute({
-    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash,
+    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
                  m.status, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
           WHERE m.user_id = ?
-          ORDER BY jp.scraped_at DESC, jp.id ASC
+          ORDER BY COALESCE(jp.posted_at, jp.scraped_at) DESC, jp.id ASC
           LIMIT ? OFFSET ?`,
     args: [userId, limit, offset],
   });

@@ -584,6 +584,15 @@ function renderResults(results) {
         <span class="meta-tag source">${escapeHTML(m.posting.source)}</span>
         <span class="meta-tag ${m.compFitLabel}">${escapeHTML(m.compFitLabel)}</span>
         ${m.posting.location ? `<span class="meta-tag">${escapeHTML(m.posting.location)}</span>` : ""}
+        ${(() => {
+          const dateValue = m.posting.postedAt || m.posting.scrapedAt;
+          const date = dateValue ? new Date(dateValue) : null;
+          if (!date || Number.isNaN(date.getTime())) return "";
+          const label = !m.posting.postedAt
+            ? "Found"
+            : m.posting.source === "greenhouse" ? "Updated" : "Posted";
+          return `<span class="meta-tag">${label} ${escapeHTML(date.toLocaleDateString())}</span>`;
+        })()}
       </div>
       
       <p class="reasoning">${escapeHTML(m.reasoningText)}</p>

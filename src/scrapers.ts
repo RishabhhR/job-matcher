@@ -6,6 +6,14 @@ export interface RawPosting {
   location: string;
   applyUrl: string;
   descriptionText: string;
+  /** Source-provided posting/update date in ISO format when available. */
+  postedAt?: string;
+}
+
+function toIsoDate(value: unknown): string | undefined {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 function stripHtml(html: string): string {
@@ -16,13 +24,9 @@ function stripHtml(html: string): string {
 }
 
 async function fetchJson(url: string): Promise<any | null> {
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": "job-matcher-phase1/0.1" } });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+  const res = await fetch(url, { headers: { "User-Agent": "job-matcher-phase1/0.1" } });
+  if (!res.ok) throw new Error(`Board returned HTTP ${res.status}`);
+  return await res.json();
 }
 
 export async function fetchGreenhouse(company: string): Promise<RawPosting[]> {
@@ -36,6 +40,7 @@ export async function fetchGreenhouse(company: string): Promise<RawPosting[]> {
     location: j.location?.name || "",
     applyUrl: j.absolute_url,
     descriptionText: stripHtml(j.content || ""),
+    postedAt: toIsoDate(j.updated_at),
   }));
 }
 
@@ -50,6 +55,7 @@ export async function fetchLever(company: string): Promise<RawPosting[]> {
     location: j.categories?.location || "",
     applyUrl: j.hostedUrl,
     descriptionText: stripHtml(j.descriptionPlain || j.description || ""),
+    postedAt: toIsoDate(j.createdAt),
   }));
 }
 
@@ -64,6 +70,7 @@ export async function fetchAshby(company: string): Promise<RawPosting[]> {
     location: j.location || "",
     applyUrl: j.jobUrl || j.applyUrl,
     descriptionText: stripHtml(j.descriptionPlain || j.description || ""),
+    postedAt: toIsoDate(j.publishedAt),
   }));
 }
 
