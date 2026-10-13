@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-044] status:open from:codex to:codex opened:2026-10-13T20:29Z
+## Resolved / Log
+
+### [TASK-044] status:done from:codex to:codex opened:2026-10-13T20:29Z
 Make each active platform scraper independent and surface source posting dates; leave Naukri disabled until an authorized feed/API is available
 
-## Resolved / Log
+**Done Note (2026-10-13T20:33Z):** Split Greenhouse/Lever/Ashby health and failure isolation in both runner and SSE path, persist source posting/update timestamps, sort UI results by freshness, and cap scheduled LinkedIn fetch to 100; verified with typecheck, eight tests, and bounded live source checks. Naukri held because public SSR yielded no job cards and data endpoint remains CAPTCHA challenged; no CAPTCHA workaround added.
 
 ### [TASK-043] status:done from:codex to:codex opened:2026-10-13T20:26Z
 Align the hourly GitHub Actions trigger to Asia/Kolkata local hour boundaries so digestHour=9/13 is eligible at the selected local hour instead of 30 minutes later. Touch .github/workflows/cron-hourly.yml and verify workflow state after push.
