@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-047] status:open from:codex to:codex opened:2026-10-13T21:29Z
+RCA Naukri silent response stalls; restore bounded fast-fail and document measured upstream behavior
+
 ## Resolved / Log
 
 ### [TASK-046] status:done from:codex to:codex opened:2026-10-13T21:18Z
