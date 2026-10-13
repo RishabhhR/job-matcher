@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-047] status:open from:codex to:codex opened:2026-10-13T21:29Z
+## Resolved / Log
+
+### [TASK-047] status:done from:codex to:codex opened:2026-10-13T21:29Z
 RCA Naukri silent response stalls; restore bounded fast-fail and document measured upstream behavior
 
-## Resolved / Log
+**Done Note (2026-10-13T21:29Z):** RCA traced the Naukri stall before HTTP headers: DNS/TCP/TLS were fast, but search and robots.txt returned no response bytes after 15-25s; HTTP/2 also produced INTERNAL_ERROR. Restored the source timeout to 8s with clearer no-response-headers logging, documented the evidence and safe recovery path. npm run typecheck and git diff --check passed.
 
 ### [TASK-046] status:done from:codex to:codex opened:2026-10-13T21:18Z
 Increase Naukri public-page request timeout from 8s to 20s; keep access-challenge handling unchanged

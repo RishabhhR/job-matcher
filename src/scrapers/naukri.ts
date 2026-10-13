@@ -20,9 +20,9 @@ const MAX_RESULTS = 15;
 const MAX_QUERIES = 2;
 const MAX_PAGES = 3;
 const REQUEST_DELAY_MS = 2500;
-// Naukri's public search pages can respond more slowly than the ATS APIs.
-// Keep each request bounded while allowing a slower page to finish.
-const REQUEST_TIMEOUT_MS = 20_000;
+// A 20s trial still received no response headers from Naukri's edge. Keep the
+// failed source from adding a long wait to every scheduled matching run.
+const REQUEST_TIMEOUT_MS = 8_000;
 const USER_AGENT = "job-matcher/0.1 (+https://github.com/RishabhhR/job-matcher)";
 
 function slug(value: string): string {
@@ -187,7 +187,7 @@ async function fetchPage(url: URL): Promise<RawPosting[]> {
     });
   } catch (error) {
     if ((error as Error).name === "TimeoutError" || (error as Error).name === "AbortError") {
-      throw new Error(`Naukri request timed out for ${url.pathname}.`);
+      throw new Error(`Naukri returned no response headers within ${REQUEST_TIMEOUT_MS / 1000}s for ${url.pathname}.`);
     }
     throw error;
   }
