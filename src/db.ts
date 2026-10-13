@@ -375,12 +375,9 @@ export async function upsertUserMatch(
 }
 
 export async function getTopMatchesForUser(userId: string, limit = 20) {
-  // "New-first, backfill with best older": lead with matches never included in a
-  // sent digest (emailed_at IS NULL), then by fit_score within each group. This
-  // stops month-old high-scorers from permanently dominating every digest - the
-  // user sees genuinely new roles first, and already-emailed ones only backfill
-  // to reach `limit` so the digest is never sparse. markMatchesAsSent (called
-  // after a successful send) is what moves today's fresh matches into backfill.
+  // A job is eligible for a digest only until it has been included in a sent
+  // email. Do not backfill previously emailed matches: that made the digest
+  // repeat old listings whenever there were fewer than `limit` new matches.
   const result = await client.execute({
     sql: `SELECT m.id AS match_id, m.emailed_at,
                  jp.title, jp.company_name, jp.location, jp.apply_url, jp.source,
@@ -388,8 +385,8 @@ export async function getTopMatchesForUser(userId: string, limit = 20) {
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
           WHERE m.user_id = ?
-          ORDER BY (CASE WHEN m.emailed_at IS NULL THEN 0 ELSE 1 END) ASC,
-                   m.fit_score DESC
+            AND m.emailed_at IS NULL
+          ORDER BY m.fit_score DESC
           LIMIT ?`,
     args: [userId, limit],
   });

@@ -36,6 +36,35 @@ test("digest claim is atomic and failed/blocked attempts can retry", async () =>
   assert.equal(await db.claimEmailSend(userId, "2026-10-14", "hour-9"), false);
 });
 
+test("digest selection never re-includes jobs already emailed", async () => {
+  const base = {
+    source: "test",
+    sourceJobId: "",
+    company: "Example Co",
+    title: "Product Manager",
+    location: "Remote",
+    applyUrl: "https://jobs.example.com/",
+    descriptionText: "",
+  };
+  const emailedPostingId = await db.upsertJobPosting({ ...base, dedupHash: "jobs.example.com/emailed" });
+  const newPostingId = await db.upsertJobPosting({
+    ...base,
+    applyUrl: "https://jobs.example.com/new",
+    dedupHash: "jobs.example.com/new",
+  });
+  await db.upsertUserMatch(userId, emailedPostingId, 99, "lateral", "Previously emailed.");
+  await db.upsertUserMatch(userId, newPostingId, 90, "lateral", "Not emailed yet.");
+
+  const mailed = await db.client.execute({
+    sql: "SELECT id FROM jm_user_job_matches WHERE user_id = ? AND job_posting_id = ?",
+    args: [userId, emailedPostingId],
+  });
+  await db.markMatchesAsSent([mailed.rows[0].id as string]);
+
+  const selected = await db.getTopMatchesForUser(userId, 15);
+  assert.deepEqual(selected.map((match) => match.apply_url), ["https://jobs.example.com/new"]);
+});
+
 test("per-user ATS company sources persist independently", async () => {
   const companies = { greenhouse: ["acme"], lever: ["globex"], ashby: ["initech"] };
   await db.upsertUserCompanies(userId, companies);

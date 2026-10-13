@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-042] status:open from:codex to:codex opened:2026-10-13T20:22Z
+## Resolved / Log
+
+### [TASK-042] status:done from:codex to:codex opened:2026-10-13T20:22Z
 Fix scheduled digest delays and repeated listings: send due-user digests from precomputed matches before scrape/LLM work, scrape after all sends, and select only never-emailed matches while preserving each user’s configured local hour. Touch src/cron.ts, src/db.ts, tests as needed; verify schedule logic and deployment effects.
 
-## Resolved / Log
+**Done Note (2026-10-13T20:24Z):** Changed digest selection to exclude every posting already marked emailed. Reordered the hourly worker so all due-user send attempts happen from stored matches before scraping/scoring; the later scrape failure is isolated and cannot overwrite a successful send record. Added a database regression test. Verified npm run typecheck, npm test (7/7), and git diff --check.
 
 ### [TASK-041] status:done from:codex to:codex opened:2026-10-13T19:52Z
 Harden job-matcher identity, cron, per-user company persistence, scoring failure visibility, HTML rendering, CI checks, and docs while retaining Turso. Touch src/server.ts, src/db.ts, src/cron.ts, src/digest.ts, src/match.ts, src/mailer.ts, public/app.js, package.json, .github/workflows, vercel.json, and project docs. Verify Clerk user identity and email ownership; remove cron bypass; persist company sources; add atomic once-per-day digest claims including empty results; report incomplete LLM batches as failures; escape email content and validate links; add typecheck and unit checks; enable the per-user workflow and retire conflicting fixed schedules only after code is ready. No database migration to MongoDB.

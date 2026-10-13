@@ -171,7 +171,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
   try {
     const messageId = await sendDigestEmail(notifyEmail, topMatches as any, slot, `job-matcher/${userId}/${today}/${slot}`);
     await logEmailSend(userId, today, slot, "sent", messageId);
-    // Mark these matches sent so they backfill (not lead) the next digest.
+    // Mark these matches sent so later digests only include other jobs.
     await markMatchesAsSent(topMatches.map((m: any) => m.match_id as string));
     console.log(`[digest] Sent ${slot} digest to ${notifyEmail} (${topMatches.length} matches, message ${messageId})`);
     return { skipped: false, count: topMatches.length, sent: true, messageId };

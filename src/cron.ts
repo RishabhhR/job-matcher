@@ -24,18 +24,30 @@ async function runHourlyCron() {
 
   const now = new Date();
   let failureCount = 0;
-  
+
   // Baseline companies list from local companies.json
   const companiesPath = path.join(dataDir, "companies.json");
   const companies = existsSync(companiesPath)
     ? JSON.parse(readFileSync(companiesPath, "utf-8"))
     : { greenhouse: [], lever: [], ashby: [] };
 
+  const dueUsers: Array<{
+    userId: string;
+    userLogId: string;
+    email: string;
+    localHour: number;
+    slot: string;
+  }> = [];
+
+  // Send from the most recently stored match set first. Scraping and LLM scoring
+  // can take several minutes (or longer during provider rate limits), so doing
+  // that work before sending made the user's configured delivery time depend on
+  // the entire matching pipeline. All due users get their mail attempt before
+  // any user's scrape starts.
   for (const user of users) {
     const userId = user.id as string;
     const userLogId = userId.slice(-8);
     const email = user.email as string;
-    const name = user.name as string || "User";
     const timezone = user.timezone as string || "Asia/Kolkata";
     const digestHour = user.digest_hour as number;
 
@@ -83,56 +95,18 @@ async function runHourlyCron() {
         continue;
       }
 
-      console.log(`[cron-hourly] Time matches for user ${userLogId}. Running match and send pipeline...`);
+      dueUsers.push({ userId, userLogId, email, localHour, slot });
       try {
-        const cvText = await getActiveCvText(userId);
-        const dbProfile = await getUserProfileRow(userId);
-        
-        if (!cvText || !dbProfile) {
-          console.warn(`[cron-hourly] User ${userLogId} is missing CV or profile in database, skipping.`);
-          await logEmailSend(userId, sendDate, slot, "blocked", undefined, "Missing CV or profile.");
-          continue;
-        }
-
-        const profile = { ...dbProfile, notifyEmail: email };
-        const userCompanies = await getUserCompanies(userId) ?? companies;
-
-        // 1. Run Scraper & Scoring (up to 1000 LinkedIn results)
-        console.log(`[cron-hourly] Scraping and scoring jobs for user ${userLogId}...`);
-        const scored = await runJobMatcher({
-          cvText,
-          profile: profile as any,
-          companies: userCompanies,
-          linkedin: { maxResults: 1000 },
-          onProgress: (status, message) => console.log(`[${userLogId}][${status.toUpperCase()}] ${message}`),
-          patient: true, // Allow waiting out rate limits
-        });
-
-        // 2. Save matches to the database
-        console.log(`[cron-hourly] Saving matches for user ${userLogId}...`);
-        for (const match of scored) {
-          const dedupHash = canonicalizeUrl(match.posting.applyUrl);
-          const jobPostingId = await upsertJobPosting({
-            source: match.posting.source,
-            sourceJobId: match.posting.sourceJobId,
-            company: match.posting.company,
-            title: match.posting.title,
-            location: match.posting.location,
-            applyUrl: match.posting.applyUrl,
-            descriptionText: match.posting.descriptionText,
-            dedupHash,
-          });
-          await upsertUserMatch(userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
-        }
-
-        // 3. Fetch top matches and send email
+        console.log(`[cron-hourly] Time matches for user ${userLogId}. Sending from stored matches...`);
         const topMatches = await getTopMatchesForUser(userId, 15);
         if (topMatches.length > 0) {
           const displaySlot = localHour < 12 ? "am" : "pm";
           console.log(`[cron-hourly] Sending email digest to user ${userLogId} with ${topMatches.length} matches...`);
           const messageId = await sendDigestEmail(email, topMatches as any, displaySlot, `job-matcher/${userId}/${sendDate}/${slot}`);
           await logEmailSend(userId, sendDate, slot, "sent", messageId);
-          // Mark these matches sent so they backfill (not lead) the next digest.
+          // Stamp only after the sent record is persisted. If the database write
+          // fails after Resend accepted the email, the same idempotency key makes
+          // a retry safe and the matches remain eligible until the stamp succeeds.
           await markMatchesAsSent(topMatches.map((m: any) => m.match_id as string));
           console.log(`[cron-hourly] Email sent successfully to user ${userLogId} (messageId: ${messageId})`);
         } else {
@@ -141,10 +115,55 @@ async function runHourlyCron() {
         }
       } catch (err) {
         failureCount++;
-        console.error(`[cron-hourly] Pipeline failed for user ${userLogId}:`, err);
-        // Failed attempts remain retryable on the next hourly tick.
+        console.error(`[cron-hourly] Digest send failed for user ${userLogId}:`, err);
+        // Failed attempts remain retryable on the next hourly tick. The
+        // scraping phase still runs so fresh matches are ready for that retry.
         await logEmailSend(userId, sendDate, slot, "failed", undefined, (err as Error).message).catch(() => {});
       }
+    }
+  }
+
+  // Refresh the match set only after all due users have had their send attempt.
+  // A scrape failure is reported independently; it must not overwrite a digest
+  // that was already sent successfully.
+  for (const due of dueUsers) {
+    try {
+      const cvText = await getActiveCvText(due.userId);
+      const dbProfile = await getUserProfileRow(due.userId);
+      if (!cvText || !dbProfile) {
+        throw new Error("Missing CV or profile in database.");
+      }
+
+      const profile = { ...dbProfile, notifyEmail: due.email };
+      const userCompanies = await getUserCompanies(due.userId) ?? companies;
+      console.log(`[cron-hourly] Scraping and scoring jobs for user ${due.userLogId}...`);
+      const scored = await runJobMatcher({
+        cvText,
+        profile: profile as any,
+        companies: userCompanies,
+        linkedin: { maxResults: 1000 },
+        onProgress: (status, message) => console.log(`[${due.userLogId}][${status.toUpperCase()}] ${message}`),
+        patient: true,
+      });
+
+      console.log(`[cron-hourly] Saving matches for user ${due.userLogId}...`);
+      for (const match of scored) {
+        const dedupHash = canonicalizeUrl(match.posting.applyUrl);
+        const jobPostingId = await upsertJobPosting({
+          source: match.posting.source,
+          sourceJobId: match.posting.sourceJobId,
+          company: match.posting.company,
+          title: match.posting.title,
+          location: match.posting.location,
+          applyUrl: match.posting.applyUrl,
+          descriptionText: match.posting.descriptionText,
+          dedupHash,
+        });
+        await upsertUserMatch(due.userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
+      }
+    } catch (err) {
+      failureCount++;
+      console.error(`[cron-hourly] Post-digest scrape failed for user ${due.userLogId}:`, err);
     }
   }
 
