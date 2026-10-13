@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-046] status:open from:codex to:codex opened:2026-10-13T21:18Z
+Increase Naukri public-page request timeout from 8s to 20s; keep access-challenge handling unchanged
+
 ## Resolved / Log
 
 ### [TASK-045] status:done from:codex to:codex opened:2026-10-13T20:54Z
