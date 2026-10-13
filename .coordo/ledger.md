@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-044] status:open from:codex to:codex opened:2026-10-13T20:29Z
+Make each active platform scraper independent and surface source posting dates; leave Naukri disabled until an authorized feed/API is available
+
 ## Resolved / Log
 
 ### [TASK-043] status:done from:codex to:codex opened:2026-10-13T20:26Z
