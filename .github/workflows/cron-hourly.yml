@@ -2,8 +2,9 @@ name: Hourly Scrape, Score, & Email Digest (Multi-User)
 
 on:
   schedule:
-    # Trigger at the start of every hour (00:00, 01:00, 02:00, etc. UTC)
-    - cron: "0 * * * *"
+    # :30 UTC is the top of the hour in Asia/Kolkata (UTC+05:30), matching
+    # users' stored local digest hours and avoiding top-of-hour runner congestion.
+    - cron: "30 * * * *"
   workflow_dispatch:
 
 permissions:

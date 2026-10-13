@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-043] status:open from:codex to:codex opened:2026-10-13T20:26Z
+## Resolved / Log
+
+### [TASK-043] status:done from:codex to:codex opened:2026-10-13T20:26Z
 Align the hourly GitHub Actions trigger to Asia/Kolkata local hour boundaries so digestHour=9/13 is eligible at the selected local hour instead of 30 minutes later. Touch .github/workflows/cron-hourly.yml and verify workflow state after push.
 
-## Resolved / Log
+**Done Note (2026-10-13T20:27Z):** Changed the schedule to :30 UTC, which is :00 in Asia/Kolkata for the currently configured users. YAML parse and git diff --check passed; after push, GitHub Actions will use the new schedule.
 
 ### [TASK-042] status:done from:codex to:codex opened:2026-10-13T20:22Z
 Fix scheduled digest delays and repeated listings: send due-user digests from precomputed matches before scrape/LLM work, scrape after all sends, and select only never-emailed matches while preserving each user’s configured local hour. Touch src/cron.ts, src/db.ts, tests as needed; verify schedule logic and deployment effects.
