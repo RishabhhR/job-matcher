@@ -43,6 +43,13 @@ export function safeApplyUrl(value: unknown): string {
   }
 }
 
+function safeResendError(message: string): string {
+  if (/only send testing emails to your own email address/i.test(message)) {
+    return "Resend is in test mode and cannot send to this recipient. Verify a sending domain in Resend and configure RESEND_FROM_EMAIL.";
+  }
+  return message.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]");
+}
+
 function renderHtml(matches: (Row | DigestMatchRow)[], slot: "am" | "pm"): string {
   const rows = matches
     .map((m: any) => {
@@ -78,12 +85,12 @@ export async function sendDigestEmail(
   const slotLabel = slot === "am" ? "Morning" : "Evening";
   const resend = getResend();
   const { data, error } = await resend.emails.send({
-    from: "Job Matcher <onboarding@resend.dev>",
+    from: process.env.RESEND_FROM_EMAIL?.trim() || "Job Matcher <onboarding@resend.dev>",
     to: toEmail,
     subject: `${slotLabel} Job Matches — ${matches.length} roles ranked`,
     html: renderHtml(matches, slot),
   }, idempotencyKey ? { idempotencyKey } : undefined);
 
-  if (error) throw new Error(`Resend send failed: ${error.message}`);
+  if (error) throw new Error(`Resend send failed: ${safeResendError(error.message)}`);
   return data?.id ?? "unknown";
 }

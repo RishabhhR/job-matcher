@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-049] status:open from:codex to:codex opened:2026-10-15T20:12Z
+## Resolved / Log
+
+### [TASK-049] status:done from:codex to:codex opened:2026-10-15T20:12Z
 Fix hourly cron failures and long provider fallbacks: gate due users on saved CV/profile before claiming/sending, configure Resend sender via secret with PII-safe errors, and circuit-break unavailable LLM providers for the run. Touch src/cron.ts, src/mailer.ts, src/ai.ts, workflow, docs, and targeted tests if needed.
 
-## Resolved / Log
+**Done Note (2026-10-15T20:13Z):** Fixed hourly cron readiness and provider fallback failures. Missing saved CV/profile accounts are skipped before claiming/sending; Resend sender is configurable and errors redact recipient addresses; provider/model quota, billing, access, and missing-model responses open per-process circuits; replaced the invalid Groq fallback model and shortened exhausted-chain retries. Added workflow secret wiring and sender setup docs. Verified npm run typecheck and git diff --check; no live cron dispatch because that would email users.
 
 ### [TASK-048] status:done from:codex to:codex opened:2026-10-13T21:34Z
 Restore Naukri scraping with a real Chromium browser: inspect public search-page rendering, replace silent blocked raw requests with bounded browser navigation and DOM extraction, stop on CAPTCHA/access challenges, keep source isolation, and wire Chromium availability for the GH cron and Vercel runtime. Touch src/scrapers/naukri.ts, package.json/package-lock.json, workflow/deployment config, and docs as required.

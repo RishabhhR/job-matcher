@@ -37,6 +37,8 @@ async function runHourlyCron() {
     email: string;
     localHour: number;
     slot: string;
+    cvText: string;
+    profile: Awaited<ReturnType<typeof getUserProfileRow>>;
   }> = [];
 
   // Send from the most recently stored match set first. Scraping and LLM scoring
@@ -84,6 +86,26 @@ async function runHourlyCron() {
     // entirely for the whole day. The per-day dedup below still guarantees at most one send
     // per user per local day.
     if (localHour >= digestHour && digestHour >= 0 && digestHour <= 23) {
+      // Disabled/test accounts can have digests enabled without ever completing setup.
+      // Check readiness before claiming the daily slot or attempting delivery so these
+      // rows do not turn every hourly workflow into a failed run.
+      let cvText: string | null;
+      let dbProfile: Awaited<ReturnType<typeof getUserProfileRow>>;
+      try {
+        [cvText, dbProfile] = await Promise.all([
+          getActiveCvText(userId),
+          getUserProfileRow(userId),
+        ]);
+      } catch (err) {
+        failureCount++;
+        console.error(`[cron-hourly] Could not load profile data for user ${userLogId}; skipping this run.`);
+        continue;
+      }
+      if (!cvText || !dbProfile) {
+        console.warn(`[cron-hourly] User ${userLogId} is missing a saved CV or profile; skipping digest and scrape.`);
+        continue;
+      }
+
       // The atomic database claim also protects manual reruns and future
       // scheduler changes from sending duplicate daily digests.
       // sendDate now uses the user's own local calendar date (see above) so the
@@ -95,7 +117,7 @@ async function runHourlyCron() {
         continue;
       }
 
-      dueUsers.push({ userId, userLogId, email, localHour, slot });
+      dueUsers.push({ userId, userLogId, email, localHour, slot, cvText, profile: dbProfile });
       try {
         console.log(`[cron-hourly] Time matches for user ${userLogId}. Sending from stored matches...`);
         const topMatches = await getTopMatchesForUser(userId, 15);
@@ -128,17 +150,11 @@ async function runHourlyCron() {
   // that was already sent successfully.
   for (const due of dueUsers) {
     try {
-      const cvText = await getActiveCvText(due.userId);
-      const dbProfile = await getUserProfileRow(due.userId);
-      if (!cvText || !dbProfile) {
-        throw new Error("Missing CV or profile in database.");
-      }
-
-      const profile = { ...dbProfile, notifyEmail: due.email };
+      const profile = { ...due.profile, notifyEmail: due.email };
       const userCompanies = await getUserCompanies(due.userId) ?? companies;
       console.log(`[cron-hourly] Scraping and scoring jobs for user ${due.userLogId}...`);
       const scored = await runJobMatcher({
-        cvText,
+        cvText: due.cvText,
         profile: profile as any,
         companies: userCompanies,
         linkedin: { maxResults: 100 },

@@ -173,7 +173,9 @@ const FAST_RETRY: Required<RetryOptions> = { retries: 3, baseBackoffMs: 5000, ma
 // "Patient" mode is for the scheduled scrape-and-score cron, which has a whole hour
 // before the separate email-send cron fires - worth riding out rate limits with long
 // waits instead of giving up fast, since nothing is blocking on this in real time.
-export const PATIENT_RETRY: Required<RetryOptions> = { retries: 8, baseBackoffMs: 10000, maxBackoffMs: 120000 };
+// Hourly cron has multiple provider fallbacks and a per-process circuit breaker.
+// Keep only a small retry window for transient failures after that chain is exhausted.
+export const PATIENT_RETRY: Required<RetryOptions> = { retries: 2, baseBackoffMs: 5000, maxBackoffMs: 15000 };
 
 async function scoreBatchWithRetry(
   cvText: string,

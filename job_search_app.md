@@ -40,6 +40,7 @@ Store secrets in the host's secret manager or local ignored `.env`, never in Git
 - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
 - `GROQ_API_KEY`, `GEMINI_API_KEY`, and any enabled fallback provider keys.
 - `RESEND_API_KEY`.
+- `RESEND_FROM_EMAIL` must be a sender address on a domain verified in Resend. Without it, the test sender can only deliver to the Resend account owner.
 - `CRON_SECRET` for the protected legacy `/api/cron-match` endpoint. Production returns 503 if this secret is missing and 401 for an incorrect bearer token; `?secret=test` is not a bypass.
 
 `data/companies.json` is the baseline for new accounts and local use. CV and profile files remain gitignored and are not used to identify production users.
