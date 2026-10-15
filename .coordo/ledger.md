@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-049] status:open from:codex to:codex opened:2026-10-15T20:12Z
+Fix hourly cron failures and long provider fallbacks: gate due users on saved CV/profile before claiming/sending, configure Resend sender via secret with PII-safe errors, and circuit-break unavailable LLM providers for the run. Touch src/cron.ts, src/mailer.ts, src/ai.ts, workflow, docs, and targeted tests if needed.
+
 ## Resolved / Log
 
 ### [TASK-048] status:done from:codex to:codex opened:2026-10-13T21:34Z
