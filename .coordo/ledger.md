@@ -7,10 +7,12 @@
 
 ## Tasks
 
-### [TASK-050] status:open from:codex to:codex opened:2026-10-15T20:15Z
+## Resolved / Log
+
+### [TASK-050] status:done from:codex to:codex opened:2026-10-15T20:15Z
 Bound the LLM provider circuit breaker lifetime for warm Vercel processes
 
-## Resolved / Log
+**Done Note (2026-10-15T20:15Z):** Added a one-hour expiry to provider/model circuits so quota/access failures do not remain latched indefinitely in warm Vercel processes. Verified npm run typecheck and git diff --check.
 
 ### [TASK-049] status:done from:codex to:codex opened:2026-10-15T20:12Z
 Fix hourly cron failures and long provider fallbacks: gate due users on saved CV/profile before claiming/sending, configure Resend sender via secret with PII-safe errors, and circuit-break unavailable LLM providers for the run. Touch src/cron.ts, src/mailer.ts, src/ai.ts, workflow, docs, and targeted tests if needed.

@@ -13,15 +13,20 @@ interface LLMResult {
 // A cron process scores many batches in sequence. Once a provider/model reports
 // a persistent configuration, access, billing, or quota error, don't spend the
 // remaining run repeating the same doomed request for every batch.
-const disabledProviders = new Set<string>();
+const disabledProviders = new Map<string, number>();
 const CIRCUIT_BREAKER_STATUSES = new Set([401, 402, 403, 404, 429]);
+const CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000;
 
 async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Promise<LLMResult> {
-  if (disabledProviders.has(key)) {
-    return { offline: true, content: "" };
+  const disabledUntil = disabledProviders.get(key);
+  if (disabledUntil && disabledUntil > Date.now()) return { offline: true, content: "" };
+  if (disabledUntil) {
+    disabledProviders.delete(key);
   }
   const result = await call();
-  if (result.status && CIRCUIT_BREAKER_STATUSES.has(result.status)) disabledProviders.add(key);
+  if (result.status && CIRCUIT_BREAKER_STATUSES.has(result.status)) {
+    disabledProviders.set(key, Date.now() + CIRCUIT_COOLDOWN_MS);
+  }
   return result;
 }
 
