@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-050] status:open from:codex to:codex opened:2026-10-15T20:15Z
+Bound the LLM provider circuit breaker lifetime for warm Vercel processes
+
 ## Resolved / Log
 
 ### [TASK-049] status:done from:codex to:codex opened:2026-10-15T20:12Z
