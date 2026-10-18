@@ -38,6 +38,7 @@ import { fetchNaukri } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, type ScoredMatch } from "./match.js";
 import { nextDigestAt } from "./digestSchedule.js";
+import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -596,12 +597,10 @@ app.post("/api/match", async (req, res) => {
     }
 
     // Filter ATS by location
-    const patterns = [/remote/i, /\bhybrid\b/i, /anywhere/i];
-    if (profile.preferredCountry) patterns.push(new RegExp(profile.preferredCountry, "i"));
-    if (profile.preferredCity) patterns.push(new RegExp(profile.preferredCity, "i"));
-    
+    const patterns = locationPatterns(profile);
+
     const filterByLoc = (postings: any[]) => {
-      if (!profile.preferredCountry && !profile.preferredCity) return postings;
+      if (!patterns) return postings;
       return postings.filter(p => {
         const loc = p.location || "";
         if (!loc) return true;
@@ -631,7 +630,7 @@ app.post("/api/match", async (req, res) => {
     }))).flat();
 
     const linkedinKeywords = profile.targetDesignation;
-    const defaultLinkedinLocation = [profile.preferredCity, profile.preferredCountry].filter(Boolean).join(", ") || "worldwide";
+    const defaultLinkedinLocation = [primaryPlace({ preferredCity: profile.preferredCity }), splitPlaces(profile.preferredCountry)[0]].filter(Boolean).join(", ") || "worldwide";
     const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
     // Clamped to 100: this handler still runs the LinkedIn search/scrape step
     // synchronously (only per-job scoring got paginated), and Vercel's function
@@ -652,7 +651,7 @@ app.post("/api/match", async (req, res) => {
 
     const naukriInput = naukri && typeof naukri === "object" && !Array.isArray(naukri) ? naukri : {
       keyword: profile.targetDesignation,
-      location: profile.preferredCity || profile.preferredCountry || "India",
+      location: primaryPlace(profile) || "India",
       maxResultsPerQuery: 15,
     };
     sendEvent("progress", { status: "scraping_naukri", message: `Scraping Naukri for "${naukriInput.keyword}" (max ${naukriInput.maxResultsPerQuery} results)...` });

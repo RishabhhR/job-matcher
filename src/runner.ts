@@ -3,16 +3,13 @@ import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linke
 import { fetchNaukri, type NaukriSearchInput } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
+import { locationPatterns, placesLabel, primaryPlace, splitPlaces } from "./location.js";
 
 // Build location filter patterns from a user's profile preferences.
 // Always includes remote/hybrid/anywhere. If no country or city is set, returns
 // null to skip filtering entirely (keeps all postings).
 function buildLocationPatterns(profile: Profile): RegExp[] | null {
-  const patterns: RegExp[] = [/remote/i, /\bhybrid\b/i, /anywhere/i];
-  if (!profile.preferredCountry && !profile.preferredCity) return null;
-  if (profile.preferredCountry) patterns.push(new RegExp(profile.preferredCountry, "i"));
-  if (profile.preferredCity) patterns.push(new RegExp(profile.preferredCity, "i"));
-  return patterns;
+  return locationPatterns(profile);
 }
 
 function filterByLocation(postings: RawPosting[], profile: Profile): RawPosting[] {
@@ -50,7 +47,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const { cvText, profile, companies, linkedin, naukri, onProgress = () => {}, patient = false } = options;
   const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
-  const locationLabel = profile.preferredCity || profile.preferredCountry || "all locations";
+  const locationLabel = placesLabel(profile) || "all locations";
 
   // Per-source failure isolation: each source's scrape is wrapped so a throw/block
   // in one (for example, LinkedIn throttling or an unavailable board API) never
@@ -95,7 +92,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
 
   const linkedinKeywords = profile.targetDesignation;
   // Build LinkedIn location from profile prefs, falling back to explicit option or worldwide
-  const defaultLinkedinLocation = [profile.preferredCity, profile.preferredCountry].filter(Boolean).join(", ") || "worldwide";
+  const defaultLinkedinLocation = [primaryPlace({ preferredCity: profile.preferredCity }), splitPlaces(profile.preferredCountry)[0]].filter(Boolean).join(", ") || "worldwide";
   const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
   const linkedinMaxResults = linkedin?.maxResults || 25;
 
@@ -114,7 +111,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
 
   const naukriInput: NaukriSearchInput = naukri || {
     keyword: profile.targetDesignation,
-    location: profile.preferredCity || profile.preferredCountry || "India",
+    location: primaryPlace(profile) || "India",
     maxResultsPerQuery: 15,
   };
   onProgress("scraping_naukri", `Scraping Naukri for "${naukriInput.keyword || "search URL"}" (max ${naukriInput.maxResultsPerQuery || 15} results)...`);
