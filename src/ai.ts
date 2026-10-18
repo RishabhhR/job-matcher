@@ -30,7 +30,14 @@ async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Pro
   return result;
 }
 
-async function callGroq(messages: Message[], model: string, timeoutMs = 60000): Promise<LLMResult> {
+interface GroqOptions {
+  temperature?: number;
+  maxCompletionTokens?: number;
+  topP?: number;
+  reasoningEffort?: "none" | "default" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+async function callGroq(messages: Message[], model: string, timeoutMs = 60000, options: GroqOptions = {}): Promise<LLMResult> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return { offline: true, content: "" };
 
@@ -50,9 +57,13 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000): 
       body: JSON.stringify({
         model,
         messages,
-        temperature: 0.2,
+        temperature: options.temperature ?? 0.2,
         response_format: { type: "json_object" },
-        max_tokens: 4096,
+        ...(options.maxCompletionTokens
+          ? { max_completion_tokens: options.maxCompletionTokens }
+          : { max_tokens: 4096 }),
+        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+        ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
       }),
     });
     clearTimeout(timer);
@@ -224,6 +235,16 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
     if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-gpt-oss-120b", warning: "Used Groq GPT-OSS fallback model" };
     if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
   }
+
+  const qwenModel = "qwen/qwen3.8-27b";
+  const qwen = await callWithCircuit(`groq:${qwenModel}`, () => callGroq(messages, qwenModel, 60000, {
+    temperature: 0.6,
+    maxCompletionTokens: 2048,
+    topP: 0.95,
+    reasoningEffort: "default",
+  }));
+  if (!qwen.offline) return { content: qwen.content, provider: "groq-qwen3.8-27b", warning: "Used Groq Qwen 3.8 27B fallback model" };
+  if (qwen.warning) console.warn(`[ai] groq (${qwenModel}): ${qwen.warning}`);
 
   const systemPrompt = messages.find((m) => m.role === "system")?.content || "";
   const userPrompt = messages.find((m) => m.role === "user")?.content || "";
