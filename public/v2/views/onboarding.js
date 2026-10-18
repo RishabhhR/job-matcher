@@ -1,6 +1,7 @@
-// First-run onboarding (TASK-057, antigravity).
+// First-run onboarding (TASK-057, TASK-061, antigravity).
 // 3-step wizard: Upload CV -> Check what we found -> Where and when -> Find matches.
-// On completion: store.set({ hasCv: true, cvText, profile, ... }) then navigate("matches").
+// On completion: runs api.runScan to persist profile/cv/settings to the DB and start matching,
+// sets store state, and navigates to matches feed.
 
 export const title = "Get started";
 
@@ -246,7 +247,7 @@ export async function render(root, { store, api, ui, navigate }) {
               `)}
               <div class="onb-add-tag-box">
                 <input id="onb-new-skill" class="onb-add-tag-input" placeholder="+ Add skill">
-                <button type="button" class="btn btn-ghost" id="onb-add-skill-btn" style="min-height:36px; padding: 0 10px; font-size:13px;">Add</button>
+                <button type="button" class="btn btn-ghost" id="onb-add-skill-btn" style="min-height:var(--target); padding: 0 14px; font-size:13px;">Add</button>
               </div>
             </div>
           </div>
@@ -353,7 +354,7 @@ export async function render(root, { store, api, ui, navigate }) {
               `)}
               <div class="onb-add-tag-box">
                 <input id="onb-new-loc" class="onb-add-tag-input" placeholder="+ Add city">
-                <button type="button" class="btn btn-ghost" id="onb-add-loc-btn" style="min-height:36px; padding: 0 10px; font-size:13px;">Add</button>
+                <button type="button" class="btn btn-ghost" id="onb-add-loc-btn" style="min-height:var(--target); padding: 0 14px; font-size:13px;">Add</button>
               </div>
             </div>
           </div>
@@ -372,7 +373,7 @@ export async function render(root, { store, api, ui, navigate }) {
           <div class="row" style="padding: 10px 0; border-top: 1px solid var(--border);">
             <div>
               <p style="font-weight:600; font-size:14px;">Send email digests</p>
-              <p class="hint">Twice-daily summaries of newly scored opportunities.</p>
+              <p class="hint">Daily summary of newly scored opportunities.</p>
             </div>
             <label class="switch">
               <input type="checkbox" id="onb-digest-toggle" ${digestEnabled ? "checked" : ""}>
@@ -382,12 +383,15 @@ export async function render(root, { store, api, ui, navigate }) {
 
           <div class="onb-grid-2" style="border-top: 1px solid var(--border); padding-top: 14px;">
             <div class="field">
-              <label for="step3-hour">Morning digest time</label>
-              <select id="step3-hour" class="select">
+              <label for="step3-hour">Daily digest time</label>
+              <select id="step3-hour" class="select" style="min-height:var(--target);">
                 <option value="8">8:00 AM</option>
                 <option value="9" selected>9:00 AM</option>
                 <option value="10">10:00 AM</option>
                 <option value="11">11:00 AM</option>
+                <option value="18">6:00 PM</option>
+                <option value="20">8:00 PM</option>
+                <option value="21">9:00 PM</option>
               </select>
             </div>
             <div class="field">
@@ -452,6 +456,8 @@ export async function render(root, { store, api, ui, navigate }) {
       submitBtn.textContent = "Setting up your account…";
       digestHour = parseInt(hourSelect.value, 10) || 9;
 
+      const nonRemoteCity = locations.find((l) => l.trim().toLowerCase() !== "remote") || "";
+
       const profile = {
         targetDesignation: targetRole,
         currentEmployer,
@@ -460,12 +466,24 @@ export async function render(root, { store, api, ui, navigate }) {
         currentSalaryFixedLPA: salaryFixed ? parseFloat(salaryFixed) : undefined,
         currentSalaryEsopLPA: salaryEsop ? parseFloat(salaryEsop) : undefined,
         currentSalaryCurrency: salaryCurrency,
-        preferredCity: locations[0] || "Bengaluru",
-        preferredCountry: "India",
+        preferredCity: nonRemoteCity,
+        preferredCountry: "",
         skills,
       };
 
-      // Update store so routes immediately recognize that CV and profile exist
+      const payload = {
+        cvText,
+        profile,
+        companies: store.get().companies || { greenhouse: [], lever: [], ashby: [] },
+        linkedin: {
+          location: nonRemoteCity || "worldwide",
+          maxResults: 100,
+        },
+        digestEnabled,
+        digestHour,
+      };
+
+      // Update store so router knows hasCv is true immediately
       store.set({
         hasCv: true,
         cvText,
@@ -481,6 +499,19 @@ export async function render(root, { store, api, ui, navigate }) {
       
       // Navigate to matches view
       navigate("matches");
+
+      // Persist profile and run scan in background
+      try {
+        await api.runScan(payload, (type, data) => {
+          if (type === "progress" && data.message) {
+            ui.announce(data.message);
+          }
+        });
+        await store.refresh();
+      } catch (err) {
+        console.error("Initial scan error:", err);
+        await store.refresh();
+      }
     });
   }
 

@@ -1,13 +1,24 @@
-// Profile view (TASK-057, antigravity).
+// Profile view (TASK-057, TASK-061, antigravity).
 // Spec: design/ui-redesign/README.md section 3.2 + mockup 'Profile'.
-// CV card with parsed summary + Replace CV + View text disclosure.
-// Editable 'Looking for' vs 'From your CV' tags.
+// CV card with parsed summary + Replace CV + PII-redacted text disclosure.
 // Experience & pay with helper copy.
+// Saves persisted via api.saveProfile (TASK-063).
 
 export const title = "Profile";
 
+function redactPii(text) {
+  if (!text) return "";
+  return text
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[email redacted]")
+    .replace(/(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,5}[-.\s]?\d{3,5}\b/g, (match) => {
+      const digits = match.replace(/\D/g, "");
+      return digits.length >= 7 ? "[phone redacted]" : match;
+    });
+}
+
 export async function render(root, { store, api, ui }) {
   const state = store.get();
+  const userId = state.userId;
   const profile = state.profile || {};
   let cvText = state.cvText || "";
   let hasCv = state.hasCv;
@@ -20,23 +31,21 @@ export async function render(root, { store, api, ui }) {
   let salaryEsop = profile.currentSalaryEsopLPA != null ? String(profile.currentSalaryEsopLPA) : "";
   let salaryCurrency = profile.currentSalaryCurrency || "INR";
 
-  // Tags
-  let lookingFor = (profile.lookingFor && profile.lookingFor.length)
-    ? [...profile.lookingFor]
-    : ["product management", "growth", "consumer", "fintech"];
-    
-  let fromCv = (profile.skills && profile.skills.length)
+  let skills = (profile.skills && profile.skills.length)
     ? [...profile.skills]
     : ["quick commerce", "pricing", "experimentation", "SQL", "growth loops"];
 
   let isUploadingCv = false;
+  let isSaving = false;
 
   function renderView() {
     root.innerHTML = ui.html`
       <div class="page"><div class="profile-stack">
+        <h1 class="page-title">Profile</h1>
+
         <!-- Section 1: Your CV -->
-        <section class="card profile-section">
-          <h2>Your CV</h2>
+        <section class="card profile-section" aria-labelledby="profile-cv-heading">
+          <h2 id="profile-cv-heading">Your CV</h2>
           <p class="muted">We read your CV to score jobs. Only the summary below is shown here; your contact details stay private.</p>
           
           <div class="profile-cv-card">
@@ -60,15 +69,16 @@ export async function render(root, { store, api, ui }) {
           ${hasCv && cvText ? ui.html`
             <details class="profile-disclosure">
               <summary>View extracted text</summary>
-              <div class="profile-raw-text">${cvText}</div>
+              <p class="hint" style="margin-top: 6px;">Contact details (phone numbers and emails) are automatically redacted.</p>
+              <div class="profile-raw-text">${redactPii(cvText)}</div>
             </details>
           ` : ""}
         </section>
 
-        <!-- Section 2: Target Role & Tags -->
-        <section class="card profile-section">
-          <h2>What you're looking for</h2>
-          <p class="muted">"Looking for" tags decide which jobs we search. "From your CV" tags decide how we score them.</p>
+        <!-- Section 2: Target Role & Skills -->
+        <section class="card profile-section" aria-labelledby="profile-role-heading">
+          <h2 id="profile-role-heading">What you're looking for</h2>
+          <p class="muted">Target role decides which jobs we search. Skills from your CV decide how we score them.</p>
 
           <div class="field">
             <label for="profile-role">Target role</label>
@@ -76,25 +86,9 @@ export async function render(root, { store, api, ui }) {
           </div>
 
           <div class="profile-tag-group">
-            <p class="profile-tag-title">Looking for</p>
-            <div class="profile-tag-row" id="profile-looking-for-row">
-              ${lookingFor.map((tag) => ui.html`
-                <span class="chip-edit">
-                  ${tag}
-                  <button type="button" data-remove-looking="${tag}" aria-label="Remove tag ${tag}">×</button>
-                </span>
-              `)}
-              <div class="profile-add-chip">
-                <input id="profile-new-looking" class="profile-add-input" placeholder="+ Add tag">
-                <button type="button" class="btn btn-ghost" id="profile-add-looking-btn" style="min-height:36px; padding:0 10px; font-size:13px;">Add</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="profile-tag-group">
-            <p class="profile-tag-title">From your CV</p>
+            <p class="profile-tag-title">Skills & tags <span class="muted" style="font-weight:400;">(from your CV)</span></p>
             <div class="profile-tag-row">
-              ${fromCv.map((tag) => ui.html`
+              ${skills.map((tag) => ui.html`
                 <span class="chip profile-chip-cv">${tag}</span>
               `)}
             </div>
@@ -102,8 +96,8 @@ export async function render(root, { store, api, ui }) {
         </section>
 
         <!-- Section 3: Experience & Pay -->
-        <section class="card profile-section">
-          <h2>Experience and pay</h2>
+        <section class="card profile-section" aria-labelledby="profile-exp-heading">
+          <h2 id="profile-exp-heading">Experience and pay</h2>
           <p class="muted">Pay is only used to label jobs as Upgrade, Lateral or Downgrade. It's never shared.</p>
 
           <div class="profile-kv-grid">
@@ -130,7 +124,9 @@ export async function render(root, { store, api, ui }) {
           </div>
 
           <div class="profile-save-bar">
-            <button type="button" class="btn btn-primary" id="profile-save-btn">Save changes</button>
+            <button type="button" class="btn btn-primary" id="profile-save-btn" ${isSaving ? "disabled" : ""}>
+              ${isSaving ? "Saving…" : "Save changes"}
+            </button>
           </div>
         </section>
       </div></div>
@@ -146,11 +142,20 @@ export async function render(root, { store, api, ui }) {
           isUploadingCv = true;
           renderView();
           try {
-            const res = await api.uploadCv(e.target.files[0]);
-            cvText = res.text || "";
-            hasCv = true;
-            store.set({ cvText, hasCv: true });
-            ui.toast({ message: "CV updated successfully!" });
+            const uploadRes = await api.uploadCv(e.target.files[0]);
+            const newCvText = uploadRes.text || "";
+            if (userId) {
+              const saveRes = await api.saveProfile(userId, { cvText: newCvText });
+              cvText = newCvText;
+              hasCv = Boolean(saveRes.hasCv ?? (newCvText && newCvText.trim()));
+              store.set({ cvText: newCvText, hasCv, profile: saveRes.profile || profile });
+            } else {
+              cvText = newCvText;
+              hasCv = true;
+              store.set({ cvText, hasCv: true });
+            }
+            ui.toast({ message: "CV uploaded and saved successfully!" });
+            ui.announce("CV uploaded and saved.");
           } catch (err) {
             console.error(err);
             ui.toast({ message: err.message || "Failed to upload CV" });
@@ -158,35 +163,6 @@ export async function render(root, { store, api, ui }) {
             isUploadingCv = false;
             renderView();
           }
-        }
-      });
-    }
-
-    // Wire Looking For tag removals
-    root.querySelectorAll("[data-remove-looking]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const item = btn.dataset.removeLooking;
-        lookingFor = lookingFor.filter((t) => t !== item);
-        renderView();
-      });
-    });
-
-    // Wire Add Looking For tag
-    const newLookingInput = root.querySelector("#profile-new-looking");
-    const addLookingBtn = root.querySelector("#profile-add-looking-btn");
-    const addLooking = () => {
-      const val = newLookingInput.value.trim().toLowerCase();
-      if (val && !lookingFor.includes(val)) {
-        lookingFor.push(val);
-        renderView();
-      }
-    };
-    if (addLookingBtn && newLookingInput) {
-      addLookingBtn.addEventListener("click", addLooking);
-      newLookingInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          addLooking();
         }
       });
     }
@@ -211,13 +187,27 @@ export async function render(root, { store, api, ui }) {
           currentSalaryFixedLPA: fixedVal ? parseFloat(fixedVal) : undefined,
           currentSalaryEsopLPA: esopVal ? parseFloat(esopVal) : undefined,
           currentSalaryCurrency: salaryCurrency,
-          lookingFor,
-          skills: fromCv,
+          skills,
         };
 
-        store.set({ profile: updatedProfile });
-        ui.toast({ message: "Profile changes saved!" });
-        ui.announce("Profile changes saved.");
+        isSaving = true;
+        renderView();
+        try {
+          if (userId) {
+            const saveRes = await api.saveProfile(userId, { profile: updatedProfile });
+            store.set({ profile: saveRes.profile || updatedProfile });
+          } else {
+            store.set({ profile: updatedProfile });
+          }
+          ui.toast({ message: "Profile saved successfully!" });
+          ui.announce("Profile changes saved.");
+        } catch (err) {
+          console.error(err);
+          ui.toast({ message: err.message || "Failed to save profile" });
+        } finally {
+          isSaving = false;
+          renderView();
+        }
       });
     }
   }

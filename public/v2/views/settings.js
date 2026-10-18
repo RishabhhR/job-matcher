@@ -1,8 +1,7 @@
-// Settings view (TASK-058, antigravity).
+// Settings view (TASK-058, TASK-061, antigravity).
 // Spec: design/ui-redesign/README.md section 3.3 + mockup 'Settings'.
-// Controls: Email digest (on/off, morning/evening times, timezone, test digest),
-// Where to look (locations, remote, LinkedIn, Naukri, edit company boards),
-// Account (masked email, sign out, delete data confirmation).
+// Persists digest settings via api.saveDigestSettings and company/location preferences via api.saveProfile (TASK-063).
+// Unbacked/no-op controls removed per TASK-061 defect review.
 
 import { signOut } from "../js/auth.js";
 
@@ -13,27 +12,27 @@ export async function render(root, { store, api, ui }) {
   const user = state.user || {};
   const userId = state.userId;
   let digest = state.digest || { enabled: true, hour: 9 };
-  let eveningHour = 21; // 9:00 PM
   let timezone = "Asia/Kolkata";
   
-  let locations = ["Bengaluru", "Remote"];
-  let linkedinActive = true;
-  let naukriActive = true;
+  let locations = (state.profile?.preferredCity ? state.profile.preferredCity.split(",").map(s => s.trim()).filter(Boolean) : ["Bengaluru", "Remote"]);
   let companies = state.companies || { greenhouse: [], lever: [], ashby: [] };
 
   let showCompanyModal = false;
-  let showDeleteModal = false;
+  let isSavingDigest = false;
+  let isSavingCompanies = false;
 
   function renderView() {
     root.innerHTML = ui.html`
       <div class="page"><div class="settings-stack">
+        <h1 class="page-title">Settings</h1>
+
         <!-- Section 1: Email digest -->
-        <section class="card settings-section">
-          <h2>Email digest</h2>
-          <p class="muted">At most two emails a day, only with jobs you haven't seen.</p>
+        <section class="card settings-section" aria-labelledby="settings-digest-heading">
+          <h2 id="settings-digest-heading">Email digest</h2>
+          <p class="muted">Daily summary sent directly to your email with roles you haven't seen yet.</p>
 
           <div class="settings-row">
-            <span class="settings-row-title">Send me a digest</span>
+            <span class="settings-row-title">Send me a daily digest</span>
             <label class="switch">
               <input type="checkbox" id="settings-digest-switch" ${digest.enabled ? "checked" : ""}>
               <span class="track" aria-hidden="true"></span>
@@ -41,34 +40,27 @@ export async function render(root, { store, api, ui }) {
           </div>
 
           <div class="settings-row">
-            <span class="settings-row-title">Morning</span>
-            <select class="select" id="settings-morning-select" style="width: auto; min-width: 140px;">
+            <span class="settings-row-title">Digest time</span>
+            <select class="select" id="settings-morning-select" style="width: auto; min-width: 140px; min-height: var(--target);">
               <option value="8" ${digest.hour === 8 ? "selected" : ""}>8:00 AM</option>
               <option value="9" ${digest.hour === 9 ? "selected" : ""}>9:00 AM</option>
               <option value="10" ${digest.hour === 10 ? "selected" : ""}>10:00 AM</option>
               <option value="11" ${digest.hour === 11 ? "selected" : ""}>11:00 AM</option>
-            </select>
-          </div>
-
-          <div class="settings-row">
-            <span class="settings-row-title">Evening</span>
-            <select class="select" id="settings-evening-select" style="width: auto; min-width: 140px;">
-              <option value="20" ${eveningHour === 20 ? "selected" : ""}>8:00 PM</option>
-              <option value="21" ${eveningHour === 21 ? "selected" : ""}>9:00 PM</option>
-              <option value="22" ${eveningHour === 22 ? "selected" : ""}>10:00 PM</option>
+              <option value="18" ${digest.hour === 18 ? "selected" : ""}>6:00 PM</option>
+              <option value="20" ${digest.hour === 20 ? "selected" : ""}>8:00 PM</option>
+              <option value="21" ${digest.hour === 21 ? "selected" : ""}>9:00 PM</option>
             </select>
           </div>
 
           <div class="settings-row">
             <span class="muted">Timezone: ${timezone}</span>
-            <button type="button" class="link-btn" id="settings-test-digest-btn">Send a test digest</button>
           </div>
         </section>
 
         <!-- Section 2: Where to look -->
-        <section class="card settings-section">
-          <h2>Where to look</h2>
-          <p class="muted">Locations and job boards we search on your behalf.</p>
+        <section class="card settings-section" aria-labelledby="settings-sources-heading">
+          <h2 id="settings-sources-heading">Where to look</h2>
+          <p class="muted">Preferred locations and tracked ATS company boards.</p>
 
           <div class="settings-tags">
             ${locations.map((loc) => ui.html`
@@ -79,33 +71,11 @@ export async function render(root, { store, api, ui }) {
             `)}
             <div class="settings-add-chip">
               <input id="settings-new-loc" class="settings-add-input" placeholder="+ Add location">
-              <button type="button" class="btn btn-ghost" id="settings-add-loc-btn" style="min-height:36px; padding:0 10px; font-size:13px;">Add</button>
+              <button type="button" class="btn btn-ghost" id="settings-add-loc-btn" style="min-height:var(--target); padding:0 14px; font-size:13px;">Add</button>
             </div>
           </div>
 
-          <div class="settings-row">
-            <div class="settings-row-info">
-              <span class="settings-row-title">LinkedIn</span>
-              <span class="settings-row-sub">Guest endpoint search (verified daily)</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="settings-linkedin-switch" ${linkedinActive ? "checked" : ""}>
-              <span class="track" aria-hidden="true"></span>
-            </label>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-info">
-              <span class="settings-row-title">Naukri</span>
-              <span class="settings-row-sub">Chromium browser navigation with rate limits</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="settings-naukri-switch" ${naukriActive ? "checked" : ""}>
-              <span class="track" aria-hidden="true"></span>
-            </label>
-          </div>
-
-          <div class="settings-row">
+          <div class="settings-row" style="margin-top: 8px;">
             <div class="settings-row-info">
               <span class="settings-row-title">Company career boards (Greenhouse, Lever, Ashby)</span>
               <span class="settings-row-sub">
@@ -117,17 +87,12 @@ export async function render(root, { store, api, ui }) {
         </section>
 
         <!-- Section 3: Account -->
-        <section class="card settings-section">
-          <h2>Account</h2>
+        <section class="card settings-section" aria-labelledby="settings-account-heading">
+          <h2 id="settings-account-heading">Account</h2>
           
           <div class="settings-row">
             <span class="settings-row-title">Signed in as ${user.email ? ui.maskEmail(user.email) : "your account"}</span>
             <button type="button" class="btn btn-ghost" id="settings-signout-btn">Sign out</button>
-          </div>
-
-          <div class="settings-row">
-            <span class="muted">Delete my CV, matches and account data</span>
-            <button type="button" class="btn btn-text" id="settings-delete-btn" style="color:var(--danger)">Delete data…</button>
           </div>
         </section>
 
@@ -155,21 +120,9 @@ export async function render(root, { store, api, ui }) {
 
               <div class="settings-modal-actions">
                 <button type="button" class="btn btn-ghost" id="modal-companies-cancel">Cancel</button>
-                <button type="button" class="btn btn-primary" id="modal-companies-save">Save companies</button>
-              </div>
-            </div>
-          </div>
-        ` : ""}
-
-        <!-- Delete Confirmation Modal -->
-        ${showDeleteModal ? ui.html`
-          <div class="settings-modal-backdrop" id="delete-modal-backdrop">
-            <div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
-              <h3 id="delete-modal-title">Delete your data?</h3>
-              <p class="text-2">This will permanently delete your uploaded CV, match history, and scoring data from JobMatcher.</p>
-              <div class="settings-modal-actions">
-                <button type="button" class="btn btn-ghost" id="modal-delete-cancel">Cancel</button>
-                <button type="button" class="btn btn-danger" id="modal-delete-confirm">Yes, delete everything</button>
+                <button type="button" class="btn btn-primary" id="modal-companies-save" ${isSavingCompanies ? "disabled" : ""}>
+                  ${isSavingCompanies ? "Saving…" : "Save companies"}
+                </button>
               </div>
             </div>
           </div>
@@ -177,10 +130,9 @@ export async function render(root, { store, api, ui }) {
       </div></div>
     `;
 
-    // Wire Digest Toggle
+    // Wire Digest Preferences
     const digestSwitch = root.querySelector("#settings-digest-switch");
     const morningSelect = root.querySelector("#settings-morning-select");
-    const eveningSelect = root.querySelector("#settings-evening-select");
 
     const updateDigestSettings = async () => {
       const enabled = digestSwitch.checked;
@@ -202,28 +154,27 @@ export async function render(root, { store, api, ui }) {
 
     if (digestSwitch) digestSwitch.addEventListener("change", updateDigestSettings);
     if (morningSelect) morningSelect.addEventListener("change", updateDigestSettings);
-    if (eveningSelect) {
-      eveningSelect.addEventListener("change", (e) => {
-        eveningHour = parseInt(e.target.value, 10);
-        ui.toast({ message: "Evening digest time updated." });
-      });
-    }
-
-    // Wire Test Digest button
-    const testDigestBtn = root.querySelector("#settings-test-digest-btn");
-    if (testDigestBtn) {
-      testDigestBtn.addEventListener("click", () => {
-        ui.toast({ message: `Test digest queued for ${user.email || "your email"}!` });
-        ui.announce("Test digest queued.");
-      });
-    }
 
     // Wire Location chips
+    const saveLocations = async (newLocs) => {
+      locations = newLocs;
+      renderView();
+      if (userId) {
+        try {
+          const preferredCity = locations.join(", ");
+          await api.saveProfile(userId, { profile: { preferredCity } });
+          store.set({ profile: { ...(state.profile || {}), preferredCity } });
+          ui.toast({ message: "Location preferences updated." });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
+
     root.querySelectorAll("[data-remove-loc]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const item = btn.dataset.removeLoc;
-        locations = locations.filter((l) => l !== item);
-        renderView();
+        saveLocations(locations.filter((l) => l !== item));
       });
     });
 
@@ -232,8 +183,7 @@ export async function render(root, { store, api, ui }) {
     const addLoc = () => {
       const val = newLocInput.value.trim();
       if (val && !locations.includes(val)) {
-        locations.push(val);
-        renderView();
+        saveLocations([...locations, val]);
       }
     };
     if (addLocBtn && newLocInput) {
@@ -243,22 +193,6 @@ export async function render(root, { store, api, ui }) {
           e.preventDefault();
           addLoc();
         }
-      });
-    }
-
-    // Wire Source switches
-    const linkedinSwitch = root.querySelector("#settings-linkedin-switch");
-    if (linkedinSwitch) {
-      linkedinSwitch.addEventListener("change", (e) => {
-        linkedinActive = e.target.checked;
-        ui.toast({ message: `LinkedIn search ${linkedinActive ? "enabled" : "disabled"}` });
-      });
-    }
-    const naukriSwitch = root.querySelector("#settings-naukri-switch");
-    if (naukriSwitch) {
-      naukriSwitch.addEventListener("change", (e) => {
-        naukriActive = e.target.checked;
-        ui.toast({ message: `Naukri search ${naukriActive ? "enabled" : "disabled"}` });
       });
     }
 
@@ -286,16 +220,31 @@ export async function render(root, { store, api, ui }) {
         renderView();
       });
 
-      saveBtn?.addEventListener("click", () => {
-        companies = {
+      saveBtn?.addEventListener("click", async () => {
+        const updatedCompanies = {
           greenhouse: parseCsv(ghText?.value || ""),
           lever: parseCsv(leverText?.value || ""),
           ashby: parseCsv(ashbyText?.value || ""),
         };
-        store.set({ companies });
-        showCompanyModal = false;
-        ui.toast({ message: "Company boards updated." });
-        renderView();
+        isSavingCompanies = true;
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving…";
+        try {
+          if (userId) {
+            await api.saveProfile(userId, { companies: updatedCompanies });
+          }
+          companies = updatedCompanies;
+          store.set({ companies: updatedCompanies });
+          showCompanyModal = false;
+          ui.toast({ message: "Tracked company boards saved!" });
+          ui.announce("Tracked company boards saved.");
+        } catch (err) {
+          console.error(err);
+          ui.toast({ message: "Failed to save company boards." });
+        } finally {
+          isSavingCompanies = false;
+          renderView();
+        }
       });
     }
 
@@ -303,32 +252,6 @@ export async function render(root, { store, api, ui }) {
     const signoutBtn = root.querySelector("#settings-signout-btn");
     if (signoutBtn) {
       signoutBtn.addEventListener("click", () => signOut());
-    }
-
-    // Wire Delete Data Modal
-    const deleteBtn = root.querySelector("#settings-delete-btn");
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", () => {
-        showDeleteModal = true;
-        renderView();
-      });
-    }
-
-    if (showDeleteModal) {
-      const cancelDelete = root.querySelector("#modal-delete-cancel");
-      const confirmDelete = root.querySelector("#modal-delete-confirm");
-
-      cancelDelete?.addEventListener("click", () => {
-        showDeleteModal = false;
-        renderView();
-      });
-
-      confirmDelete?.addEventListener("click", async () => {
-        showDeleteModal = false;
-        store.set({ hasCv: false, cvText: "", profile: null });
-        ui.toast({ message: "Your data has been deleted." });
-        setTimeout(() => signOut(), 800);
-      });
     }
   }
 
