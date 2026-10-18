@@ -130,11 +130,15 @@ app.post("/api/user/init", async (req, res) => {
     // to the caller-supplied email, which could point at another user's record.
     const identity = await getVerifiedClerkIdentity(req.verifiedClerkUserId);
     const userId = await upsertUser(identity.email, identity.name, identity.clerkId);
-    const profile = await getUserProfileRow(userId);
-    const cvText = await getActiveCvText(userId);
-    const digestSettings = await getUserDigestSettings(userId);
-    const companies = await getUserCompanies(userId) ?? JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
-    
+    // Independent reads - run together so the page waits for one DB round trip, not four.
+    const [profile, cvText, digestSettings, savedCompanies] = await Promise.all([
+      getUserProfileRow(userId),
+      getActiveCvText(userId),
+      getUserDigestSettings(userId),
+      getUserCompanies(userId),
+    ]);
+    const companies = savedCompanies ?? JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
+
     res.json({
       success: true,
       userId,
@@ -772,16 +776,21 @@ app.post("/api/match/page", async (req, res) => {
   }
 
   try {
-    const cvText = await getActiveCvText(userId);
-    const profile = await getUserProfileRow(userId);
+    const offset = (page - 1) * limit;
+    // Independent reads in one round trip (TASK-066). The v2 feed never returns
+    // pending rows, so for it this is the whole request - no scoring, no re-query.
+    const [cvText, profile, pageJobs, firstTotal] = await Promise.all([
+      getActiveCvText(userId),
+      getUserProfileRow(userId),
+      getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
+      getTotalMatchCountForUser(userId, feedOptions),
+    ]);
 
     if (!cvText || !profile) {
       res.status(400).json({ error: "Active CV or profile not found for this user." });
       return;
     }
 
-    const offset = (page - 1) * limit;
-    const pageJobs = await getPaginatedMatchesForUser(userId, offset, limit, feedOptions);
     const pendingJobs = pageJobs.filter((j: any) => j.status === "pending");
 
     if (pendingJobs.length > 0) {
@@ -816,9 +825,13 @@ app.post("/api/match/page", async (req, res) => {
       }
     }
 
-    // Re-query fully updated page scored matches
-    const finalPageJobs = await getPaginatedMatchesForUser(userId, offset, limit, feedOptions);
-    const total = await getTotalMatchCountForUser(userId, feedOptions);
+    // Re-query only if something was just scored (legacy UI path).
+    const [finalPageJobs, total] = pendingJobs.length > 0
+      ? await Promise.all([
+          getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
+          getTotalMatchCountForUser(userId, feedOptions),
+        ])
+      : [pageJobs, firstTotal];
     const results = finalPageJobs.map((j: any) => ({
       posting: {
         id: j.posting_id,

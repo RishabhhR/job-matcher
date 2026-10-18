@@ -110,9 +110,11 @@ const SCHEMA = [
 ];
 
 export async function migrate() {
-  for (const stmt of SCHEMA) {
-    await client.execute(stmt);
-  }
+  // Cold-start cost matters (TASK-066): every statement is a network round trip,
+  // so the idempotent CREATE TABLEs go in one batch, existing columns are read in
+  // one batch, and only genuinely missing columns are added.
+  await client.batch(SCHEMA, "write");
+
   // Patch schema additions separately for existing tables
   const addColumns = [
     "ALTER TABLE jm_user_profiles ADD COLUMN career_start_date TEXT",
@@ -128,33 +130,41 @@ export async function migrate() {
     // The user's own action on a match from the UI: 'saved' | 'applied' | 'dismissed'.
     // Separate from `status` for the same reason as emailed_at above.
     "ALTER TABLE jm_user_job_matches ADD COLUMN user_action TEXT",
-  ];
-  for (const sql of addColumns) {
-    try {
-      await client.execute(sql);
-    } catch (err) {
-      if (!/duplicate column/i.test((err as Error).message)) throw err;
-    }
-  }
-
-  const addColumnsUsers = [
     "ALTER TABLE jm_users ADD COLUMN clerk_id TEXT",
     "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
   ];
-  for (const sql of addColumnsUsers) {
+  const finalStatements = ["CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)"];
+
+  for (let attempt = 0; ; attempt++) {
+    const parsed = addColumns.map((sql) => {
+      const m = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(sql)!;
+      return { sql, table: m[1], column: m[2] };
+    });
+    const tables = [...new Set(parsed.map((p) => p.table))];
+    const infos = await client.batch(tables.map((t) => `PRAGMA table_info(${t})`), "read");
+    const existing = new Set(
+      (infos as Array<{ rows: Array<Record<string, unknown>> }>).flatMap((info, i) =>
+        info.rows.map((row) => `${tables[i]}.${String(row.name)}`)
+      )
+    );
+    const missing = parsed.filter((p) => !existing.has(`${p.table}.${p.column}`)).map((p) => p.sql);
     try {
-      await client.execute(sql);
+      await client.batch([...missing, ...finalStatements], "write");
+      break;
     } catch (err) {
-      if (!/duplicate column|already exists/i.test((err as Error).message)) throw err;
+      // Another cold instance added the same column first; re-check once.
+      if (attempt === 0 && /duplicate column|already exists/i.test((err as Error).message)) continue;
+      throw err;
     }
   }
+}
 
-  try {
-    await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)");
-  } catch (err) {
-    if (!/already exists|duplicate/i.test((err as Error).message)) throw err;
-  }
-
+/**
+ * Repair historical model outputs that violated the seniority cap now enforced in
+ * match.ts. Full-table UPDATE, so it runs from the cron (src/cron.ts), not on every
+ * serverless cold start (TASK-066).
+ */
+export async function repairSeniorityCaps(): Promise<void> {
   // Repair historical model outputs that violated the seniority cap now
   // enforced in match.ts. This is idempotent: capped rows are no longer >20,
   // and the marker prevents duplicate reasoning text if a partial run retries.
@@ -785,69 +795,67 @@ export interface UserStats {
 // 'scored' (scored lazily by the UI page route). Counting only 'scored' is what made
 // the old UI show "0 matches" for accounts with hundreds of cron-scored matches (TASK-053).
 export async function getUserStats(userId: string): Promise<UserStats> {
-  const totalRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ?",
-    args: [userId],
-  });
+  // Independent queries - run together (one DB round trip instead of seven).
+  const [totalRes, scoredRes, highRes, mediumRes, lowRes, companyRes, actionRes] = await Promise.all([
+    client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ?",
+      args: [userId],
+    }),
+    client.execute({
+      sql: "SELECT COUNT(*) as cnt, AVG(fit_score) as avg_score FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')",
+      args: [userId],
+    }),
+    client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 80",
+      args: [userId],
+    }),
+    client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 60 AND fit_score < 80",
+      args: [userId],
+    }),
+    client.execute({
+      sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score < 60",
+      args: [userId],
+    }),
+    client.execute({
+      sql: `
+        SELECT p.company_name, COUNT(*) as cnt
+        FROM jm_user_job_matches m
+        JOIN jm_job_postings p ON m.job_posting_id = p.id
+        WHERE m.user_id = ?
+        GROUP BY p.company_name
+        ORDER BY cnt DESC
+        LIMIT 5
+      `,
+      args: [userId],
+    }),
+    client.execute({
+      sql: `SELECT
+              SUM(CASE WHEN user_action IS NULL THEN 1 ELSE 0 END) AS new_cnt,
+              SUM(CASE WHEN user_action = 'saved' THEN 1 ELSE 0 END) AS saved_cnt,
+              SUM(CASE WHEN user_action = 'applied' THEN 1 ELSE 0 END) AS applied_cnt,
+              SUM(CASE WHEN user_action = 'dismissed' THEN 1 ELSE 0 END) AS dismissed_cnt,
+              SUM(CASE WHEN user_action IS NULL OR user_action != 'dismissed' THEN 1 ELSE 0 END) AS all_cnt,
+              SUM(CASE WHEN matched_at > COALESCE(
+                    (SELECT MAX(sent_at) FROM jm_email_send_log l WHERE l.user_id = ? AND l.status = 'sent'),
+                    '0000') THEN 1 ELSE 0 END) AS since_digest_cnt
+            FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')`,
+      args: [userId, userId],
+    }),
+  ]);
   const totalScraped = Number(totalRes.rows[0]?.cnt || 0);
-
-  const scoredRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt, AVG(fit_score) as avg_score FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')",
-    args: [userId],
-  });
   const totalScored = Number(scoredRes.rows[0]?.cnt || 0);
   const averageFitScore = Math.round(Number(scoredRes.rows[0]?.avg_score || 0));
-
-  const highRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 80",
-    args: [userId],
-  });
   const highMatchCount = Number(highRes.rows[0]?.cnt || 0);
-
-  const mediumRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 60 AND fit_score < 80",
-    args: [userId],
-  });
   const mediumMatchCount = Number(mediumRes.rows[0]?.cnt || 0);
-
-  const lowRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score < 60",
-    args: [userId],
-  });
   const lowMatchCount = Number(lowRes.rows[0]?.cnt || 0);
-
-  const companyRes = await client.execute({
-    sql: `
-      SELECT p.company_name, COUNT(*) as cnt
-      FROM jm_user_job_matches m
-      JOIN jm_job_postings p ON m.job_posting_id = p.id
-      WHERE m.user_id = ?
-      GROUP BY p.company_name
-      ORDER BY cnt DESC
-      LIMIT 5
-    `,
-    args: [userId],
-  });
 
   const companyDistribution = companyRes.rows.map((row: any) => ({
     company: String(row.company_name || "Unknown"),
     count: Number(row.cnt || 0),
   }));
 
-  // Mirrors matchFeedWhere's v2 predicates so tab counts equal the rows each tab shows.
-  const actionRes = await client.execute({
-    sql: `SELECT
-            SUM(CASE WHEN user_action IS NULL THEN 1 ELSE 0 END) AS new_cnt,
-            SUM(CASE WHEN user_action = 'saved' THEN 1 ELSE 0 END) AS saved_cnt,
-            SUM(CASE WHEN user_action = 'applied' THEN 1 ELSE 0 END) AS applied_cnt,
-            SUM(CASE WHEN user_action = 'dismissed' THEN 1 ELSE 0 END) AS dismissed_cnt,
-            SUM(CASE WHEN user_action IS NULL OR user_action != 'dismissed' THEN 1 ELSE 0 END) AS all_cnt,
-            SUM(CASE WHEN matched_at > COALESCE(
-                  (SELECT MAX(sent_at) FROM jm_email_send_log l WHERE l.user_id = ? AND l.status = 'sent'),
-                  '0000') THEN 1 ELSE 0 END) AS since_digest_cnt
-          FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')`,
-    args: [userId, userId],
-  });
+  // actionRes mirrors matchFeedWhere's v2 predicates so tab counts equal the rows each tab shows.
   const actionRow: any = actionRes.rows[0] ?? {};
 
   return {

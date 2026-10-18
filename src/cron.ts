@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, getActiveCvText, getUserProfileRow, getUserCompanies, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, getActiveCvText, getUserProfileRow, getUserCompanies, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { sendDigestEmail } from "./mailer.js";
 import { canonicalizeUrl } from "./normalize.js";
@@ -13,7 +13,8 @@ const dataDir = path.join(__dirname, "..", "data");
 async function runHourlyCron() {
   console.log("[cron-hourly] Starting hourly cron execution...");
   await ensureMigrated();
-  
+  await repairSeniorityCaps();
+
   // Get all users who have daily digests enabled
   const usersRes = await client.execute(
     "SELECT id, email, name, timezone, digest_hour FROM jm_users WHERE digest_enabled = 1 AND clerk_id IS NOT NULL"
