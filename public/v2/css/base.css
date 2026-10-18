@@ -125,7 +125,24 @@ a { color: var(--accent); }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 /* ---------- boot + auth ---------- */
-.boot { display: grid; place-items: center; min-height: 60vh; color: var(--text-3); }
+.boot { display: flex; align-items: center; justify-content: center; gap: 20px; min-height: 60vh; padding: 24px; color: var(--text-2); }
+.boot-visual { position: relative; display: grid; flex: none; width: 76px; height: 76px; place-items: center; border: 1px solid var(--border); border-radius: 24px; background: var(--accent-soft); color: var(--accent); }
+.boot-visual::before, .boot-visual::after { content: ""; position: absolute; inset: -5px; border: 1.5px solid color-mix(in srgb, var(--accent) 50%, transparent); border-right-color: transparent; border-radius: 50%; animation: boot-orbit 2.8s linear infinite; }
+.boot-visual::after { inset: 3px; border-width: 1px; border-color: color-mix(in srgb, var(--accent) 28%, transparent); border-left-color: transparent; animation-duration: 3.8s; animation-direction: reverse; }
+.boot-visual svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.boot-orbit { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.boot-orbit-one { top: 4px; left: 12px; animation: boot-pulse 1.8s ease-in-out infinite; }
+.boot-orbit-two { right: 4px; bottom: 17px; width: 4px; height: 4px; opacity: .65; animation: boot-pulse 1.8s ease-in-out .5s infinite; }
+.boot-copy { max-width: 420px; }
+.boot-title { display: block; margin-bottom: 4px; color: var(--text); font-size: 18px; line-height: 24px; }
+.boot-copy p { color: var(--text-2); }
+.boot-copy .boot-slow { display: none; margin-top: 6px; color: var(--text-3); font-size: var(--fs-meta); }
+.boot.is-slow .boot-slow { display: block; }
+.boot-copy .btn { margin-top: 14px; }
+.boot-failed .boot-visual { display: none; }
+.boot-failed .boot-title { color: var(--danger); }
+@keyframes boot-orbit { to { rotate: 360deg; } }
+@keyframes boot-pulse { 50% { scale: 1.45; opacity: .45; } }
 .auth-root { display: grid; place-items: center; min-height: 100vh; padding: var(--s5) var(--s4); }
 
 /* ---------- top nav ---------- */

@@ -5,6 +5,21 @@ import { startRouter } from "./js/router.js";
 import { initials, maskEmail, emptyState } from "./js/ui.js";
 
 const boot = document.getElementById("boot");
+const bootMessage = document.getElementById("boot-message");
+const bootRetry = document.getElementById("boot-retry");
+const bootSlowTimer = setTimeout(() => boot.classList.add("is-slow"), 4000);
+
+bootRetry.addEventListener("click", () => location.reload());
+
+function showBootFailure(message) {
+  clearTimeout(bootSlowTimer);
+  boot.classList.remove("is-slow");
+  boot.classList.add("boot-failed");
+  boot.setAttribute("aria-busy", "false");
+  document.getElementById("boot-slow").hidden = true;
+  bootMessage.textContent = message;
+  bootRetry.hidden = false;
+}
 
 function wireThemeToggle() {
   const button = document.getElementById("theme-toggle");
@@ -50,11 +65,13 @@ async function main() {
   try {
     clerkUser = await initAuth();
   } catch (err) {
-    boot.textContent = err.message;
+    showBootFailure(err.message || "The sign-in service couldn't load. Check your connection and try again.");
     return;
   }
 
   if (!clerkUser) {
+    clearTimeout(bootSlowTimer);
+    boot.setAttribute("aria-busy", "false");
     boot.hidden = true;
     const authRoot = document.getElementById("auth-root");
     authRoot.hidden = false;
@@ -62,10 +79,13 @@ async function main() {
     return;
   }
 
+  bootMessage.textContent = "Loading your saved profile and preferences…";
   try {
     await store.loadAccount(clerkUser);
   } catch (err) {
     console.error("Account load failed:", err);
+    clearTimeout(bootSlowTimer);
+    boot.setAttribute("aria-busy", "false");
     boot.hidden = true;
     document.getElementById("view-root").replaceChildren(
       emptyState({
@@ -78,6 +98,8 @@ async function main() {
     return;
   }
 
+  clearTimeout(bootSlowTimer);
+  boot.setAttribute("aria-busy", "false");
   boot.hidden = true;
   wireThemeToggle();
   renderAccount();

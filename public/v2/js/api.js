@@ -10,10 +10,26 @@ export class ApiError extends Error {
 }
 
 async function authFetch(url, options = {}) {
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  const token = await getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(url, { ...options, headers });
+  const { timeoutMs = 0, ...fetchOptions } = options;
+  const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
+  const controller = timeoutMs ? new AbortController() : null;
+  let timer;
+  const fetchRequest = getToken().then((token) => {
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(url, { ...fetchOptions, headers, ...(controller ? { signal: controller.signal } : {}) });
+  });
+  if (!timeoutMs) return fetchRequest;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ApiError("Loading your account took too long. Check your connection and try again.", 408));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetchRequest, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function json(res) {
@@ -23,11 +39,11 @@ async function json(res) {
   return body;
 }
 
-const post = (url, data) => authFetch(url, { method: "POST", body: JSON.stringify(data) }).then(json);
+const post = (url, data, options = {}) => authFetch(url, { ...options, method: "POST", body: JSON.stringify(data) }).then(json);
 const get = (url) => authFetch(url).then(json);
 
 /** Create or load the signed-in account: { userId, profile, cvText, companies, digestSettings }. */
-export const initUser = () => post("/api/user/init", {});
+export const initUser = () => post("/api/user/init", {}, { timeoutMs: 15000 });
 
 /** Totals and per-tab counts: { totalScored, newSinceLastDigest, newCount, savedCount, appliedCount, dismissedCount, allCount, ... }. */
 export const getStats = (userId) => get(`/api/user/stats?userId=${encodeURIComponent(userId)}`);

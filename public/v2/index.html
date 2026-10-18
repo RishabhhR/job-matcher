@@ -32,7 +32,16 @@
 <body>
   <a class="skip-link" href="#view-root">Skip to content</a>
 
-  <div id="boot" class="boot" role="status">Loading JobMatcher…</div>
+  <div id="boot" class="boot" role="status" aria-live="polite" aria-busy="true">
+    <div class="boot-visual" aria-hidden="true">
+      <span class="boot-orbit boot-orbit-one"></span><span class="boot-orbit boot-orbit-two"></span>
+      <svg viewBox="0 0 32 32" focusable="false"><circle cx="14" cy="14" r="8"/><path d="m20 20 6 6M14 10v8m-4-4h8"/></svg>
+    </div>
+    <div class="boot-copy"><strong class="boot-title">JobMatcher</strong><p id="boot-message">Connecting your workspace…</p>
+      <p id="boot-slow" class="boot-slow">This is taking longer than usual. We’re still loading your account.</p>
+      <button id="boot-retry" class="btn btn-primary" type="button" hidden>Try again</button>
+    </div>
+  </div>
   <div id="auth-root" class="auth-root" hidden></div>
 
   <header class="topnav" id="topnav" hidden>
