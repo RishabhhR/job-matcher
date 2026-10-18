@@ -124,7 +124,7 @@
 }
 
 .profile-chip-cv {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--chip-bg);
   color: var(--text-2);
   font-size: 13px;
   padding: 6px 14px;

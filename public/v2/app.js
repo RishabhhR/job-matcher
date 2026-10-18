@@ -6,6 +6,22 @@ import { initials, maskEmail, emptyState } from "./js/ui.js";
 
 const boot = document.getElementById("boot");
 
+function wireThemeToggle() {
+  const button = document.getElementById("theme-toggle");
+  const applyTheme = (theme) => {
+    document.documentElement.dataset.theme = theme;
+    const nextLabel = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+    button.setAttribute("aria-label", nextLabel);
+    button.title = nextLabel;
+  };
+  applyTheme(document.documentElement.dataset.theme || "light");
+  button.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("jobmatcher-theme", next); } catch { /* Theme remains active for this page. */ }
+  });
+}
+
 function wireAccountMenu() {
   const btn = document.getElementById("account-btn");
   const menu = document.getElementById("account-menu");
@@ -63,6 +79,7 @@ async function main() {
   }
 
   boot.hidden = true;
+  wireThemeToggle();
   renderAccount();
   wireAccountMenu();
   // Stats/status load in the background; views subscribe and update when they arrive.

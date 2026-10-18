@@ -13,8 +13,8 @@
 .matches-main > .score-note { margin: -7px 0 14px 4px; color: var(--text-3); font-size: 12px; line-height: 17px; }
 .match-tabs { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .match-tab { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 0 14px; flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-2); font-weight: 600; }
-.match-tab span { display: inline-grid; min-width: 22px; min-height: 22px; place-items: center; border-radius: 999px; background: rgba(0, 0, 0, .06); color: var(--text-2); font-size: 12px; }
-.match-tab:hover { color: var(--text); background: rgba(0, 0, 0, .025); }
+.match-tab span { display: inline-grid; min-width: 22px; min-height: 22px; place-items: center; border-radius: 999px; background: var(--chip-bg); color: var(--text-2); font-size: 12px; }
+.match-tab:hover { color: var(--text); background: var(--control-hover); }
 .match-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
 .match-tab.is-active span { color: var(--accent); background: var(--accent-soft); }
 .filter-controls { display: grid; grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(110px, 150px)); gap: 8px; padding-top: 12px; }
@@ -49,6 +49,23 @@
 .source-count { color: var(--text-3); white-space: nowrap; }
 .source-status { margin: -2px 0 5px 16px; color: var(--mid); font-size: 12px; line-height: 17px; }
 .match-skeleton { height: 205px; }
+.match-loading { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 18px; min-height: 154px; padding: 24px; overflow: hidden; }
+.loading-visual { position: relative; display: grid; width: 76px; height: 76px; place-items: center; border-radius: 24px; background: var(--accent-soft); color: var(--accent); }
+.loading-visual::before, .loading-visual::after { content: ""; position: absolute; inset: 8px; border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); border-radius: 50%; animation: match-orbit 3.4s linear infinite; }
+.loading-visual::after { inset: 2px 14px; animation-duration: 4.8s; }
+.loading-visual svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.loading-copy { min-width: 0; }
+.loading-copy .eyebrow { margin-bottom: 4px; }
+.loading-title { font-size: 17px; line-height: 24px; font-weight: 600; }
+.loading-detail { margin-top: 4px; color: var(--text-2); font-size: 14px; }
+.loading-slow-note { margin-top: 7px; color: var(--mid); font-size: 13px; }
+.loading-skeletons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 15px; }
+.loading-skeletons span { height: 5px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.loading-skeletons span::after { content: ""; display: block; height: 100%; width: 45%; background: var(--accent); opacity: .55; border-radius: inherit; animation: loading-track 2.1s ease-in-out infinite; }
+.loading-skeletons span:nth-child(2)::after { animation-delay: .3s; }
+.loading-skeletons span:nth-child(3)::after { animation-delay: .6s; }
+@keyframes match-orbit { to { rotate: 360deg; } }
+@keyframes loading-track { 0%, 100% { transform: translateX(-110%); } 55% { transform: translateX(240%); } }
 .load-more { align-self: center; min-width: 190px; margin: 4px auto; }
 .match-list .empty-state { padding: 40px 24px; }
 
@@ -59,6 +76,12 @@
 }
 @media (max-width: 600px) {
   .matches-summary { flex-direction: column; gap: 11px; margin-bottom: 14px; padding: 18px; }
+  .match-loading { grid-template-columns: 58px minmax(0, 1fr); gap: 13px; padding: 18px; }
+  .loading-visual { width: 56px; height: 56px; border-radius: 18px; }
+  .loading-visual::before { inset: 5px; }
+  .loading-visual::after { inset: 2px 10px; }
+  .loading-title { font-size: 16px; }
+  .loading-detail { font-size: 13px; }
   .summary-count { font-size: 15px; }
   .summary-status { text-align: left; }
   .filter-panel { padding: 12px; }
@@ -77,4 +100,9 @@
   .match-actions .btn { padding: 0 10px; font-size: 13px; }
   .match-actions .btn-text { margin-right: auto; }
   .matches-rail { display: flex; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-visual::before, .loading-visual::after, .loading-skeletons span::after { animation: none; }
+  .loading-skeletons span::after { width: 100%; transform: none; }
 }

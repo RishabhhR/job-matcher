@@ -6,6 +6,7 @@ let rootNode = null;
 let context = null;
 let state = null;
 let requestId = 0;
+let slowLoadTimer = null;
 const PAGE_SIZE = 10;
 
 const dateLabel = (value, ui) => value ? ui.timeAgo(value) : "";
@@ -25,10 +26,19 @@ function activeFilters() {
 async function loadPage({ reset = false } = {}) {
   if (!state.userId) return;
   const id = ++requestId;
+  clearTimeout(slowLoadTimer);
   if (reset) { state.page = 1; state.results = []; state.total = 0; }
   state.loading = true;
+  state.slowLoading = false;
   state.error = "";
   draw();
+  if (!state.results.length) {
+    slowLoadTimer = setTimeout(() => {
+      if (id !== requestId || !state?.loading) return;
+      state.slowLoading = true;
+      draw();
+    }, 4000);
+  }
   try {
     const data = await context.api.getMatches({ userId: state.userId, page: state.page, limit: PAGE_SIZE, ...activeFilters() });
     if (id !== requestId) return;
@@ -40,6 +50,8 @@ async function loadPage({ reset = false } = {}) {
     state.loading = false;
     state.error = error?.message || "We couldn't load your matches.";
   }
+  clearTimeout(slowLoadTimer);
+  slowLoadTimer = null;
   draw();
   const visibleCount = shownResults().length;
   context.ui.announce(`${visibleCount} ${visibleCount === 1 ? "match" : "matches"} shown`);
@@ -195,7 +207,13 @@ function draw() {
 
   let feedContent;
   if (state.loading && !state.results.length) {
-    feedContent = context.ui.html`<div class="stack" aria-label="Loading matches"><div class="card skeleton match-skeleton"></div><div class="card skeleton match-skeleton"></div></div>`;
+    feedContent = context.ui.html`<section class="card match-loading" role="status" aria-live="polite" aria-atomic="true" aria-label="Loading matches">
+      <div class="loading-visual" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><circle cx="14" cy="14" r="8"/><path d="m20 20 6 6M14 10v8m-4-4h8"/></svg></div>
+      <div class="loading-copy"><p class="eyebrow">Match finder</p><h2 class="loading-title">Putting your matches together</h2><p class="loading-detail">Your match list is loading. It will appear here when it’s ready.</p>
+        ${state.slowLoading ? context.ui.html`<p class="loading-slow-note">This is taking longer than usual. Your matches are still loading.</p>` : ""}
+        <div class="loading-skeletons" aria-hidden="true"><span></span><span></span><span></span></div>
+      </div>
+    </section>`;
   } else if (state.error) {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
   } else if (!state.total && state.tab === "new" && (stats.totalScored || 0) > 0) {
@@ -278,7 +296,7 @@ export async function render(root, ctx) {
   rootNode = root;
   context = ctx;
   const initial = ctx.store.get();
-  state = { storeState: initial, userId: initial.userId, tab: "new", sort: "best", minScore: "", source: "", query: "", page: 1, results: [], total: 0, loading: true, error: "" };
+  state = { storeState: initial, userId: initial.userId, tab: "new", sort: "best", minScore: "", source: "", query: "", page: 1, results: [], total: 0, loading: true, slowLoading: false, error: "" };
   draw();
   unsubscribe = ctx.store.subscribe((next) => { state.storeState = next; draw(); });
   await loadPage({ reset: true });
@@ -287,6 +305,8 @@ export async function render(root, ctx) {
 export function unmount() {
   if (unsubscribe) unsubscribe();
   unsubscribe = null;
+  clearTimeout(slowLoadTimer);
+  slowLoadTimer = null;
   requestId += 1;
   rootNode = null;
   context = null;
