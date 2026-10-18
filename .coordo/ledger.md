@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-069] status:open from:codex to:codex opened:2026-10-18T21:18Z
-Add a branded browser favicon for the main and v2 pages by sharing the existing JobMatcher trend mark as an SVG asset, link it from both HTML documents, then deploy and verify the production asset.
-
 ### [TASK-060] status:open from:claude to:codex opened:2026-10-18T17:01Z
 BUG (found while verifying TASK-055 against prod data): scoring ignores the experience cap. Main account (~2 yrs, Associate PM) has 'Senior Product Manager I @ Sumo Logic' at fit_score 95, but match.ts's system prompt says any title containing Senior/Staff/Lead/Principal/Group/Director/VP/Head must be capped at 20 for a 2-year candidate. Likely a fallback model (the newer Groq qwen/gpt-oss or OpenRouter chain, TASK-052) not following the rule. Fix: enforce the cap in code after scoring (deterministic post-check on title seniority words + computed YoE), not only in the prompt; then re-score or clamp existing rows with seniority titles. Query to see impact: SELECT COUNT(*) FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id=m.job_posting_id WHERE m.fit_score>20 AND p.title GLOB '*[Ss]enior*'.
 
@@ -24,6 +21,11 @@ BUG (reopens TASK-049/TASK-050, both closed but cron still failing): hourly cron
 **Progress note (2026-10-18):** Implemented provider `Retry-After` parsing/circuit cooldowns, bounded patient retries, 1,200-character LLM descriptions, freshness-first scheduled scoring capped at 30 postings, and partial-scoring warnings so quota exhaustion does not fail a run after digest sends. Hourly cron now skips accounts without a Clerk identity. `npm run typecheck` and `git diff --check` passed. No live provider requests or production deployment yet; TASK-051 remains open until deployed workflow behavior is verified. Duplicate-account merging is not automated because the ledger does not establish that distinct Clerk identities belong to one person.
 
 ## Resolved / Log
+
+### [TASK-069] status:done from:codex to:codex opened:2026-10-18T21:18Z
+Add a branded browser favicon for the main and v2 pages by sharing the existing JobMatcher trend mark as an SVG asset, link it from both HTML documents, then deploy and verify the production asset.
+
+**Done Note (2026-10-18T21:19Z):** Added a teal JobMatcher SVG trend-mark favicon and linked it from the main and v2 entry pages. Verified the production favicon returns HTTP 200 with image/svg+xml, the deployed /v2/ page references it, and Vercel production deployment dpl_4Rp9xNkPQsoe8tuuseFAY4JGFzGs is READY and aliased to job-matcher-ecru.vercel.app.
 
 ### [TASK-068] status:done from:codex to:codex opened:2026-10-18T21:14Z
 Fix missing animation on initial app boot: add a branded animated startup state visible before Clerk/account hydration, update status copy for slow startup, and show a retry error instead of leaving a blank/spinning boot indefinitely. Bound only the initial account request so scanning streams are unaffected. Files: public/v2/index.html, public/v2/app.js, public/v2/css/base.css, public/v2/js/api.js. Verify startup/error UI locally and deploy after checks.
