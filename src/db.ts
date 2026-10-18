@@ -154,6 +154,34 @@ export async function migrate() {
   } catch (err) {
     if (!/already exists|duplicate/i.test((err as Error).message)) throw err;
   }
+
+  // Repair historical model outputs that violated the seniority cap now
+  // enforced in match.ts. This is idempotent: capped rows are no longer >20,
+  // and the marker prevents duplicate reasoning text if a partial run retries.
+  const normalizedTitle = `lower(' ' || replace(replace(replace(replace(replace(replace(replace(replace(coalesce(jp.title, ''), '-', ' '), '/', ' '), ',', ' '), '.', ' '), ':', ' '), '(', ' '), ')', ' '), '&', ' ') || ' ')`;
+  const seniorityTerms = ["senior", "staff", "lead", "principal", "group", "director", "vp", "head"]
+    .map((term) => `instr(${normalizedTitle}, ' ${term} ') > 0`)
+    .join(" OR ");
+  await client.execute({
+    sql: `UPDATE jm_user_job_matches AS m
+          SET fit_score = 20,
+              reasoning_text = CASE
+                WHEN instr(lower(coalesce(m.reasoning_text, '')), '[seniority cap applied]') > 0 THEN m.reasoning_text
+                ELSE trim(coalesce(m.reasoning_text, '') || ' [Seniority cap applied] This senior-level title is a poor fit for an early-career profile.')
+              END
+          WHERE m.fit_score > 20
+            AND m.status IN ('new', 'scored')
+            AND EXISTS (
+              SELECT 1
+              FROM jm_user_profiles AS up
+              JOIN jm_job_postings AS jp ON jp.id = m.job_posting_id
+              WHERE up.user_id = m.user_id
+                AND up.career_start_date IS NOT NULL
+                AND (julianday('now') - julianday(up.career_start_date)) / 365.25 >= 0
+                AND (julianday('now') - julianday(up.career_start_date)) / 365.25 < 3
+                AND (${seniorityTerms})
+            )`,
+  });
 }
 
 let migrationPromise: Promise<void> | null = null;

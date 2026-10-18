@@ -37,6 +37,23 @@ export interface ScoredMatch {
 }
 
 const TITLE_KEYWORDS = ["product manager", "pm ", "apm", "product owner"];
+const EARLY_CAREER_YOE_LIMIT = 3;
+const SENIORITY_TITLE_TERMS = new Set(["senior", "staff", "lead", "principal", "group", "director", "vp", "head"]);
+
+/** Deterministic guard for models that ignore the prompt's early-career seniority cap. */
+export function enforceEarlyCareerSeniorityCap(
+  fitScore: number,
+  title: string,
+  yearsOfExperience: number | null
+): { fitScore: number; capped: boolean } {
+  if (yearsOfExperience === null || yearsOfExperience < 0 || yearsOfExperience >= EARLY_CAREER_YOE_LIMIT) {
+    return { fitScore, capped: false };
+  }
+  const titleTerms = title.toLowerCase().match(/[a-z]+/g) ?? [];
+  const isSeniorTitle = titleTerms.some((term) => SENIORITY_TITLE_TERMS.has(term));
+  if (!isSeniorTitle || fitScore <= 20) return { fitScore, capped: false };
+  return { fitScore: 20, capped: true };
+}
 
 export function keywordPrefilter(postings: RawPosting[], targetDesignation: string): RawPosting[] {
   const target = targetDesignation.toLowerCase();
@@ -147,14 +164,20 @@ Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score":
     }
     seenIndexes.add(r.job_index);
     let score = Math.max(0, Math.min(100, r.fit_score));
+    let reasoningText = r.reasoning_text || "Evaluated by AI";
     if (r.reasoning_text.toLowerCase().includes("prompt injection") || r.reasoning_text.toLowerCase().includes("redacted_injection")) {
       score = 0;
+    }
+    const seniorityGuard = enforceEarlyCareerSeniorityCap(score, postings[r.job_index].title, yearsOfExperience);
+    if (seniorityGuard.capped) {
+      score = seniorityGuard.fitScore;
+      reasoningText = `${reasoningText.trim()} Seniority cap applied: this senior-level title is a poor fit for an early-career profile.`;
     }
     return {
       job_index: r.job_index,
       fit_score: score,
       comp_fit_label: r.comp_fit_label,
-      reasoning_text: r.reasoning_text || "Evaluated by AI",
+      reasoning_text: reasoningText,
     };
   });
 
