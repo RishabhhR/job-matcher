@@ -8,6 +8,7 @@ interface LLMResult {
   content: string;
   warning?: string;
   status?: number;
+  retryAfterMs?: number;
 }
 
 // A cron process scores many batches in sequence. Once a provider/model reports
@@ -16,16 +17,57 @@ interface LLMResult {
 const disabledProviders = new Map<string, number>();
 const CIRCUIT_BREAKER_STATUSES = new Set([401, 402, 403, 404, 429]);
 const CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+
+function retryAfterMs(headers: Headers, body: string): number | undefined {
+  const durationMs = (value: string): number | undefined => {
+    const seconds = value.trim().match(/^(\d+(?:\.\d+)?)$/);
+    if (seconds) return Math.ceil(Number(seconds[1]) * 1000);
+    const pieces = [...value.matchAll(/(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec(?:onds?)?|m|min(?:utes?)?|h|hours?)/gi)];
+    if (!pieces.length) return undefined;
+    return Math.ceil(pieces.reduce((total, match) => {
+      const unit = match[2].toLowerCase();
+      const multiplier = unit.startsWith("ms") ? 1
+        : unit === "s" || unit.startsWith("sec") ? 1000
+        : unit === "m" || unit.startsWith("min") ? 60_000
+        : 3_600_000;
+      return total + Number(match[1]) * multiplier;
+    }, 0));
+  };
+
+  for (const name of ["retry-after", "x-ratelimit-reset", "x-ratelimit-reset-tokens"]) {
+    const value = headers.get(name);
+    if (value) {
+      const parsed = durationMs(value);
+      if (parsed !== undefined) return parsed;
+      const dateDelay = Date.parse(value) - Date.now();
+      if (Number.isFinite(dateDelay) && dateDelay > 0) return dateDelay;
+    }
+  }
+  const bodyMatch = body.match(/(?:try again|retry)\s+(?:in|after)\s+((?:\d+(?:\.\d+)?\s*(?:ms|milliseconds?|s|sec(?:onds?)?|m|min(?:utes?)?|h|hours?)\s*)+)/i);
+  return bodyMatch ? durationMs(bodyMatch[1]) : undefined;
+}
+
+export class LLMProvidersUnavailableError extends Error {
+  constructor(message: string, readonly retryAfterMs?: number) {
+    super(message);
+    this.name = "LLMProvidersUnavailableError";
+  }
+}
 
 async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Promise<LLMResult> {
   const disabledUntil = disabledProviders.get(key);
-  if (disabledUntil && disabledUntil > Date.now()) return { offline: true, content: "" };
+  if (disabledUntil && disabledUntil > Date.now()) return { offline: true, content: "", retryAfterMs: disabledUntil - Date.now() };
   if (disabledUntil) {
     disabledProviders.delete(key);
   }
   const result = await call();
   if (result.status && CIRCUIT_BREAKER_STATUSES.has(result.status)) {
-    disabledProviders.set(key, Date.now() + CIRCUIT_COOLDOWN_MS);
+    const cooldownMs = result.status === 429
+      ? result.retryAfterMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS
+      : CIRCUIT_COOLDOWN_MS;
+    disabledProviders.set(key, Date.now() + cooldownMs);
+    if (result.status === 429) result.retryAfterMs = cooldownMs;
   }
   return result;
 }
@@ -69,7 +111,7 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, warning: `Groq HTTP ${res.status}: ${body.slice(0, 300)}` };
+      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Groq HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
     return { offline: false, content: data.choices[0].message.content };
@@ -101,7 +143,7 @@ async function callGemini(systemPrompt: string, userPrompt: string, timeoutMs = 
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, warning: `Gemini HTTP ${res.status}: ${body.slice(0, 300)}` };
+      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Gemini HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
     const content = data.candidates[0].content.parts[0].text;
@@ -139,7 +181,7 @@ async function callOpenRouter(messages: Message[], timeoutMs = 30000): Promise<L
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, warning: `OpenRouter HTTP ${res.status}: ${body.slice(0, 300)}` };
+      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `OpenRouter HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
     return { offline: false, content: data.choices[0].message.content };
@@ -176,7 +218,7 @@ async function callCerebras(messages: Message[], timeoutMs = 60000): Promise<LLM
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, warning: `Cerebras HTTP ${res.status}: ${body.slice(0, 300)}` };
+      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Cerebras HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
     return { offline: false, content: data.choices[0].message.content };
@@ -209,7 +251,7 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, warning: `Mistral HTTP ${res.status}: ${body.slice(0, 300)}` };
+      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Mistral HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
     return { offline: false, content: data.choices[0].message.content };
@@ -223,16 +265,24 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   // Fallback chain: current Groq chat model → a second current Groq chat model
   // → Gemini → Cerebras → Mistral → OpenRouter. Keep stale model names out of
   // this chain: a decommissioned Groq default silently pushes every batch to Gemini.
+  let shortestRetryAfterMs: number | undefined;
+  const noteRetry = (result: LLMResult) => {
+    if (result.retryAfterMs !== undefined && (shortestRetryAfterMs === undefined || result.retryAfterMs < shortestRetryAfterMs)) {
+      shortestRetryAfterMs = result.retryAfterMs;
+    }
+  };
   const primaryModel = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
   const primaryKey = `groq:${primaryModel}`;
   const groq = await callWithCircuit(primaryKey, () => callGroq(messages, primaryModel));
   if (!groq.offline) return { content: groq.content, provider: "groq" };
+  noteRetry(groq);
   if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
 
   const groqFallbackModel = "openai/gpt-oss-120b";
   if (primaryModel !== groqFallbackModel) {
     const groqSmall = await callWithCircuit(`groq:${groqFallbackModel}`, () => callGroq(messages, groqFallbackModel));
     if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-gpt-oss-120b", warning: "Used Groq GPT-OSS fallback model" };
+    noteRetry(groqSmall);
     if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
   }
 
@@ -244,27 +294,35 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
     reasoningEffort: "default",
   }));
   if (!qwen.offline) return { content: qwen.content, provider: "groq-qwen3.8-27b", warning: "Used Groq Qwen 3.8 27B fallback model" };
+  noteRetry(qwen);
   if (qwen.warning) console.warn(`[ai] groq (${qwenModel}): ${qwen.warning}`);
 
   const systemPrompt = messages.find((m) => m.role === "system")?.content || "";
   const userPrompt = messages.find((m) => m.role === "user")?.content || "";
   const gemini = await callWithCircuit("gemini", () => callGemini(systemPrompt, userPrompt));
   if (!gemini.offline) return { content: gemini.content, provider: "gemini", warning: "Used Gemini fallback" };
+  noteRetry(gemini);
   if (gemini.warning) console.warn(`[ai] gemini: ${gemini.warning}`);
 
   const cerebras = await callWithCircuit("cerebras", () => callCerebras(messages));
   if (!cerebras.offline) return { content: cerebras.content, provider: "cerebras", warning: "Used Cerebras fallback" };
+  noteRetry(cerebras);
   if (cerebras.warning) console.warn(`[ai] cerebras: ${cerebras.warning}`);
 
   const mistral = await callWithCircuit("mistral", () => callMistral(messages));
   if (!mistral.offline) return { content: mistral.content, provider: "mistral", warning: "Used Mistral fallback" };
+  noteRetry(mistral);
   if (mistral.warning) console.warn(`[ai] mistral: ${mistral.warning}`);
 
   const or = await callWithCircuit("openrouter", () => callOpenRouter(messages));
   if (!or.offline) return { content: or.content, provider: "openrouter", warning: "Used OpenRouter fallback" };
+  noteRetry(or);
   if (or.warning) console.warn(`[ai] openrouter: ${or.warning}`);
 
-  throw new Error("All LLM providers are unavailable. Check your API keys.");
+  const reason = shortestRetryAfterMs === undefined
+    ? "All LLM providers rejected or could not complete the request. Check provider configuration, billing, model availability, and rate limits."
+    : "All LLM providers are currently rate-limited or quota-exhausted.";
+  throw new LLMProvidersUnavailableError(reason, shortestRetryAfterMs);
 }
 
 export function parseJSON<T>(content: string, fallback: T): T {

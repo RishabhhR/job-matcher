@@ -166,23 +166,55 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     return [];
   }
 
-  onProgress("scoring", `Scoring ${finalShortlist.length} postings against CV via AI fallback chain (Groq -> Gemini -> Cerebras -> Mistral -> OpenRouter)...`);
+  // Scheduled runs share provider quotas across every due user. Score a bounded,
+  // freshness-first slice so one hourly tick cannot consume the whole account's
+  // free-tier budget; interactive searches retain the complete shortlist.
+  const scheduledScoreLimit = 30;
+  const scoreCandidates = patient
+    ? finalShortlist
+        .map((posting, index) => ({ posting, index, timestamp: posting.postedAt ? Date.parse(posting.postedAt) : Number.NaN }))
+        .sort((a, b) => {
+          const aTime = Number.isFinite(a.timestamp) ? a.timestamp : Number.NEGATIVE_INFINITY;
+          const bTime = Number.isFinite(b.timestamp) ? b.timestamp : Number.NEGATIVE_INFINITY;
+          return bTime - aTime || a.index - b.index;
+        })
+        .slice(0, scheduledScoreLimit)
+        .map(({ posting }) => posting)
+    : finalShortlist;
+  if (scoreCandidates.length < finalShortlist.length) {
+    onProgress("scoring_limit", `Scheduled run capped scoring to the ${scoreCandidates.length} freshest postings; ${finalShortlist.length - scoreCandidates.length} remain eligible for later runs.`);
+  }
+  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Gemini -> Cerebras -> Mistral -> OpenRouter)...`);
   
   // Custom progress for scoring
   const batchSize = 6;
-  const totalPostings = finalShortlist.length;
+  const totalPostings = scoreCandidates.length;
   const totalBatches = Math.ceil(totalPostings / batchSize);
   const scoredMatches: ScoredMatch[] = [];
+  let failedBatches = 0;
 
   for (let i = 0; i < totalPostings; i += batchSize) {
     const currentBatchNum = Math.floor(i / batchSize) + 1;
-    const batch = finalShortlist.slice(i, i + batchSize);
+    const batch = scoreCandidates.slice(i, i + batchSize);
     onProgress("scoring", `Scoring batch ${currentBatchNum}/${totalBatches} (${batch.length} postings)...`);
-    
-    const { results: batchResults, provider } = await scoreAll(cvText, profile, batch, batch.length, retryOptions);
-    scoredMatches.push(...batchResults);
 
-    if (i + batchSize < totalPostings) {
+    let provider = "none";
+    try {
+      const scored = await scoreAll(cvText, profile, batch, batch.length, retryOptions);
+      provider = scored.provider;
+      scoredMatches.push(...scored.results);
+    } catch (err) {
+      failedBatches++;
+      const message = (err as Error).message || String(err);
+      onProgress("scoring_error", `Scoring batch ${currentBatchNum}/${totalBatches} failed: ${message}`);
+      // Scheduled sends already ran from stored matches. Keep successful batches
+      // and finish green with an explicit warning rather than red-failing the
+      // whole workflow after a quota outage. Interactive requests still surface it.
+      if (!patient) throw err;
+      break; // the provider circuit breakers are open; later batches cannot recover this run
+    }
+
+    if (!failedBatches && i + batchSize < totalPostings) {
       const baseSleep = provider === "gemini" ? 8000 : 4000;
       const sleepTime = patient ? baseSleep * 2 : baseSleep;
       onProgress("scoring", `Sleeping ${sleepTime / 1000}s to respect LLM rate limits (active provider: ${provider})...`);
@@ -193,6 +225,11 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   // Sort matches by descending fit score
   scoredMatches.sort((a, b) => b.fitScore - a.fitScore);
   
-  onProgress("complete", `Scoring complete! Processed ${scoredMatches.length} postings.`);
+  if (failedBatches) {
+    onProgress("scoring_partial", `Scoring stopped after provider capacity was exhausted. Saved ${scoredMatches.length} of ${totalPostings} attempted postings; existing matches remain available for digests.`);
+  }
+  onProgress("complete", failedBatches
+    ? `Scoring completed with a quota warning: ${scoredMatches.length} postings saved.`
+    : `Scoring complete! Processed ${scoredMatches.length} postings.`);
   return scoredMatches;
 }

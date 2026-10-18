@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { callLLM, parseJSON, type Message } from "./ai.js";
+import { callLLM, LLMProvidersUnavailableError, parseJSON, type Message } from "./ai.js";
 import type { RawPosting } from "./scrapers.js";
 
 export interface Profile {
@@ -94,7 +94,7 @@ function sanitizeDescriptionForLLM(text: string): string {
     .replace(/(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+)?(previous|prior|above)?\s*(instructions?|guidance|rules?|directives?)/gi, "[redacted_injection_attempt]")
     .replace(/(you\s+(are\s+)?(must|should|shall|need\s+to|have\s+to|are\s+required\s+to)|please)\s+(output|set|score|give|emit|assign|return|use)\s+(a\s+)?(fit[_\s]?score|score|rating)?\s*(of\s+)?(exactly\s+)?\d{2,3}/gi, "[redacted_injection_attempt]")
     .replace(/system\s*(prompt|message|directive)|override\s+(the\s+)?rules?|new\s+instructions?/gi, "[redacted_injection_attempt]")
-    .slice(0, 3000);
+    .slice(0, 1200);
 }
 
 export async function scoreBatch(
@@ -198,7 +198,7 @@ const FAST_RETRY: Required<RetryOptions> = { retries: 3, baseBackoffMs: 5000, ma
 // waits instead of giving up fast, since nothing is blocking on this in real time.
 // Hourly cron has multiple provider fallbacks and a per-process circuit breaker.
 // Keep only a small retry window for transient failures after that chain is exhausted.
-export const PATIENT_RETRY: Required<RetryOptions> = { retries: 2, baseBackoffMs: 5000, maxBackoffMs: 15000 };
+export const PATIENT_RETRY: Required<RetryOptions> = { retries: 2, baseBackoffMs: 10000, maxBackoffMs: 60000 };
 
 async function scoreBatchWithRetry(
   cvText: string,
@@ -215,8 +215,13 @@ async function scoreBatchWithRetry(
         console.error(`[match] batch failed after ${retries} retries: ${(err as Error).message}`);
         throw new Error(`Scoring batch failed after ${retries + 1} attempts: ${(err as Error).message}`);
       }
-      const backoffMs = Math.min(baseBackoffMs * 2 ** attempt, maxBackoffMs);
-      console.warn(`[match] all providers failed/rate-limited, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);
+      const retryAfterMs = err instanceof LLMProvidersUnavailableError ? err.retryAfterMs : undefined;
+      if (retryAfterMs !== undefined && retryAfterMs > maxBackoffMs) {
+        console.warn(`[match] provider reset is ${retryAfterMs}ms away, beyond this run's retry budget; not retrying early.`);
+        throw err;
+      }
+      const backoffMs = Math.max(Math.min(baseBackoffMs * 2 ** attempt, maxBackoffMs), retryAfterMs ?? 0);
+      console.warn(`[match] provider chain unavailable; retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);
       await sleep(backoffMs);
     }
   }

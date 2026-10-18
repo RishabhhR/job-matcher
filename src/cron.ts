@@ -16,7 +16,7 @@ async function runHourlyCron() {
   
   // Get all users who have daily digests enabled
   const usersRes = await client.execute(
-    "SELECT id, email, name, timezone, digest_hour FROM jm_users WHERE digest_enabled = 1"
+    "SELECT id, email, name, timezone, digest_hour FROM jm_users WHERE digest_enabled = 1 AND clerk_id IS NOT NULL"
   );
   
   const users = usersRes.rows;
