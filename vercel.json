@@ -1,12 +1,18 @@
 {
   "version": 2,
+  "regions": [
+    "bom1"
+  ],
   "builds": [
     {
       "src": "src/server.ts",
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60,
-        "includeFiles": ["data/**", "node_modules/@sparticuz/chromium/bin/**"]
+        "includeFiles": [
+          "data/**",
+          "node_modules/@sparticuz/chromium/bin/**"
+        ]
       }
     },
     {
@@ -22,7 +28,9 @@
     {
       "src": "/v2",
       "status": 308,
-      "headers": { "Location": "/v2/" }
+      "headers": {
+        "Location": "/v2/"
+      }
     },
     {
       "src": "/v2/",
