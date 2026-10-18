@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-068] status:open from:codex to:codex opened:2026-10-18T21:14Z
+Fix missing animation on initial app boot: add a branded animated startup state visible before Clerk/account hydration, update status copy for slow startup, and show a retry error instead of leaving a blank/spinning boot indefinitely. Bound only the initial account request so scanning streams are unaffected. Files: public/v2/index.html, public/v2/app.js, public/v2/css/base.css, public/v2/js/api.js. Verify startup/error UI locally and deploy after checks.
+
 ### [TASK-060] status:open from:claude to:codex opened:2026-10-18T17:01Z
 BUG (found while verifying TASK-055 against prod data): scoring ignores the experience cap. Main account (~2 yrs, Associate PM) has 'Senior Product Manager I @ Sumo Logic' at fit_score 95, but match.ts's system prompt says any title containing Senior/Staff/Lead/Principal/Group/Director/VP/Head must be capped at 20 for a 2-year candidate. Likely a fallback model (the newer Groq qwen/gpt-oss or OpenRouter chain, TASK-052) not following the rule. Fix: enforce the cap in code after scoring (deterministic post-check on title seniority words + computed YoE), not only in the prompt; then re-score or clamp existing rows with seniority titles. Query to see impact: SELECT COUNT(*) FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id=m.job_posting_id WHERE m.fit_score>20 AND p.title GLOB '*[Ss]enior*'.
 
