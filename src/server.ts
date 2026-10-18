@@ -28,6 +28,7 @@ import {
   upsertUserCompanies,
   setMatchUserAction,
   getUserStatus,
+  saveUserProfileData,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
@@ -62,7 +63,7 @@ function parseFeedOptions(body: any): MatchFeedOptions {
 }
 
 import { attachVerifiedClerkUser } from "./clerkAuth.js";
-import { parseCompanySources } from "./inputValidation.js";
+import { parseCompanySources, parseProfilePatch } from "./inputValidation.js";
 
 // Set DOMMatrix polyfill for pdf-parse (needed in Node environment)
 if (typeof (global as any).DOMMatrix === "undefined") {
@@ -248,6 +249,60 @@ app.post("/api/user/settings", async (req, res) => {
     res.json({ success: true, message: "Settings updated successfully." });
   } catch (error) {
     console.error("Error in /api/user/settings:", error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Save CV / profile / companies WITHOUT running a scan (TASK-063). Used by the v2
+// Profile and Settings pages; onboarding still goes through /api/match so the
+// first scan runs. Every field is optional, but at least one must be present.
+app.post("/api/user/profile", async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) {
+    res.status(400).json({ error: "Missing userId" });
+    return;
+  }
+
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+
+  const update: Parameters<typeof saveUserProfileData>[1] = {};
+  if (req.body.cvText !== undefined) {
+    const cvText = req.body.cvText;
+    if (typeof cvText !== "string" || !cvText.trim() || cvText.length > 250_000) {
+      res.status(400).json({ error: "cvText must be non-empty text under 250,000 characters." });
+      return;
+    }
+    update.cvText = cvText;
+  }
+  if (req.body.profile !== undefined) {
+    const profile = parseProfilePatch(req.body.profile);
+    if (!profile) {
+      res.status(400).json({ error: "profile has an invalid field." });
+      return;
+    }
+    update.profile = profile;
+  }
+  if (req.body.companies !== undefined) {
+    const companies = parseCompanySources(req.body.companies);
+    if (!companies) {
+      res.status(400).json({ error: "companies must list greenhouse, lever and ashby board slugs." });
+      return;
+    }
+    update.companies = companies;
+  }
+  if (!update.cvText && !update.profile && !update.companies) {
+    res.status(400).json({ error: "Nothing to save: send cvText, profile or companies." });
+    return;
+  }
+
+  try {
+    const saved = await saveUserProfileData(userId, update);
+    res.json({ success: true, ...saved });
+  } catch (error) {
+    console.error("Error in /api/user/profile:", error);
     res.status(500).json({ error: (error as Error).message });
   }
 });

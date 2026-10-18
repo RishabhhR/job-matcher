@@ -577,6 +577,41 @@ export async function getUserProfileRow(userId: string): Promise<DbProfile | nul
   };
 }
 
+/**
+ * Save profile/CV/companies without running a scan (TASK-063, POST /api/user/profile).
+ * The profile patch is merged over the saved row so callers can update one field
+ * (e.g. Settings changing only the city) without wiping the rest.
+ */
+export async function saveUserProfileData(
+  userId: string,
+  update: { cvText?: string; profile?: import("./inputValidation.js").ProfilePatch; companies?: CompanySources }
+): Promise<{ profile: DbProfile | null; companies: CompanySources | null; hasCv: boolean }> {
+  if (update.profile) {
+    const existing = await getUserProfileRow(userId);
+    const merged = { ...(existing ?? {}), ...update.profile };
+    await upsertUserProfile(userId, {
+      targetDesignation: merged.targetDesignation ?? "",
+      currentEmployer: merged.currentEmployer ?? "",
+      currentTitle: merged.currentTitle ?? "",
+      // libSQL rejects undefined args; null keeps "not provided" distinct from 0.
+      currentSalaryFixedLPA: (merged.currentSalaryFixedLPA ?? null) as number,
+      currentSalaryEsopLPA: (merged.currentSalaryEsopLPA ?? null) as number,
+      currentSalaryCurrency: merged.currentSalaryCurrency ?? "INR",
+      careerStartDate: merged.careerStartDate ?? undefined,
+      preferredCountry: merged.preferredCountry ?? undefined,
+      preferredCity: merged.preferredCity ?? undefined,
+    });
+  }
+  if (update.cvText !== undefined) await upsertCv(userId, update.cvText);
+  if (update.companies) await upsertUserCompanies(userId, update.companies);
+  const [profile, companies, cvText] = await Promise.all([
+    getUserProfileRow(userId),
+    getUserCompanies(userId),
+    getActiveCvText(userId),
+  ]);
+  return { profile, companies, hasCv: Boolean(cvText && cvText.trim()) };
+}
+
 export async function deletePendingMatches(userId: string): Promise<void> {
   await client.execute({
     sql: "DELETE FROM jm_user_job_matches WHERE user_id = ? AND status = 'pending'",

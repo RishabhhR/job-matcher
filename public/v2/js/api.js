@@ -51,7 +51,16 @@ export const setMatchAction = (userId, matchId, action) =>
 export const saveDigestSettings = (userId, { enabled, hour }) =>
   post("/api/user/settings", { userId, digestEnabled: enabled, digestHour: hour });
 
-/** Upload a CV file (PDF/DOCX/TXT). Resolves to { text } extracted by the server. */
+/**
+ * Save without running a scan (TASK-063): any of { cvText, profile, companies }.
+ * profile is a partial patch merged over the saved one, e.g. { preferredCity: "Pune" };
+ * "" or null clears an optional field. Resolves to { profile, companies, hasCv } as saved.
+ * Use this for Profile and Settings; onboarding uses runScan so the first scan starts.
+ */
+export const saveProfile = (userId, { cvText, profile, companies } = {}) =>
+  post("/api/user/profile", { userId, cvText, profile, companies });
+
+/** Upload a CV file (PDF/DOCX/TXT). Resolves to { text } extracted by the server - it does NOT save; follow with saveProfile({ cvText }). */
 export function uploadCv(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
