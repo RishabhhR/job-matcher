@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobMatcher v2 mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f2ee; --surface: #fff; --border: rgba(0,0,0,.08); --border-2: rgba(0,0,0,.14);
+    --text: #1a2226; --text-2: #4b5b6b; --text-3: #5f6b78;
+    --accent: #0a66c2; --accent-soft: rgba(10,102,194,.08); --accent-hover: #084f96;
+    --good: #047857; --good-soft: rgba(4,120,87,.08); --mid: #b45309; --mid-soft: rgba(180,83,9,.08);
+    --weak: #5f6b78; --weak-soft: rgba(95,107,120,.1); --danger: #b42318;
+    --r-card: 12px; --r-ctl: 8px;
+    --shadow: 0 1px 2px rgba(20,30,40,.04), 0 4px 16px rgba(20,30,40,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 400 15px/23px Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  /* ---------- nav ---------- */
+  .nav { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,.85); backdrop-filter: blur(16px) saturate(180%); border-bottom: 1px solid var(--border); }
+  .nav-in { max-width: 1080px; margin: 0 auto; padding: 0 24px; height: 60px; display: flex; align-items: center; gap: 32px; }
+  .logo { font-weight: 700; font-size: 18px; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
+  .logo-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 14px; }
+  .tabs { display: flex; gap: 4px; height: 100%; }
+  .tab { background: none; border: none; padding: 0 14px; height: 100%; color: var(--text-2); font-weight: 500; border-bottom: 2px solid transparent; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .avatar { margin-left: auto; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 13px; }
+
+  /* ---------- layout ---------- */
+  .page { max-width: 1080px; margin: 0 auto; padding: 28px 24px 96px; }
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 24px; align-items: start; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); box-shadow: var(--shadow); }
+  .rail { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 16px; }
+  .rail .card { padding: 18px 20px; }
+  .eyebrow { font: 600 12px/16px Inter; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+  .muted { color: var(--text-3); font-size: 13px; line-height: 18px; }
+  .link { color: var(--accent); font-weight: 600; font-size: 14px; background: none; border: none; text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+
+  /* ---------- summary header ---------- */
+  .summary { padding: 24px; margin-bottom: 16px; }
+  .summary h1 { font: 600 22px/28px Inter; letter-spacing: -.01em; }
+  .summary .big { font: 600 17px/24px Inter; color: var(--text-2); margin-top: 4px; }
+  .summary .big b { color: var(--accent); }
+  .status { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-size: 13px; color: var(--text-3); }
+  .status span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; }
+  .dot.warn { background: var(--mid); }
+  .scanbar { height: 3px; background: var(--accent-soft); border-radius: 3px; margin-top: 16px; overflow: hidden; }
+  .scanbar i { display: block; height: 100%; width: 62%; background: var(--accent); border-radius: 3px; }
+
+  /* ---------- filter bar ---------- */
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .seg { display: flex; gap: 4px; background: rgba(0,0,0,.04); padding: 4px; border-radius: 999px; }
+  .seg button { border: none; background: none; padding: 6px 14px; min-height: 36px; border-radius: 999px; color: var(--text-2); font-weight: 500; font-size: 14px; }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); font-weight: 600; }
+  .seg .n { color: var(--text-3); font-weight: 500; margin-left: 4px; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ctl { min-height: 40px; padding: 0 12px; border: 1px solid var(--border-2); border-radius: var(--r-ctl); background: var(--surface); color: var(--text); font-size: 14px; }
+  .search { min-width: 220px; }
+
+  /* ---------- match card ---------- */
+  .feed { display: flex; flex-direction: column; gap: 12px; }
+  .match { padding: 20px; display: grid; grid-template-columns: 44px minmax(0,1fr) auto; gap: 4px 16px; transition: border-color .15s; }
+  .match:hover { border-color: var(--border-2); }
+  .co { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 17px; grid-row: span 2; }
+  .title { font: 600 16px/22px Inter; display: flex; align-items: center; gap: 8px; }
+  .new { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  .meta { color: var(--text-3); font-size: 13px; line-height: 18px; margin-top: 2px; }
+  .score { grid-row: span 2; text-align: center; min-width: 64px; padding: 8px 6px; border-radius: 10px; }
+  .score b { display: block; font: 700 20px/24px Inter; font-variant-numeric: tabular-nums; }
+  .score small { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .s-good { background: var(--good-soft); color: var(--good); }
+  .s-mid { background: var(--mid-soft); color: var(--mid); }
+  .s-weak { background: var(--weak-soft); color: var(--weak); }
+  .why { grid-column: 2 / 4; margin-top: 10px; color: var(--text-2); }
+  .why strong { color: var(--text); font-weight: 600; }
+  .chips { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px; background: rgba(0,0,0,.05); color: var(--text-2); }
+  .pill-up { background: var(--good-soft); color: var(--good); font-weight: 600; }
+  .pill-lat { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .actions { grid-column: 2 / 4; display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .btn { min-height: 40px; padding: 0 16px; border-radius: var(--r-ctl); font-weight: 600; font-size: 14px; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-ghost { background: none; color: var(--text-2); border-color: var(--border-2); }
+  .btn-ghost:hover { background: rgba(0,0,0,.03); color: var(--text); }
+  .btn-text { background: none; color: var(--text-3); }
+  .btn-text:hover { color: var(--text); }
+  .more { margin: 8px auto 0; }
+
+  /* rail specifics */
+  .rail h3 { font: 600 16px/22px Inter; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--accent); border: none; position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 19px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+
+  /* ---------- profile / settings ---------- */
+  .stack { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+  .section { padding: 24px; }
+  .section h2 { font: 600 17px/24px Inter; margin-bottom: 4px; }
+  .section > .muted { margin-bottom: 16px; }
+  .cv { display: flex; gap: 16px; align-items: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-ctl); background: #fafaf8; }
+  .file { width: 40px; height: 48px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
+  .kv { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px 24px; margin-top: 16px; }
+  .kv label, .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+  .input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--border-2); border-radius: var(--r-ctl); font: inherit; background: #fff; }
+  .group-label { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 16px 0 8px; }
+  .chip-edit { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; padding: 5px 6px 5px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .chip-edit button { width: 22px; height: 22px; border-radius: 50%; border: none; background: none; color: inherit; }
+  .chip-add { border: 1px dashed var(--border-2); background: none; color: var(--text-2); padding: 5px 12px; border-radius: 999px; font-size: 13px; }
+  .chip-cv { background: rgba(0,0,0,.05); color: var(--text-2); }
+
+  /* ---------- onboarding ---------- */
+  .onb { max-width: 560px; margin: 40px auto; }
+  .step { font-size: 13px; font-weight: 600; color: var(--accent); }
+  .onb h1 { font: 600 26px/32px Inter; letter-spacing: -.02em; margin: 6px 0 8px; }
+  .progress { display: flex; gap: 6px; margin: 20px 0 24px; }
+  .progress i { flex: 1; height: 4px; border-radius: 4px; background: rgba(0,0,0,.08); }
+  .progress i.on { background: var(--accent); }
+  .drop { border: 2px dashed var(--border-2); border-radius: var(--r-card); padding: 48px 24px; text-align: center; background: var(--surface); }
+  .drop .ico { width: 56px; height: 56px; border-radius: 14px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin: 0 auto 16px; font-size: 24px; }
+  .drop h2 { font: 600 17px/24px Inter; }
+  .onb-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+  .privacy { display: flex; gap: 10px; margin-top: 20px; padding: 14px 16px; border-radius: var(--r-ctl); background: rgba(0,0,0,.035); font-size: 13px; color: var(--text-2); }
+
+  .view { display: none; } .view.on { display: block; }
+  .mock-note { position: fixed; bottom: 16px; right: 16px; background: var(--text); color: #fff; font-size: 12px; padding: 8px 12px; border-radius: 8px; opacity: .85; z-index: 20; }
+  .mock-note button { background: none; border: none; color: #9cc4f0; text-decoration: underline; font-size: 12px; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .rail { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); }
+  }
+  @media (max-width: 600px) {
+    .nav .tabs { display: none; }
+    .page { padding: 16px 16px 96px; }
+    .filters { flex-direction: column; align-items: stretch; }
+    .seg { overflow-x: auto; }
+    .search { min-width: 0; flex: 1; }
+    .match { grid-template-columns: 40px minmax(0,1fr); }
+    .score { grid-row: auto; grid-column: 2; justify-self: start; display: flex; align-items: baseline; gap: 6px; padding: 4px 10px; min-width: 0; }
+    .score b { display: inline; font-size: 16px; }
+    .why, .chips, .actions { grid-column: 1 / 3; }
+    .actions .btn { flex: 1; justify-content: center; }
+    .kv { grid-template-columns: 1fr; }
+    .bottom-tabs { display: flex; }
+    .mock-note { bottom: 76px; }
+  }
+  .bottom-tabs { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 64px; background: rgba(255,255,255,.95); backdrop-filter: blur(16px); border-top: 1px solid var(--border); z-index: 10; }
+  .bottom-tabs button { flex: 1; border: none; background: none; font-size: 12px; font-weight: 600; color: var(--text-3); }
+  .bottom-tabs button[aria-selected="true"] { color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Primary">
+  <div class="nav-in">
+    <div class="logo"><span class="logo-mark" aria-hidden="true">J</span>JobMatcher</div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-view="matches">Matches</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="profile">Profile</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="settings">Settings</button>
+    </div>
+    <button class="avatar" aria-label="Account menu for Rishabh Raj">RR</button>
+  </div>
+</nav>
+
+<!-- ===================== MATCHES (home) ===================== -->
+<main class="page view on" id="matches">
+  <div class="grid">
+    <div>
+      <section class="card summary" aria-labelledby="hello">
+        <h1 id="hello">Good evening, Rishabh</h1>
+        <p class="big"><b>18 new matches</b> since your 9:00 AM digest</p>
+        <div class="status">
+          <span><i class="dot" aria-hidden="true"></i>Last scan 42 min ago</span>
+          <span>5 of 5 sources healthy</span>
+          <span>Next digest tonight at 9:00 PM</span>
+        </div>
+        <!-- scan-in-progress state (shown only while scoring runs) -->
+        <div class="scanbar" role="progressbar" aria-label="Scanning for new jobs" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+        <p class="muted" style="margin-top:8px" aria-live="polite">Scoring 88 of 142 new postings…</p>
+      </section>
+
+      <div class="filters">
+        <div class="seg" role="group" aria-label="Show">
+          <button aria-pressed="true">New<span class="n">18</span></button>
+          <button aria-pressed="false">Saved<span class="n">4</span></button>
+          <button aria-pressed="false">Applied<span class="n">2</span></button>
+          <button aria-pressed="false">All</button>
+        </div>
+        <div class="controls">
+          <label class="sr" for="q">Filter by title or company</label>
+          <input id="q" class="ctl search" type="search" placeholder="Filter by title or company">
+          <label class="sr" for="sort">Sort</label>
+          <select id="sort" class="ctl"><option>Best fit</option><option>Newest</option></select>
+        </div>
+      </div>
+
+      <div class="feed">
+        <article class="card match">
+          <div class="co" style="background:#c2410c" aria-hidden="true">M</div>
+          <div>
+            <h2 class="title"><i class="new" aria-label="New"></i>Product Manager, Growth</h2>
+            <p class="meta">Meesho · Bengaluru · via LinkedIn · 3h ago</p>
+          </div>
+          <div class="score s-good"><b>92</b><small>Strong</small></div>
+          <p class="why"><strong>Why it fits:</strong> 2 years of consumer PM work at a quick-commerce company maps directly to their growth-loop charter; likely a ~25% comp step up.</p>
+          <div class="chips"><span class="chip pill-up">Upgrade</span><span class="chip">growth</span><span class="chip">consumer</span><span class="chip">experimentation</span></div>
+          <div class="actions">
+            <button class="btn btn-text">Not relevant</button>
+            <button class="btn btn-ghost">Save</button>
+            <a class="btn btn-primary" href="#">Apply ↗</a>
+          </div>
+        </article>
+
+        <article class="card match">
+          <div class="co" style="background:#4338ca" aria-hidden="true">R</div>
+          <div>
+            <h2 class="title"><i class="new" aria-label="New"></i>Associate Product Manager II</h2>
+            <p class="meta">Razorpay · Bengaluru (Hybrid) · via Greenhouse · 6h ago</p>
+          </div>
+          <div class="score s-good"><b>86</b><small>Strong</small></div>
+          <p class="why"><strong>Why it fits:</strong> Payments checkout ownership matches your pricing-experiment work; same level, larger scope.</p>
+          <div class="chips"><span class="chip pill-lat">Lateral</span><span class="chip">payments</span><span class="chip">checkout</span></div>
+          <div class="actions">
+            <button class="btn btn-text">Not relevant</button>
+            <button class="btn btn-ghost">Save</button>
+            <a class="btn btn-primary" href="#">Apply ↗</a>
+          </div>
+        </article>
+
+        <article class="card match">
+          <div class="co" style="background:#047857" aria-hidden="true">S</div>
+          <div>
+            <h2 class="title">Product Manager, Mutual Funds</h2>
+            <p class="meta">smallcase · Bengaluru · via Naukri · 1d ago</p>
+          </div>
+          <div class="score s-mid"><b>71</b><small>Good</small></div>
+          <p class="why"><strong>Why it fits:</strong> Strong fintech overlap, but the posting asks for 3+ years of investing-product experience.</p>
+          <div class="chips"><span class="chip pill-up">Upgrade</span><span class="chip">fintech</span><span class="chip">investing</span></div>
+          <div class="actions">
+            <button class="btn btn-text">Not relevant</button>
+            <button class="btn btn-ghost">Save</button>
+            <a class="btn btn-primary" href="#">Apply ↗</a>
+          </div>
+        </article>
+
+        <button class="btn btn-ghost more">Load more matches</button>
+      </div>
+    </div>
+
+    <aside class="rail" aria-label="Your search and digest">
+      <section class="card">
+        <p class="eyebrow">Your search</p>
+        <h3>Product Manager</h3>
+        <div class="tags"><span class="chip">Bengaluru</span><span class="chip">Remote</span><span class="chip">~2 yrs exp</span></div>
+        <button class="link" data-go="profile">Edit search →</button>
+      </section>
+      <section class="card">
+        <div class="row" style="padding-top:0"><p class="eyebrow" style="margin:0">Daily digest</p><button class="switch" role="switch" aria-checked="true" aria-label="Daily digest"></button></div>
+        <div class="row"><span>Morning</span><span class="muted">9:00 AM</span></div>
+        <div class="row"><span>Evening</span><span class="muted">9:00 PM</span></div>
+        <p class="muted" style="margin-top:8px">Next email tonight with up to 15 unseen matches.</p>
+      </section>
+      <section class="card">
+        <p class="eyebrow">Sources</p>
+        <div class="row"><span><i class="dot" aria-hidden="true"></i> LinkedIn</span><span class="muted">100 jobs</span></div>
+        <div class="row"><span><i class="dot warn" aria-hidden="true"></i> Naukri</span><span class="muted">15 · slow</span></div>
+        <div class="row"><span><i class="dot" aria-hidden="true"></i> Greenhouse</span><span class="muted">1.7k jobs</span></div>
+        <div class="row"><span><i class="dot" aria-hidden="true"></i> Ashby</span><span class="muted">1.1k jobs</span></div>
+        <div class="row"><span><i class="dot" aria-hidden="true"></i> Lever</span><span class="muted">310 jobs</span></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<!-- ===================== PROFILE ===================== -->
+<main class="page view" id="profile">
+  <div class="stack">
+    <section class="card section">
+      <h2>Your CV</h2>
+      <p class="muted">We read your CV to score jobs. Only the summary below is shown here; your contact details stay private.</p>
+      <div class="cv">
+        <div class="file" aria-hidden="true">PDF</div>
+        <div style="flex:1;min-width:0">
+          <p style="font-weight:600">Rishabh_Raj_CV.pdf</p>
+          <p class="muted">Uploaded Oct 10 · Associate Product Manager at Zepto · ~2 years</p>
+        </div>
+        <button class="btn btn-ghost">Replace CV</button>
+      </div>
+      <button class="link" style="margin-top:12px">View extracted text</button>
+    </section>
+
+    <section class="card section">
+      <h2>What you're looking for</h2>
+      <p class="muted">"Looking for" tags decide which jobs we search. "From your CV" tags decide how we score them.</p>
+      <div class="field"><label for="role">Target role</label><input id="role" class="input" value="Product Manager"></div>
+      <p class="group-label">Looking for</p>
+      <div class="tags">
+        <span class="chip-edit">product management <button aria-label="Remove product management">×</button></span>
+        <span class="chip-edit">consumer <button aria-label="Remove consumer">×</button></span>
+        <span class="chip-edit">fintech <button aria-label="Remove fintech">×</button></span>
+        <button class="chip-add">+ Add</button>
+      </div>
+      <p class="group-label">From your CV</p>
+      <div class="tags">
+        <span class="chip chip-cv">quick commerce</span><span class="chip chip-cv">pricing</span><span class="chip chip-cv">experimentation</span><span class="chip chip-cv">SQL</span><span class="chip chip-cv">growth</span>
+      </div>
+    </section>
+
+    <section class="card section">
+      <h2>Experience and pay</h2>
+      <p class="muted">Pay is only used to label jobs as Upgrade, Lateral or Downgrade. It's never shared.</p>
+      <div class="kv">
+        <div><label for="t">Current title</label><input id="t" class="input" value="Associate Product Manager"></div>
+        <div><label for="e">Current company</label><input id="e" class="input" value="Zepto"></div>
+        <div><label for="d">Career start date</label><input id="d" class="input" value="Jul 2024"><p class="muted" style="margin-top:6px">Used to estimate your years of experience.</p></div>
+        <div><label for="c">Total pay (LPA, fixed + ESOP)</label><input id="c" class="input" placeholder="e.g. 18 + 3"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:20px"><button class="btn btn-primary">Save changes</button></div>
+    </section>
+  </div>
+</main>
+
+<!-- ===================== SETTINGS ===================== -->
+<main class="page view" id="settings">
+  <div class="stack">
+    <section class="card section">
+      <h2>Email digest</h2>
+      <p class="muted">At most two emails a day, only with jobs you haven't seen.</p>
+      <div class="row"><span>Send me a digest</span><button class="switch" role="switch" aria-checked="true" aria-label="Send me a digest"></button></div>
+      <div class="row"><span>Morning</span><select class="ctl" aria-label="Morning time"><option>9:00 AM</option></select></div>
+      <div class="row"><span>Evening</span><select class="ctl" aria-label="Evening time"><option>9:00 PM</option></select></div>
+      <div class="row"><span class="muted">Timezone: Asia/Kolkata</span><button class="link">Send a test digest</button></div>
+    </section>
+    <section class="card section">
+      <h2>Where to look</h2>
+      <p class="muted">Locations and job boards we search on your behalf.</p>
+      <div class="tags"><span class="chip-edit">Bengaluru <button aria-label="Remove Bengaluru">×</button></span><span class="chip-edit">Remote <button aria-label="Remove Remote">×</button></span><button class="chip-add">+ Add location</button></div>
+      <div class="row"><span>LinkedIn</span><button class="switch" role="switch" aria-checked="true" aria-label="LinkedIn"></button></div>
+      <div class="row"><span>Naukri</span><button class="switch" role="switch" aria-checked="true" aria-label="Naukri"></button></div>
+      <div class="row"><span>Company career boards (Greenhouse, Lever, Ashby)</span><button class="link">Edit companies</button></div>
+    </section>
+    <section class="card section">
+      <h2>Account</h2>
+      <div class="row"><span>Signed in as ris•••@gmail.com</span><button class="btn btn-ghost">Sign out</button></div>
+      <div class="row"><span>Delete my CV, matches and account</span><button class="btn btn-text" style="color:var(--danger)">Delete data…</button></div>
+    </section>
+  </div>
+</main>
+
+<!-- ===================== ONBOARDING (first run only) ===================== -->
+<main class="page view" id="onboarding">
+  <div class="onb">
+    <p class="step">Step 1 of 3</p>
+    <h1>Let's find jobs that fit you</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">Upload your CV and we'll read your experience, then check job boards twice a day for roles that match.</p>
+    <div class="progress" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+    <div class="drop">
+      <div class="ico" aria-hidden="true">↑</div>
+      <h2>Drop your CV here</h2>
+      <p class="muted" style="margin:4px 0 16px">PDF, DOCX or TXT, up to 5 MB</p>
+      <button class="btn btn-primary">Choose a file</button>
+      <p style="margin-top:14px"><button class="link">Paste text instead</button></p>
+    </div>
+    <p class="privacy"><span aria-hidden="true">🔒</span>Your CV is only used to score jobs for you. Contact details are never shown or shared.</p>
+    <div class="onb-foot"><span class="muted">Next: check what we found</span><button class="btn btn-primary" disabled style="opacity:.5">Continue</button></div>
+  </div>
+</main>
+
+<nav class="bottom-tabs" aria-label="Primary (mobile)" role="tablist">
+  <button role="tab" aria-selected="true" data-view="matches">Matches</button>
+  <button role="tab" aria-selected="false" data-view="profile">Profile</button>
+  <button role="tab" aria-selected="false" data-view="settings">Settings</button>
+</nav>
+
+<div class="mock-note">Mockup · <button data-view="onboarding">Preview first-run onboarding</button></div>
+
+<script>
+  // Mockup-only view switching (not production code).
+  const show = (id) => {
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === id));
+    document.querySelectorAll("[role=tab]").forEach(t => t.setAttribute("aria-selected", String(t.dataset.view === id)));
+    window.scrollTo(0, 0);
+  };
+  document.querySelectorAll("[data-view],[data-go]").forEach(b => b.addEventListener("click", () => show(b.dataset.view || b.dataset.go)));
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+</script>
+</body>
+</html>
