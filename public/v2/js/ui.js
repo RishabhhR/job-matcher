@@ -10,9 +10,23 @@ export function escapeHTML(value) {
     .replace(/'/g, "&#039;");
 }
 
-/** Tagged template that escapes every interpolated value: html`<p>${title}</p>`. */
+/** Markup produced by html``. Extends String so it works anywhere a string does (innerHTML, +, `${}`). */
+class SafeHTML extends String {}
+
+function interpolate(value) {
+  if (value instanceof SafeHTML) return String(value);
+  if (Array.isArray(value)) return value.map(interpolate).join("");
+  return escapeHTML(value);
+}
+
+/**
+ * Tagged template that escapes every interpolated value: html`<p>${title}</p>`.
+ * Nested html`` results and arrays of them are inserted as markup, so compose with
+ *   html`<ul>${items.map((x) => html`<li>${x}</li>`)}</ul>`   (pass the array - don't .join() it,
+ * a joined plain string is treated as text and escaped).
+ */
 export function html(strings, ...values) {
-  return strings.reduce((out, str, i) => out + str + (i < values.length ? escapeHTML(values[i]) : ""), "");
+  return new SafeHTML(strings.reduce((out, str, i) => out + str + (i < values.length ? interpolate(values[i]) : ""), ""));
 }
 
 export function initials(name) {

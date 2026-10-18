@@ -70,6 +70,7 @@ a { color: var(--accent); }
 .btn-danger { background: none; color: var(--danger); border-color: var(--danger-soft); }
 .btn-block { width: 100%; }
 .link-btn {
+  display: inline-flex; align-items: center; gap: var(--s1);
   background: none; border: none; color: var(--accent); font-weight: 600; font-size: 14px;
   min-height: var(--target); padding: 0 var(--s1); text-decoration: none;
 }
