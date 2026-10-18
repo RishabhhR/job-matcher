@@ -1,1 +1,183 @@
-/* onboarding view styles - owned by TASK-057 (antigravity). Use tokens from tokens.css and components from base.css. */
+/* JobMatcher v2 Onboarding styles (TASK-057) */
+.onb-wrap {
+  max-width: 560px;
+  margin: 32px auto;
+  padding: 0 var(--s4);
+}
+
+.onb-step-tag {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.onb-header h1 {
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 6px 0 8px;
+  color: var(--text);
+}
+
+.onb-header p {
+  font-size: 15px;
+  line-height: 23px;
+  color: var(--text-2);
+}
+
+.onb-progress {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0 28px;
+}
+
+.onb-progress-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--border-2);
+  transition: background-color 0.2s ease;
+}
+
+.onb-progress-bar.is-active {
+  background: var(--accent);
+}
+
+/* Step 1: Drop zone */
+.onb-dropzone {
+  border: 2px dashed var(--border-2);
+  border-radius: var(--r-card);
+  padding: 44px 24px;
+  text-align: center;
+  background: var(--surface);
+  transition: border-color 0.15s, background-color 0.15s;
+  cursor: pointer;
+}
+
+.onb-dropzone:hover,
+.onb-dropzone.is-dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.onb-drop-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.onb-dropzone h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.onb-paste-box {
+  margin-top: 16px;
+  text-align: left;
+}
+
+.onb-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 12px 16px;
+  border-radius: var(--r-ctl);
+  background: rgba(0, 0, 0, 0.035);
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 18px;
+}
+
+/* Step 2 & 3 Form controls */
+.onb-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.onb-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.onb-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.onb-add-tag-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.onb-add-tag-input {
+  width: 140px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+
+.onb-details {
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  padding: 14px 16px;
+  background: var(--surface-2);
+  margin-top: 8px;
+}
+
+.onb-details summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.onb-details[open] summary {
+  margin-bottom: 14px;
+}
+
+.onb-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 28px;
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .onb-wrap {
+    margin: 16px auto;
+  }
+  .onb-grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .onb-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .onb-footer .btn {
+    width: 100%;
+  }
+}

@@ -1,1 +1,172 @@
-/* profile view styles - owned by TASK-057 (antigravity). Use tokens from tokens.css and components from base.css. */
+/* JobMatcher v2 Profile styles (TASK-057) */
+.profile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.profile-section {
+  padding: 24px;
+}
+
+.profile-section h2 {
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.profile-section > .muted {
+  margin-bottom: 16px;
+}
+
+/* CV card */
+.profile-cv-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  margin-top: 12px;
+}
+
+.profile-file-badge {
+  width: 44px;
+  height: 52px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+}
+
+.profile-cv-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-cv-filename {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.profile-cv-summary {
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: var(--fs-meta);
+}
+
+.profile-disclosure {
+  margin-top: 14px;
+}
+
+.profile-disclosure summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.profile-disclosure summary:hover {
+  text-decoration: underline;
+}
+
+.profile-raw-text {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--text-2);
+}
+
+/* Tags section */
+.profile-tag-group {
+  margin-top: 14px;
+}
+
+.profile-tag-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.profile-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-chip-cv {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-2);
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+}
+
+.profile-add-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.profile-add-input {
+  width: 140px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+}
+
+/* Experience & pay grid */
+.profile-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 20px;
+  margin-top: 16px;
+}
+
+.profile-save-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 600px) {
+  .profile-section {
+    padding: 18px 16px;
+  }
+  .profile-cv-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .profile-kv-grid {
+    grid-template-columns: 1fr;
+  }
+}
