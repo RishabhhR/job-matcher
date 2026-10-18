@@ -25,13 +25,42 @@ import {
   getUserProfileRow,
   getUserStats,
   getUserCompanies,
-  upsertUserCompanies
+  upsertUserCompanies,
+  setMatchUserAction,
+  getUserStatus,
+  type MatchFeedOptions,
+  type MatchUserAction,
 } from "./db.js";
 import { fetchAshby, fetchGreenhouse, fetchLever } from "./scrapers.js";
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { fetchNaukri } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
-import { keywordPrefilter, scoreAll } from "./match.js";
+import { keywordPrefilter, scoreAll, type ScoredMatch } from "./match.js";
+import { nextDigestAt } from "./digestSchedule.js";
+
+// scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
+// so results must be matched back to their postings by object identity - never by
+// array index (index matching wrote one job's score onto another, and crashed on
+// undefined when a batch failed). A missing entry means "leave it pending".
+function scoresByPosting(results: ScoredMatch[]): Map<unknown, ScoredMatch> {
+  return new Map(results.map((r) => [r.posting, r]));
+}
+
+const FEED_FILTERS = new Set(["new", "saved", "applied", "dismissed", "all"]);
+const FEED_SORTS = new Set(["best", "newest"]);
+const MATCH_ACTIONS = new Set(["saved", "applied", "dismissed"]);
+
+// Parses the optional v2 feed query fields, whitelisting every value.
+function parseFeedOptions(body: any): MatchFeedOptions {
+  const opts: MatchFeedOptions = {};
+  if (FEED_FILTERS.has(body?.filter)) opts.filter = body.filter;
+  if (FEED_SORTS.has(body?.sort)) opts.sort = body.sort;
+  const minScore = Number(body?.minScore);
+  if (body?.minScore !== undefined && Number.isFinite(minScore)) opts.minScore = Math.max(0, Math.min(100, minScore));
+  if (typeof body?.source === "string" && /^[a-z]{2,20}$/.test(body.source)) opts.source = body.source;
+  return opts;
+}
+
 import { attachVerifiedClerkUser } from "./clerkAuth.js";
 import { parseCompanySources } from "./inputValidation.js";
 
@@ -136,6 +165,63 @@ app.get("/api/user/stats", async (req, res) => {
   } catch (error) {
     console.error("Error in /api/user/stats:", error);
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Save / Applied / Not relevant on a match card. Idempotent: repeating the same
+// action is a no-op success. `action: null` clears it (the "Undo" in DEC-007).
+// Ownership is enforced twice: the session must own userId, and the UPDATE is
+// scoped to that user_id so another user's match id changes nothing (-> 404).
+app.post("/api/matches/:matchId/action", async (req, res) => {
+  const { userId, action } = req.body ?? {};
+  const { matchId } = req.params;
+  if (!userId || !matchId) {
+    res.status(400).json({ error: "Missing userId or matchId" });
+    return;
+  }
+  if (action !== null && !MATCH_ACTIONS.has(action)) {
+    res.status(400).json({ error: "action must be one of saved, applied, dismissed, or null" });
+    return;
+  }
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+  try {
+    const changed = await setMatchUserAction(userId, matchId, action as MatchUserAction | null);
+    if (!changed) {
+      res.status(404).json({ error: "Match not found" });
+      return;
+    }
+    res.json({ success: true, matchId, userAction: action });
+  } catch (error) {
+    console.error("Error in /api/matches/:matchId/action:", error);
+    res.status(500).json({ error: "Could not update the match." });
+  }
+});
+
+// Data for the Matches header and rail: last scan, per-source health with a
+// readable reason, last digest and the next scheduled one. Deliberately no progress
+// percentage - the backend has no live progress to report (DEC-007).
+app.get("/api/status", async (req, res) => {
+  const userId = req.query.userId as string;
+  if (!userId) {
+    res.status(400).json({ error: "Missing userId query parameter" });
+    return;
+  }
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+  try {
+    const status = await getUserStatus(userId);
+    res.json({
+      ...status,
+      nextDigestAt: status.digestEnabled && status.digestHour !== null ? nextDigestAt(status.digestHour, status.timezone) : null,
+    });
+  } catch (error) {
+    console.error("Error in /api/status:", error);
+    res.status(500).json({ error: "Could not load status." });
   }
 });
 
@@ -566,10 +652,12 @@ app.post("/api/match", async (req, res) => {
 
       sendEvent("progress", { status: "scoring", message: `Scoring ${pendingPage1.length} new jobs on Page 1 against CV via AI fallback chain...` });
       const { results: scoredResults } = await scoreAll(cvText, profile, postingsToFetch, postingsToFetch.length);
+      const scoredByPosting = scoresByPosting(scoredResults);
 
       for (let i = 0; i < pendingPage1.length; i++) {
         const job = pendingPage1[i];
-        const scored = scoredResults[i];
+        const scored = scoredByPosting.get(postingsToFetch[i]);
+        if (!scored) continue; // batch failed: stays pending, rescored on next load
         const description = postingsToFetch[i].descriptionText;
         await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
       }
@@ -610,6 +698,8 @@ app.post("/api/match", async (req, res) => {
 // Fetch and score a specific page of matches (dynamic/lazy descriptions & scores)
 app.post("/api/match/page", async (req, res) => {
   const { userId, page, limit = 10 } = req.body;
+  // Optional v2 feed fields (filter/sort/minScore/source); omitted = legacy behaviour.
+  const feedOptions = parseFeedOptions(req.body);
 
   if (!userId || !page) {
     res.status(400).json({ error: "Missing required fields (userId or page)" });
@@ -637,7 +727,7 @@ app.post("/api/match/page", async (req, res) => {
     }
 
     const offset = (page - 1) * limit;
-    const pageJobs = await getPaginatedMatchesForUser(userId, offset, limit);
+    const pageJobs = await getPaginatedMatchesForUser(userId, offset, limit, feedOptions);
     const pendingJobs = pageJobs.filter((j: any) => j.status === "pending");
 
     if (pendingJobs.length > 0) {
@@ -661,17 +751,20 @@ app.post("/api/match/page", async (req, res) => {
         await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, 10);
       }
       const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
+      const scoredByPosting = scoresByPosting(scoredResults);
 
       for (let i = 0; i < pendingJobs.length; i++) {
         const job = pendingJobs[i];
-        const scored = scoredResults[i];
+        const scored = scoredByPosting.get(postingsToFetch[i]);
+        if (!scored) continue; // batch failed: stays pending, rescored on next load
         const description = postingsToFetch[i].descriptionText;
         await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
       }
     }
 
     // Re-query fully updated page scored matches
-    const finalPageJobs = await getPaginatedMatchesForUser(userId, offset, limit);
+    const finalPageJobs = await getPaginatedMatchesForUser(userId, offset, limit, feedOptions);
+    const total = await getTotalMatchCountForUser(userId, feedOptions);
     const results = finalPageJobs.map((j: any) => ({
       posting: {
         id: j.posting_id,
@@ -686,12 +779,16 @@ app.post("/api/match/page", async (req, res) => {
         sourceMetadata: j.sourceMetadata,
         applyUrl: j.applyUrl,
       },
+      matchId: j.matchId,
+      status: j.status,
+      userAction: j.userAction ?? null,
+      emailedAt: j.emailedAt ?? null,
       fitScore: j.fitScore,
       compFitLabel: j.compFitLabel,
       reasoningText: j.reasoningText,
     }));
 
-    res.json({ success: true, results });
+    res.json({ success: true, results, total, page, limit });
   } catch (error) {
     console.error("Match page error:", error);
     res.status(500).json({ error: (error as Error).message });

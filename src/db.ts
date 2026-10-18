@@ -125,6 +125,9 @@ export async function migrate() {
     // separate column, NOT the `status` field, which has its own pending/scored
     // lifecycle that getUserStats and the scoring pipeline depend on.
     "ALTER TABLE jm_user_job_matches ADD COLUMN emailed_at TEXT",
+    // The user's own action on a match from the UI: 'saved' | 'applied' | 'dismissed'.
+    // Separate from `status` for the same reason as emailed_at above.
+    "ALTER TABLE jm_user_job_matches ADD COLUMN user_action TEXT",
   ];
   for (const sql of addColumns) {
     try {
@@ -585,16 +588,68 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
   }
 }
 
-export async function getPaginatedMatchesForUser(userId: string, offset: number, limit: number) {
+export type MatchFeedFilter = "new" | "saved" | "applied" | "dismissed" | "all";
+export type MatchFeedSort = "best" | "newest";
+export interface MatchFeedOptions {
+  /** Omitted = legacy behaviour (every match, newest first), used by the pre-v2 UI. */
+  filter?: MatchFeedFilter;
+  minScore?: number;
+  source?: string;
+  sort?: MatchFeedSort;
+}
+export type MatchUserAction = "saved" | "applied" | "dismissed";
+
+// Builds the WHERE clause shared by the feed query and its count, so pagination
+// totals always agree with the rows shown. Values are bound, never interpolated.
+function matchFeedWhere(userId: string, opts: MatchFeedOptions = {}): { where: string; args: (string | number)[] } {
+  const clauses = ["m.user_id = ?"];
+  const args: (string | number)[] = [userId];
+  // v2 feed tabs (any explicit filter) show scored matches only; unscored 'pending'
+  // rows (fit_score -1) belong to the legacy lazy-scoring path. Tab semantics follow
+  // the DEC-007 review: New = no user action yet (independent of whether it was
+  // emailed); "new since last digest" is a separate header count in getUserStats.
+  if (opts.filter) clauses.push("m.status IN ('new', 'scored')");
+  switch (opts.filter) {
+    case "new":
+      clauses.push("m.user_action IS NULL");
+      break;
+    case "saved":
+    case "applied":
+    case "dismissed":
+      clauses.push("m.user_action = ?");
+      args.push(opts.filter);
+      break;
+    case "all":
+      clauses.push("(m.user_action IS NULL OR m.user_action != 'dismissed')");
+      break;
+  }
+  if (typeof opts.minScore === "number" && Number.isFinite(opts.minScore)) {
+    clauses.push("m.fit_score >= ?");
+    args.push(opts.minScore);
+  }
+  if (opts.source) {
+    clauses.push("jp.source = ?");
+    args.push(opts.source);
+  }
+  return { where: clauses.join(" AND "), args };
+}
+
+export async function getPaginatedMatchesForUser(userId: string, offset: number, limit: number, opts: MatchFeedOptions = {}) {
+  const { where, args } = matchFeedWhere(userId, opts);
+  // Pending (unscored, fit_score -1) rows sort last under "best" naturally.
+  const orderBy = opts.sort === "best"
+    ? "m.fit_score DESC, COALESCE(jp.posted_at, jp.scraped_at) DESC, jp.id ASC"
+    : "COALESCE(jp.posted_at, jp.scraped_at) DESC, jp.id ASC";
   const result = await client.execute({
     sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company, jp.title, jp.location, jp.description_text as descriptionText, jp.source_metadata as sourceMetadata, jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
-                 m.status, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText
+                 m.id as matchId, m.status, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText,
+                 m.user_action as userAction, m.emailed_at as emailedAt
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
-          WHERE m.user_id = ?
-          ORDER BY COALESCE(jp.posted_at, jp.scraped_at) DESC, jp.id ASC
+          WHERE ${where}
+          ORDER BY ${orderBy}
           LIMIT ? OFFSET ?`,
-    args: [userId, limit, offset],
+    args: [...args, limit, offset],
   });
   return result.rows.map((row: any) => ({
     ...row,
@@ -602,12 +657,27 @@ export async function getPaginatedMatchesForUser(userId: string, offset: number,
   }));
 }
 
-export async function getTotalMatchCountForUser(userId: string): Promise<number> {
+export async function getTotalMatchCountForUser(userId: string, opts: MatchFeedOptions = {}): Promise<number> {
+  const { where, args } = matchFeedWhere(userId, opts);
   const result = await client.execute({
-    sql: "SELECT COUNT(*) as count FROM jm_user_job_matches WHERE user_id = ?",
-    args: [userId],
+    sql: `SELECT COUNT(*) as count
+          FROM jm_user_job_matches m
+          JOIN jm_job_postings jp ON jp.id = m.job_posting_id
+          WHERE ${where}`,
+    args,
   });
-  return (result.rows[0]?.count as number) || 0;
+  return Number(result.rows[0]?.count || 0);
+}
+
+// Records the user's action on one of THEIR matches. The user_id predicate is the
+// ownership check: a match id belonging to someone else updates zero rows.
+// Pass null to clear (e.g. undo "Not relevant"). Returns whether a row changed.
+export async function setMatchUserAction(userId: string, matchId: string, action: MatchUserAction | null): Promise<boolean> {
+  const result = await client.execute({
+    sql: "UPDATE jm_user_job_matches SET user_action = ? WHERE id = ? AND user_id = ?",
+    args: [action, matchId, userId],
+  });
+  return result.rowsAffected > 0;
 }
 
 export async function updateMatchScore(
@@ -638,8 +708,19 @@ export interface UserStats {
   mediumMatchCount: number;
   lowMatchCount: number;
   companyDistribution: { company: string; count: number }[];
+  /** Header count: scored after the last sent digest (all scored, if no digest sent yet). */
+  newSinceLastDigest: number;
+  /** Tab counts - each uses exactly the same predicate as its feed filter. */
+  newCount: number;
+  savedCount: number;
+  appliedCount: number;
+  dismissedCount: number;
+  allCount: number;
 }
 
+// "Scored" means status 'new' (scored by the hourly cron via upsertUserMatch) or
+// 'scored' (scored lazily by the UI page route). Counting only 'scored' is what made
+// the old UI show "0 matches" for accounts with hundreds of cron-scored matches (TASK-053).
 export async function getUserStats(userId: string): Promise<UserStats> {
   const totalRes = await client.execute({
     sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ?",
@@ -648,26 +729,26 @@ export async function getUserStats(userId: string): Promise<UserStats> {
   const totalScraped = Number(totalRes.rows[0]?.cnt || 0);
 
   const scoredRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt, AVG(fit_score) as avg_score FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored'",
+    sql: "SELECT COUNT(*) as cnt, AVG(fit_score) as avg_score FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')",
     args: [userId],
   });
   const totalScored = Number(scoredRes.rows[0]?.cnt || 0);
   const averageFitScore = Math.round(Number(scoredRes.rows[0]?.avg_score || 0));
 
   const highRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score >= 80",
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 80",
     args: [userId],
   });
   const highMatchCount = Number(highRes.rows[0]?.cnt || 0);
 
   const mediumRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score >= 60 AND fit_score < 80",
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score >= 60 AND fit_score < 80",
     args: [userId],
   });
   const mediumMatchCount = Number(mediumRes.rows[0]?.cnt || 0);
 
   const lowRes = await client.execute({
-    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status = 'scored' AND fit_score < 60",
+    sql: "SELECT COUNT(*) as cnt FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored') AND fit_score < 60",
     args: [userId],
   });
   const lowMatchCount = Number(lowRes.rows[0]?.cnt || 0);
@@ -690,6 +771,22 @@ export async function getUserStats(userId: string): Promise<UserStats> {
     count: Number(row.cnt || 0),
   }));
 
+  // Mirrors matchFeedWhere's v2 predicates so tab counts equal the rows each tab shows.
+  const actionRes = await client.execute({
+    sql: `SELECT
+            SUM(CASE WHEN user_action IS NULL THEN 1 ELSE 0 END) AS new_cnt,
+            SUM(CASE WHEN user_action = 'saved' THEN 1 ELSE 0 END) AS saved_cnt,
+            SUM(CASE WHEN user_action = 'applied' THEN 1 ELSE 0 END) AS applied_cnt,
+            SUM(CASE WHEN user_action = 'dismissed' THEN 1 ELSE 0 END) AS dismissed_cnt,
+            SUM(CASE WHEN user_action IS NULL OR user_action != 'dismissed' THEN 1 ELSE 0 END) AS all_cnt,
+            SUM(CASE WHEN matched_at > COALESCE(
+                  (SELECT MAX(sent_at) FROM jm_email_send_log l WHERE l.user_id = ? AND l.status = 'sent'),
+                  '0000') THEN 1 ELSE 0 END) AS since_digest_cnt
+          FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')`,
+    args: [userId, userId],
+  });
+  const actionRow: any = actionRes.rows[0] ?? {};
+
   return {
     totalScraped,
     totalScored,
@@ -698,5 +795,59 @@ export async function getUserStats(userId: string): Promise<UserStats> {
     mediumMatchCount,
     lowMatchCount,
     companyDistribution,
+    newSinceLastDigest: Number(actionRow.since_digest_cnt || 0),
+    newCount: Number(actionRow.new_cnt || 0),
+    savedCount: Number(actionRow.saved_cnt || 0),
+    appliedCount: Number(actionRow.applied_cnt || 0),
+    dismissedCount: Number(actionRow.dismissed_cnt || 0),
+    allCount: Number(actionRow.all_cnt || 0),
+  };
+}
+
+export const KNOWN_SOURCES = ["linkedin", "naukri", "greenhouse", "lever", "ashby"] as const;
+
+export interface UserStatus {
+  /** Most recent time any posting was scraped or re-seen (shared across users). */
+  lastScanAt: string | null;
+  /** Most recent time a match was scored for this user. */
+  lastScoredAt: string | null;
+  lastDigestSentAt: string | null;
+  digestEnabled: boolean;
+  digestHour: number | null;
+  timezone: string;
+  /** Postings seen per source in the last 24h, with a readable status (DEC-007: never color alone). */
+  sources: { source: string; count24h: number; healthy: boolean; statusText: string }[];
+}
+
+// Derived from real data rather than the in-memory scrape_health log, so it works
+// for every pipeline (hourly cron and UI) without touching the runner.
+export async function getUserStatus(userId: string): Promise<UserStatus> {
+  const [scan, scored, digest, user, sources] = await Promise.all([
+    client.execute("SELECT MAX(scraped_at) AS t FROM jm_job_postings"),
+    client.execute({ sql: "SELECT MAX(matched_at) AS t FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')", args: [userId] }),
+    client.execute({ sql: "SELECT MAX(sent_at) AS t FROM jm_email_send_log WHERE user_id = ? AND status = 'sent'", args: [userId] }),
+    client.execute({ sql: "SELECT digest_enabled, digest_hour, timezone FROM jm_users WHERE id = ?", args: [userId] }),
+    client.execute("SELECT source, COUNT(*) AS n FROM jm_job_postings WHERE scraped_at >= datetime('now', '-1 day') GROUP BY source"),
+  ]);
+  const counts = new Map<string, number>(sources.rows.map((r: any) => [String(r.source), Number(r.n)]));
+  const u: any = user.rows[0] ?? {};
+  return {
+    lastScanAt: (scan.rows[0]?.t as string) ?? null,
+    lastScoredAt: (scored.rows[0]?.t as string) ?? null,
+    lastDigestSentAt: (digest.rows[0]?.t as string) ?? null,
+    digestEnabled: u.digest_enabled === 1,
+    digestHour: u.digest_hour ?? null,
+    timezone: (u.timezone as string) || "Asia/Kolkata",
+    sources: KNOWN_SOURCES.map((s) => {
+      const count24h = counts.get(s) ?? 0;
+      return {
+        source: s,
+        count24h,
+        healthy: count24h > 0,
+        statusText: count24h > 0
+          ? `${count24h} ${count24h === 1 ? "job" : "jobs"} in the last 24 hours`
+          : "No jobs in the last 24 hours. This source may be blocked or temporarily down.",
+      };
+    }),
   };
 }
