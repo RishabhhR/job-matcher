@@ -32,6 +32,8 @@ DEFECT (claude re-verification of TASK-061 at dc33aca) - RELEASE BLOCKERS in pub
 4. No 'Remote' in cities: Locations across `settings.js` and `onboarding.js` filter out 'Remote'/'remote' (and block adding it), storing only valid city names comma-joined in `preferredCity` for TASK-065 backend handling.
 5. Verification: Tested with 'UX Designer at Swiggy since 2021' CV text - payload produces `{targetDesignation: 'Product Designer', currentEmployer: 'Swiggy', currentTitle: 'UX Designer', careerStartDate: '2021-01', preferredCity: '', preferredCountry: '', skills: []}` and `linkedin.location: 'worldwide'`. `npm run typecheck` passes cleanly; all 20 unit tests pass.
 
+**Verified by claude (2026-10-19, built-in browser, stubbed API, 2f77337):** PASS. Swiggy UX-designer CV -> step 2 prefilled only from the CV (UX Designer, Swiggy, 2021-01, figma/user research/design systems), no default location, /api/match payload contains nothing invented; PM CV infers PM; CV with no recognisable role -> all fields empty, 'No skills' copy, cannot continue without a target role (error shown, focus to #step2-role). Empty profile -> Profile fields empty. Legacy 'Jul 2024' shown and saved as 2024-07 (save OK). Settings location add/remove with forced 500 -> chip rolled back + error toast; 'Remote' is not stored as a city. Profile/Settings at 375px: no horizontal scroll, no target <44px. Lead fix in this pass: Profile CV card showed invented 'PDF' / 'Uploaded_CV.pdf' / 'Verified profile' -> 'CV on file'. Minor, non-blocking (for TASK-059): onboarding drops the month ('July 2023' -> 2023-01); role error is not tied to the field via aria-invalid/aria-describedby (it is announced and focus moves to the field).
+
 ### [TASK-065] status:done from:claude to:claude opened:2026-10-18T17:54Z
 BACKEND (claude): preferredCity is fed straight into new RegExp() in src/runner.ts:14 and src/server.ts:601 - v2 Settings stores several cities comma-joined ('Bengaluru, Pune'), which as one regex matches NO job location, silently dropping every location-filtered posting; user text in a RegExp is also an injection/ReDoS risk. Fix: shared src/location.ts - split preferredCity on commas, trim, drop empties and 'remote', escape each before building patterns; LinkedIn/Naukri search location uses the first city. Tests in tests/location.test.ts.
 
@@ -79,6 +81,8 @@ DEFECT (claude review of TASK-056, committed 75f6dbc with a lead fix to ui.html 
 
 **Resolved (2026-10-18T17:30Z):** Defects resolved under TASK-061.
 
+**Closed by claude (2026-10-19):** defects fixed via TASK-061 + TASK-064 and verified in the browser - see TASK-064 note.
+
 ### [TASK-057] status:done from:claude to:antigravity opened:2026-10-18T16:53Z closed:2026-10-18T17:30Z
 [BLOCKED on DEC-007 + TASK-054] UI v2 ONBOARDING + PROFILE VIEWS - owner antigravity. Files: public/views/onboarding.js, public/views/profile.js, public/css/profile.css ONLY. Onboarding (README 3.4): first-run only, 3 steps - upload CV (one drop zone, paste-text as secondary link, privacy note) -> check what we found (auto-filled target role, years, title, company, editable skill chips; comp optional, collapsed) -> where and when (location chips, remote toggle, digest times) -> 'Find my matches' lands on Matches in scanning state. Profile (README 3.2): CV card with parsed summary + Replace CV + 'View extracted text' disclosure (raw text with phone/email NEVER shown by default), target role + editable 'Looking for' vs 'From your CV' tags, experience & pay with the 'why we ask' helper copy. Match the mockup; a11y per README 4.5.
 
@@ -90,6 +94,8 @@ DEFECT (claude review of TASK-056, committed 75f6dbc with a lead fix to ui.html 
 **Reopened (2026-10-18, claude review):** browser verification found broken markup, raw CV contact details, no h1, and controls that report success without doing anything. See TASK-061.
 
 **Resolved (2026-10-18T17:30Z):** Defects resolved under TASK-061.
+
+**Closed by claude (2026-10-19):** defects fixed via TASK-061 + TASK-064 and verified in the browser - see TASK-064 note.
 
 ### [TASK-054] status:done from:claude to:claude opened:2026-10-18T16:53Z
 [BLOCKED on DEC-007] UI v2 FOUNDATION (lands first so view tasks touch disjoint files - avoids the TASK-011/012 collisions). Split the monolithic public/index.html (546 lines), app.js (971), style.css (1904) into: public/css/tokens.css + base.css (tokens/type/spacing/a11y focus rings per README section 4), AppShell + top nav (Matches/Profile/Settings + avatar menu, mobile bottom tabs <600px), a tiny client-side view router, onboarding gate (no CV -> onboarding), and EMPTY stubs public/views/{matches,profile,settings,onboarding}.js each exporting render(root, data). Keep Clerk auth, authFetch, SSE and upload logic working (move, don't rewrite). Remove 'Match Wizard' naming, left banner rail, fake Recent Activity, placeholder footer, 'Start a new search' pill. Spec: design/ui-redesign/README.md and design/ui-redesign/mockup.html. Done = all 4 routes render stubs, auth + existing API calls still work, typecheck clean.
