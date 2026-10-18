@@ -15,6 +15,8 @@ const profileValue = (profile, ...keys) => {
 };
 const formatClock = (value) => value ? new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
 const humanize = (value) => String(value || "").replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const SOURCE_LABELS = { linkedin: "LinkedIn", naukri: "Naukri", greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby" };
+const sourceLabel = (value) => SOURCE_LABELS[String(value || "").toLowerCase()] || humanize(value);
 
 function activeFilters() {
   return { filter: state.tab, sort: state.sort, minScore: state.minScore ? Number(state.minScore) : undefined, source: state.source || undefined };
@@ -39,6 +41,8 @@ async function loadPage({ reset = false } = {}) {
     state.error = error?.message || "We couldn't load your matches.";
   }
   draw();
+  const visibleCount = shownResults().length;
+  context.ui.announce(`${visibleCount} ${visibleCount === 1 ? "match" : "matches"} shown`);
 }
 
 function shownResults() {
@@ -60,6 +64,51 @@ function scoreWord(score) {
   return "Weak";
 }
 
+function captureFocus() {
+  const active = document.activeElement;
+  if (!active || !rootNode?.contains(active)) return null;
+  const card = active.closest(".match-card");
+  const cards = [...rootNode.querySelectorAll(".match-card")];
+  return {
+    id: active.id || "",
+    tab: active.dataset.tab || "",
+    actionClass: active.classList.contains("dismiss-action") ? "dismiss-action"
+      : active.classList.contains("save-action") ? "save-action"
+        : active.classList.contains("apply-action") ? "apply-action" : "",
+    matchId: card?.dataset.matchId || "",
+    cardIndex: card ? cards.indexOf(card) : -1,
+    className: active.classList.contains("match-search") ? "match-search"
+      : active.id === "minimum-score" ? "minimum-score"
+        : active.id === "match-source" ? "match-source"
+          : active.id === "match-sort" ? "match-sort" : "",
+    selectionStart: typeof active.selectionStart === "number" ? active.selectionStart : null,
+    selectionEnd: typeof active.selectionEnd === "number" ? active.selectionEnd : null,
+  };
+}
+
+function restoreFocus(saved) {
+  if (!saved) return;
+  let target = saved.id ? rootNode.querySelector(`#${saved.id}`) : null;
+  if (!target && saved.tab) target = [...rootNode.querySelectorAll("[data-tab]")].find((item) => item.dataset.tab === saved.tab);
+  if (!target && saved.className) target = rootNode.querySelector(`.${saved.className}`);
+  if (!target && saved.actionClass && saved.matchId) {
+    const card = [...rootNode.querySelectorAll(".match-card")].find((item) => item.dataset.matchId === saved.matchId);
+    target = card?.querySelector(`.${saved.actionClass}`) || null;
+  }
+  if (!target && saved.actionClass) {
+    const cards = [...rootNode.querySelectorAll(".match-card")];
+    const nextCard = saved.cardIndex >= 0 ? cards[Math.min(saved.cardIndex, cards.length - 1)] : null;
+    target = nextCard?.querySelector(`.${saved.actionClass}`) || rootNode.querySelector(`.${saved.actionClass}`);
+  }
+  if (!target) target = rootNode.querySelector("[data-tab].is-active") || rootNode.querySelector("h1");
+  if (target) {
+    target.focus({ preventScroll: true });
+    if (saved.selectionStart != null && target.setSelectionRange) {
+      target.setSelectionRange(saved.selectionStart, saved.selectionEnd);
+    }
+  }
+}
+
 function cardMarkup(match) {
   const p = match.posting || {};
   const titleText = p.title || "Untitled role";
@@ -79,13 +128,12 @@ function cardMarkup(match) {
         <div class="company-mark" aria-hidden="true">${company.trim().charAt(0).toUpperCase() || "?"}</div>
         <div class="match-heading">
           <h2 class="card-title">${titleText}</h2>
-          <p class="match-meta">${company}${p.location ? ` · ${p.location}` : ""}${p.source ? ` · ${humanize(p.source)}` : ""}${postedAt ? ` · ${postedLabel} ${dateLabel(postedAt, context.ui)}` : ""}</p>
+          <p class="match-meta">${company}${p.location ? ` · ${p.location}` : ""}${p.source ? ` · ${sourceLabel(p.source)}` : ""}${postedAt ? ` · ${postedLabel} ${dateLabel(postedAt, context.ui)}` : ""}</p>
         </div>
         <div class="score-badge score-${band}" aria-label="Estimated fit score ${score} out of 100, ${scoreWord(score)}">
           <strong>${score}</strong><span>${scoreWord(score)}</span>
         </div>
       </div>
-      <p class="score-note">Estimated fit based on your profile and this role; not a hiring probability.</p>
       ${match.reasoningText ? context.ui.html`<p class="match-reason"><strong>Why it fits</strong> ${match.reasoningText}</p>` : ""}
       <div class="match-chips"><span class="chip ${compClass}">${compText}</span>${tags.map((tag) => context.ui.html`<span class="chip">${tag}</span>`)}</div>
       <div class="match-actions">
@@ -98,6 +146,7 @@ function cardMarkup(match) {
 
 function draw() {
   if (!rootNode || !state) return;
+  const savedFocus = captureFocus();
   const s = state.storeState;
   const stats = s.stats || {};
   const status = s.status || {};
@@ -117,13 +166,13 @@ function draw() {
   const scanDate = status.lastScanAt ? `Last scan ${context.ui.timeAgo(status.lastScanAt)}` : "Waiting for the first scan";
   const header = context.ui.html`
     <section class="matches-summary card card-pad" aria-labelledby="matches-title">
-      <div class="summary-copy"><h1 id="matches-title" class="page-title">${greetingWord()}, ${greeting}</h1>
+      <div class="summary-copy"><h1 id="matches-title" class="page-title" tabindex="-1">${greetingWord()}, ${greeting}</h1>
         <p class="summary-count">${Number(stats.newSinceLastDigest || 0)} new ${Number(stats.newSinceLastDigest || 0) === 1 ? "match" : "matches"} since your last digest</p>
         <p class="summary-meta">${scanDate} · ${sources.length ? `${healthyCount} of ${sources.length} sources healthy` : "Source health unavailable"} · Next digest ${digest}</p>
       </div>
-      <div class="summary-status" aria-live="polite"><span class="status-indicator ${downSources.length ? "status-warning" : ""}" aria-hidden="true"></span><span>${downSources.length ? `${downSources.length} source${downSources.length === 1 ? "" : "s"} need attention` : "Your search is up to date"}</span></div>
+      <div class="summary-status"><span class="status-indicator ${downSources.length ? "status-warning" : ""}" aria-hidden="true"></span><span>${downSources.length ? `${downSources.length} source${downSources.length === 1 ? "" : "s"} need${downSources.length === 1 ? "s" : ""} attention` : "Your search is up to date"}</span></div>
     </section>
-    ${downSources.length ? context.ui.html`<p class="source-down-note" role="status">${downSources.map((x) => `${humanize(x.source)}: ${x.statusText || "temporarily unavailable"}`).join(" · ")}</p>` : ""}`;
+    ${downSources.length ? context.ui.html`<p class="source-down-note">${downSources.map((x, index) => context.ui.html`${index ? " · " : ""}${sourceLabel(x.source)}: ${x.statusText || "temporarily unavailable"}`)}</p>` : ""}`;
 
   const tabs = ["new", "saved", "applied", "all"];
   const filter = context.ui.html`
@@ -132,7 +181,7 @@ function draw() {
       <div class="filter-controls">
         <label class="sr-only" for="match-search">Filter by title or company</label><input id="match-search" class="input match-search" type="search" placeholder="Filter by title or company" value="${state.query}" />
         <label class="sr-only" for="minimum-score">Minimum score</label><select class="select" id="minimum-score"><option value="">Any score</option><option value="60" ${state.minScore === "60" ? "selected" : ""}>Score 60+</option><option value="70" ${state.minScore === "70" ? "selected" : ""}>Score 70+</option><option value="80" ${state.minScore === "80" ? "selected" : ""}>Score 80+</option></select>
-        <label class="sr-only" for="match-source">Source</label><select class="select" id="match-source"><option value="">All sources</option>${sources.map((x) => context.ui.html`<option value="${x.source}" ${state.source === x.source ? "selected" : ""}>${humanize(x.source)}</option>`)}</select>
+        <label class="sr-only" for="match-source">Source</label><select class="select" id="match-source"><option value="">All sources</option>${sources.map((x) => context.ui.html`<option value="${x.source}" ${state.source === x.source ? "selected" : ""}>${sourceLabel(x.source)}</option>`)}</select>
         <label class="sr-only" for="match-sort">Sort matches</label><select class="select" id="match-sort"><option value="best" ${state.sort === "best" ? "selected" : ""}>Best fit</option><option value="newest" ${state.sort === "newest" ? "selected" : ""}>Newest</option></select>
       </div>
     </div>`;
@@ -141,37 +190,39 @@ function draw() {
     <aside class="rail matches-rail" aria-label="Search and source information">
       <section class="card card-pad-sm rail-card"><p class="eyebrow">Your search</p><h2 class="rail-title">${role}</h2><div class="chip-row">${city || country ? context.ui.html`<span class="chip">${city}${city && country ? ", " : ""}${country}</span>` : ""}${years ? context.ui.html`<span class="chip">~${years} yrs experience</span>` : ""}</div><a class="link-btn" href="#/profile">Edit profile <span aria-hidden="true">→</span></a></section>
       <section class="card card-pad-sm rail-card"><div class="row"><p class="eyebrow">Daily digest</p><span class="chip ${s.digest?.enabled === false ? "" : "chip-good"}">${s.digest?.enabled === false ? "Off" : "On"}</span></div><p class="rail-detail">${s.digest?.enabled === false ? "Digest emails are paused" : `Next: ${digest}`}</p><a class="link-btn" href="#/settings">Digest settings <span aria-hidden="true">→</span></a></section>
-      <section class="card card-pad-sm rail-card"><p class="eyebrow">Sources</p>${sources.length ? sources.map((source) => context.ui.html`<div class="source-row"><span><span class="dot ${source.healthy ? "" : "dot-warn"}" aria-hidden="true"></span>${humanize(source.source)}</span><span class="source-count">${Number(source.count24h || 0).toLocaleString()} jobs</span></div>${!source.healthy ? context.ui.html`<p class="source-status">${source.statusText || "Temporarily unavailable"}</p>` : ""}`) : context.ui.html`<p class="rail-detail">Source health is not available yet.</p>`}</section>
+      <section class="card card-pad-sm rail-card"><p class="eyebrow">Sources</p>${sources.length ? sources.map((source) => context.ui.html`<div class="source-row"><span><span class="dot ${source.healthy ? "" : "dot-warn"}" aria-hidden="true"></span>${sourceLabel(source.source)}</span><span class="source-count">${Number(source.count24h || 0).toLocaleString()} jobs</span></div>${!source.healthy ? context.ui.html`<p class="source-status">${source.statusText || "Temporarily unavailable"}</p>` : ""}`) : context.ui.html`<p class="rail-detail">Source health is not available yet.</p>`}</section>
     </aside>`;
 
   let feedContent;
   if (state.loading && !state.results.length) {
-    feedContent = `<div class="stack" aria-label="Loading matches"><div class="card skeleton match-skeleton"></div><div class="card skeleton match-skeleton"></div></div>`;
+    feedContent = context.ui.html`<div class="stack" aria-label="Loading matches"><div class="card skeleton match-skeleton"></div><div class="card skeleton match-skeleton"></div></div>`;
   } else if (state.error) {
-    feedContent = `<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
   } else if (!state.total && state.tab === "new" && (stats.totalScored || 0) > 0) {
-    feedContent = `<div class="card empty-state caught-up"><h2 class="section-title">You’re all caught up</h2><p class="text-2">No new matches since your last digest. We’ll show new roles here after the next scan.</p></div>`;
+    feedContent = context.ui.html`<div class="card empty-state caught-up"><h2 class="section-title">You’re all caught up</h2><p class="text-2">No new matches since your last digest. We’ll show new roles here after the next scan.</p></div>`;
+  } else if (!state.total && state.tab === "saved") {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No saved matches yet</h2><p class="text-2">Use Save on a match to keep it here.</p></div>`;
+  } else if (!state.total && state.tab === "applied") {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No applied matches yet</h2><p class="text-2">Matches you mark as applied will appear here.</p></div>`;
+  } else if (!state.total && state.tab === "all") {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No matches yet</h2><p class="text-2">We’ll show roles that fit your search here. Check back after the next scan, or review your job preferences.</p><div class="actions"><a class="btn btn-ghost" href="#/profile">Review profile</a></div></div>`;
   } else if (!state.total) {
-    feedContent = `<div class="card empty-state"><h2 class="section-title">No matches yet</h2><p class="text-2">We’ll show roles that fit your search here. Check back after the next scan, or review your job preferences.</p><div class="actions"><a class="btn btn-ghost" href="#/profile">Review profile</a></div></div>`;
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No new matches yet</h2><p class="text-2">We’ll show new roles here after the next scan.</p></div>`;
   } else if (!results.length) {
-    feedContent = `<div class="card empty-state"><h2 class="section-title">No matches for this filter</h2><p class="text-2">Try a different title, company, or filter.</p></div>`;
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No matches for this filter</h2><p class="text-2">Try a different title, company, or filter.</p></div>`;
   } else {
-    feedContent = results.map(cardMarkup).join("");
-    if (state.results.length < state.total) feedContent += `<button class="btn btn-ghost load-more" type="button" ${state.loading ? "disabled" : ""}>${state.loading ? "Loading…" : "Load more matches"}</button>`;
-    if (state.loading) feedContent += `<div class="card skeleton match-skeleton" aria-label="Loading more matches"></div>`;
+    feedContent = context.ui.html`${results.map(cardMarkup)}${state.results.length < state.total ? context.ui.html`<button class="btn btn-ghost load-more" type="button" ${state.loading ? "disabled" : ""}>${state.loading ? "Loading…" : "Load more matches"}</button>` : ""}${state.loading ? context.ui.html`<div class="card skeleton match-skeleton" aria-label="Loading more matches"></div>` : ""}`;
   }
-  // header/filter/rail/cards have already been built with ui.html (all API values escaped).
-  rootNode.innerHTML = `${header}${context.ui.html`<div class="layout-rail matches-layout"><main class="matches-main"></main></div>`}`;
-  const layout = rootNode.querySelector(".matches-layout");
-  layout.querySelector(".matches-main").innerHTML = `${filter}<section class="match-list stack" aria-label="Job matches" aria-live="polite">${feedContent}</section>`;
-  layout.appendChild(document.createRange().createContextualFragment(String(rail)));
+  const note = context.ui.html`<p class="score-note">Fit is estimated from your profile and the role; it is not a hiring probability.</p>`;
+  rootNode.innerHTML = context.ui.html`<div class="page">${header}<div class="layout-rail matches-layout"><main class="matches-main">${filter}${note}<section class="match-list stack" aria-label="Job matches">${feedContent}</section></main>${rail}</div></div>`;
   bindEvents();
+  restoreFocus(savedFocus);
 }
 
 function bindEvents() {
   rootNode.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { state.tab = button.dataset.tab; loadPage({ reset: true }); }));
   const search = rootNode.querySelector(".match-search");
-  search?.addEventListener("input", () => { state.query = search.value; draw(); const next = rootNode.querySelector(".match-search"); next?.focus(); next?.setSelectionRange(state.query.length, state.query.length); });
+  search?.addEventListener("input", () => { state.query = search.value; draw(); });
   for (const [selector, key] of [["#minimum-score", "minScore"], ["#match-source", "source"], ["#match-sort", "sort"]]) {
     rootNode.querySelector(selector)?.addEventListener("change", (event) => { state[key] = event.target.value; loadPage({ reset: true }); });
   }

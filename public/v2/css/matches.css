@@ -10,6 +10,7 @@
 .matches-layout { align-items: start; }
 .matches-main { min-width: 0; }
 .filter-panel { margin-bottom: 16px; }
+.matches-main > .score-note { margin: -7px 0 14px 4px; color: var(--text-3); font-size: 12px; line-height: 17px; }
 .match-tabs { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .match-tab { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 0 14px; flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-2); font-weight: 600; }
 .match-tab span { display: inline-grid; min-width: 22px; min-height: 22px; place-items: center; border-radius: 999px; background: rgba(0, 0, 0, .06); color: var(--text-2); font-size: 12px; }
@@ -31,7 +32,6 @@
 .score-strong { color: var(--good); background: var(--good-soft); }
 .score-good { color: var(--mid); background: var(--mid-soft); }
 .score-weak { color: var(--weak); background: var(--weak-soft); }
-.score-note { margin: 5px 0 0 52px; color: var(--text-3); font-size: 12px; line-height: 17px; }
 .match-reason { margin: 14px 0 0 52px; color: var(--text-2); line-height: 22px; }
 .match-reason strong { color: var(--text); }
 .match-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 0 52px; }
