@@ -5,6 +5,20 @@
 
 export const title = "Get started";
 
+function normalizeMonth(val) {
+  if (!val) return "";
+  const trimmed = String(val).trim();
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 7);
+  const d = new Date(trimmed.length === 4 && /^\d{4}$/.test(trimmed) ? `${trimmed}-01-01` : trimmed);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    if (y >= 1950 && y <= 2100) return `${y}-${m}`;
+  }
+  return "";
+}
+
 export async function render(root, { store, api, ui, navigate }) {
   let step = 1;
   let isUploading = false;
@@ -12,42 +26,97 @@ export async function render(root, { store, api, ui, navigate }) {
   let cvFileName = "";
   let cvText = store.get().cvText || "";
   
-  // Profile defaults (pre-populated or inferred from CV)
-  let targetRole = "Product Manager";
-  let currentTitle = "Associate Product Manager";
-  let currentEmployer = "Zepto";
-  let careerStartDate = "Jul 2024";
-  let skills = ["product management", "growth", "experimentation", "SQL"];
-  let salaryFixed = "";
-  let salaryEsop = "";
-  let salaryCurrency = "INR";
+  // Profile fields: start empty unless populated from saved store or CV extraction
+  const savedProfile = store.get().profile || {};
+  let targetRole = savedProfile.targetDesignation || "";
+  let currentTitle = savedProfile.currentTitle || "";
+  let currentEmployer = savedProfile.currentEmployer || "";
+  let careerStartDate = normalizeMonth(savedProfile.careerStartDate) || "";
+  let skills = Array.isArray(savedProfile.skills) ? [...savedProfile.skills] : [];
+  let salaryFixed = savedProfile.currentSalaryFixedLPA != null ? String(savedProfile.currentSalaryFixedLPA) : "";
+  let salaryEsop = savedProfile.currentSalaryEsopLPA != null ? String(savedProfile.currentSalaryEsopLPA) : "";
+  let salaryCurrency = savedProfile.currentSalaryCurrency || "INR";
   
-  // Search & digest defaults
-  let locations = ["Bengaluru", "Remote"];
+  // Search & digest defaults: no default locations
+  let locations = savedProfile.preferredCity
+    ? savedProfile.preferredCity.split(",").map((s) => s.trim()).filter((s) => Boolean(s) && s.toLowerCase() !== "remote")
+    : [];
   let remoteActive = true;
-  let digestEnabled = true;
-  let digestHour = 9;
+  let digestEnabled = store.get().digest?.enabled ?? true;
+  let digestHour = store.get().digest?.hour ?? 9;
+  let roleError = "";
 
   function inferProfileFromText(text) {
     if (!text) return;
     const lower = text.toLowerCase();
-    if (lower.includes("software engineer") || lower.includes("developer")) {
-      targetRole = "Software Engineer";
-      currentTitle = "Software Engineer";
-    } else if (lower.includes("product manager") || lower.includes("apm") || lower.includes("associate product manager")) {
-      targetRole = "Product Manager";
-      currentTitle = "Associate Product Manager";
+
+    if (!targetRole) {
+      if (lower.includes("software engineer") || lower.includes("developer") || lower.includes("backend") || lower.includes("frontend") || lower.includes("full stack")) {
+        targetRole = "Software Engineer";
+      } else if (lower.includes("product manager") || lower.includes("apm") || lower.includes("associate product manager") || lower.includes("technical product manager")) {
+        targetRole = "Product Manager";
+      } else if (lower.includes("product designer") || lower.includes("ux designer") || lower.includes("ui designer") || lower.includes("ui/ux")) {
+        targetRole = "Product Designer";
+      } else if (lower.includes("data scientist") || lower.includes("machine learning") || lower.includes("data analyst")) {
+        targetRole = "Data Scientist";
+      } else if (lower.includes("engineering manager") || lower.includes("tech lead")) {
+        targetRole = "Engineering Manager";
+      }
     }
+
+    if (!currentTitle) {
+      if (lower.includes("associate product manager") || lower.includes("apm")) {
+        currentTitle = "Associate Product Manager";
+      } else if (lower.includes("senior product manager") || lower.includes("sr product manager") || lower.includes("sr. product manager")) {
+        currentTitle = "Senior Product Manager";
+      } else if (lower.includes("product manager")) {
+        currentTitle = "Product Manager";
+      } else if (lower.includes("senior software engineer") || lower.includes("sr software engineer") || lower.includes("sr. software engineer")) {
+        currentTitle = "Senior Software Engineer";
+      } else if (lower.includes("software engineer")) {
+        currentTitle = "Software Engineer";
+      } else if (lower.includes("product designer")) {
+        currentTitle = "Product Designer";
+      } else if (lower.includes("ux designer")) {
+        currentTitle = "UX Designer";
+      }
+    }
+
+    if (!currentEmployer) {
+      const atMatch = text.match(/(?:at|@)\s+([A-Z][a-zA-Z0-9&.-]+(?:\s+[A-Z][a-zA-Z0-9&.-]+)?)/);
+      if (atMatch && atMatch[1]) {
+        const candidate = atMatch[1].trim();
+        const skip = ["present", "current", "scale", "work", "home", "remote", "least", "university", "college"];
+        if (!skip.includes(candidate.toLowerCase())) {
+          currentEmployer = candidate;
+        }
+      }
+    }
+
+    if (!careerStartDate) {
+      const dateMatch = text.match(/\b(20[0-2][0-9])-(0[1-9]|1[0-2])\b/);
+      if (dateMatch) {
+        careerStartDate = dateMatch[0];
+      } else {
+        const yearMatch = text.match(/\b(20[0-2][0-9])\b/);
+        if (yearMatch) {
+          careerStartDate = `${yearMatch[1]}-01`;
+        }
+      }
+    }
+
     const detected = [];
     const candidates = [
       "growth", "experimentation", "sql", "python", "pricing", "analytics",
-      "fintech", "quick commerce", "consumer", "logistics", "ai", "b2b"
+      "fintech", "quick commerce", "consumer", "logistics", "ai", "b2b",
+      "figma", "user research", "wireframing", "prototyping", "design systems",
+      "react", "node.js", "typescript", "javascript", "golang", "java", "kubernetes", "aws", "docker"
     ];
     for (const c of candidates) {
       if (lower.includes(c) && !detected.includes(c)) detected.push(c);
     }
-    if (detected.length >= 3) {
-      skills = detected.slice(0, 6);
+    if (detected.length > 0) {
+      skills = Array.from(new Set([...skills, ...detected])).slice(0, 8);
     }
   }
 
@@ -215,8 +284,9 @@ export async function render(root, { store, api, ui, navigate }) {
 
         <div class="card onb-card">
           <div class="field">
-            <label for="step2-role">Target role</label>
-            <input id="step2-role" class="input" value="${targetRole}" placeholder="e.g. Product Manager">
+            <label for="step2-role">Target role <span style="color:var(--danger)">*</span></label>
+            <input id="step2-role" class="input ${roleError ? 'input-error' : ''}" value="${targetRole}" placeholder="e.g. Product Manager, UX Designer, Software Engineer">
+            ${roleError ? ui.html`<p class="field-error" style="color:var(--danger); font-size:13px; margin-top:4px;" role="alert">${roleError}</p>` : ""}
           </div>
 
           <div class="onb-grid-2">
@@ -232,19 +302,19 @@ export async function render(root, { store, api, ui, navigate }) {
 
           <div class="field">
             <label for="step2-career-start">Career start date</label>
-            <input id="step2-career-start" class="input" value="${careerStartDate}" placeholder="e.g. Jul 2024">
-            <p class="hint">Used to estimate your years of experience for seniority caps.</p>
+            <input id="step2-career-start" type="month" class="input" value="${careerStartDate}" placeholder="YYYY-MM">
+            <p class="hint">Used to estimate your years of experience for seniority caps (YYYY-MM).</p>
           </div>
 
           <div class="field">
             <label class="label">Matched skills</label>
             <div class="onb-tags-wrap" id="onb-skills-list">
-              ${skills.map((s) => ui.html`
+              ${skills.length > 0 ? skills.map((s) => ui.html`
                 <span class="chip-edit">
                   ${s}
                   <button type="button" data-remove-skill="${s}" aria-label="Remove skill ${s}">×</button>
                 </span>
-              `)}
+              `) : ui.html`<p class="muted" style="margin: 6px 0; font-size:13px;">No skills found yet. You can add them below.</p>`}
               <div class="onb-add-tag-box">
                 <input id="onb-new-skill" class="onb-add-tag-input" placeholder="+ Add skill">
                 <button type="button" class="btn btn-ghost" id="onb-add-skill-btn" style="min-height:var(--target); padding: 0 14px; font-size:13px;">Add</button>
@@ -315,10 +385,18 @@ export async function render(root, { store, api, ui, navigate }) {
     });
 
     nextBtn.addEventListener("click", () => {
-      targetRole = roleInput.value.trim() || targetRole;
-      currentTitle = titleInput.value.trim() || currentTitle;
-      currentEmployer = employerInput.value.trim() || currentEmployer;
-      careerStartDate = startInput.value.trim() || careerStartDate;
+      const roleVal = roleInput.value.trim();
+      if (!roleVal) {
+        roleError = "Please enter a target role to continue.";
+        renderStep2();
+        root.querySelector("#step2-role")?.focus();
+        return;
+      }
+      roleError = "";
+      targetRole = roleVal;
+      currentTitle = titleInput.value.trim();
+      currentEmployer = employerInput.value.trim();
+      careerStartDate = normalizeMonth(startInput.value.trim());
       if (fixedInput) salaryFixed = fixedInput.value.trim();
       if (esopInput) salaryEsop = esopInput.value.trim();
 
@@ -346,12 +424,12 @@ export async function render(root, { store, api, ui, navigate }) {
           <div class="field">
             <label class="label">Target locations</label>
             <div class="onb-tags-wrap" id="onb-loc-list">
-              ${locations.map((loc) => ui.html`
+              ${locations.length > 0 ? locations.map((loc) => ui.html`
                 <span class="chip-edit">
                   ${loc}
                   <button type="button" data-remove-loc="${loc}" aria-label="Remove location ${loc}">×</button>
                 </span>
-              `)}
+              `) : ui.html`<p class="muted" style="margin: 6px 0; font-size:13px;">No specific cities set (remote roles are always included).</p>`}
               <div class="onb-add-tag-box">
                 <input id="onb-new-loc" class="onb-add-tag-input" placeholder="+ Add city">
                 <button type="button" class="btn btn-ghost" id="onb-add-loc-btn" style="min-height:var(--target); padding: 0 14px; font-size:13px;">Add</button>
@@ -426,7 +504,13 @@ export async function render(root, { store, api, ui, navigate }) {
 
     const addLoc = () => {
       const val = locInput.value.trim();
-      if (val && !locations.includes(val)) {
+      if (!val) return;
+      if (val.toLowerCase() === "remote") {
+        ui.toast({ message: "Remote roles are already included by default." });
+        locInput.value = "";
+        return;
+      }
+      if (!locations.includes(val)) {
         locations.push(val);
         renderStep3();
       }
@@ -452,21 +536,30 @@ export async function render(root, { store, api, ui, navigate }) {
     });
 
     submitBtn.addEventListener("click", async () => {
+      if (!targetRole.trim()) {
+        step = 2;
+        roleError = "Please enter a target role before finding matches.";
+        renderStep();
+        root.querySelector("#step2-role")?.focus();
+        return;
+      }
+
       submitBtn.disabled = true;
       submitBtn.textContent = "Setting up your account…";
       digestHour = parseInt(hourSelect.value, 10) || 9;
 
-      const nonRemoteCity = locations.find((l) => l.trim().toLowerCase() !== "remote") || "";
+      const cleanLocations = locations.filter((l) => l.trim().toLowerCase() !== "remote");
+      const preferredCity = cleanLocations.join(", ");
 
       const profile = {
         targetDesignation: targetRole,
-        currentEmployer,
-        currentTitle,
-        careerStartDate,
+        currentEmployer: currentEmployer || undefined,
+        currentTitle: currentTitle || undefined,
+        careerStartDate: careerStartDate || undefined,
         currentSalaryFixedLPA: salaryFixed ? parseFloat(salaryFixed) : undefined,
         currentSalaryEsopLPA: salaryEsop ? parseFloat(salaryEsop) : undefined,
         currentSalaryCurrency: salaryCurrency,
-        preferredCity: nonRemoteCity,
+        preferredCity,
         preferredCountry: "",
         skills,
       };
@@ -476,7 +569,7 @@ export async function render(root, { store, api, ui, navigate }) {
         profile,
         companies: store.get().companies || { greenhouse: [], lever: [], ashby: [] },
         linkedin: {
-          location: nonRemoteCity || "worldwide",
+          location: cleanLocations[0] || "worldwide",
           maxResults: 100,
         },
         digestEnabled,

@@ -16,6 +16,20 @@ function redactPii(text) {
     });
 }
 
+function normalizeMonth(val) {
+  if (!val) return "";
+  const trimmed = String(val).trim();
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 7);
+  const d = new Date(trimmed.length === 4 && /^\d{4}$/.test(trimmed) ? `${trimmed}-01-01` : trimmed);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    if (y >= 1950 && y <= 2100) return `${y}-${m}`;
+  }
+  return "";
+}
+
 export async function render(root, { store, api, ui }) {
   const state = store.get();
   const userId = state.userId;
@@ -23,17 +37,15 @@ export async function render(root, { store, api, ui }) {
   let cvText = state.cvText || "";
   let hasCv = state.hasCv;
 
-  let targetRole = profile.targetDesignation || "Product Manager";
-  let currentTitle = profile.currentTitle || "Associate Product Manager";
-  let currentCompany = profile.currentEmployer || "Zepto";
-  let careerStartDate = profile.careerStartDate || "Jul 2024";
+  let targetRole = profile.targetDesignation || "";
+  let currentTitle = profile.currentTitle || "";
+  let currentCompany = profile.currentEmployer || "";
+  let careerStartDate = normalizeMonth(profile.careerStartDate) || "";
   let salaryFixed = profile.currentSalaryFixedLPA != null ? String(profile.currentSalaryFixedLPA) : "";
   let salaryEsop = profile.currentSalaryEsopLPA != null ? String(profile.currentSalaryEsopLPA) : "";
   let salaryCurrency = profile.currentSalaryCurrency || "INR";
 
-  let skills = (profile.skills && profile.skills.length)
-    ? [...profile.skills]
-    : ["quick commerce", "pricing", "experimentation", "SQL", "growth loops"];
+  let skills = Array.isArray(profile.skills) ? [...profile.skills] : [];
 
   let isUploadingCv = false;
   let isSaving = false;
@@ -54,7 +66,7 @@ export async function render(root, { store, api, ui }) {
               <p class="profile-cv-filename">${hasCv ? "Uploaded_CV.pdf" : "No CV uploaded yet"}</p>
               <p class="profile-cv-summary">
                 ${hasCv
-                  ? `${currentTitle} at ${currentCompany} · ${careerStartDate ? `Career start: ${careerStartDate}` : "Verified profile"}`
+                  ? `${(currentTitle && currentCompany) ? `${currentTitle} at ${currentCompany}` : (currentTitle || currentCompany || "CV uploaded")}${careerStartDate ? ` · Career start: ${careerStartDate}` : " · Verified profile"}`
                   : "Upload your CV to unlock personalized matching and scoring."}
               </p>
             </div>
@@ -88,9 +100,9 @@ export async function render(root, { store, api, ui }) {
           <div class="profile-tag-group">
             <p class="profile-tag-title">Skills & tags <span class="muted" style="font-weight:400;">(from your CV)</span></p>
             <div class="profile-tag-row">
-              ${skills.map((tag) => ui.html`
+              ${skills.length > 0 ? skills.map((tag) => ui.html`
                 <span class="chip profile-chip-cv">${tag}</span>
-              `)}
+              `) : ui.html`<p class="muted" style="font-size:13px; margin: 4px 0;">No skills extracted or saved yet.</p>`}
             </div>
           </div>
         </section>
@@ -111,8 +123,8 @@ export async function render(root, { store, api, ui }) {
             </div>
             <div class="field">
               <label for="profile-start-date">Career start date</label>
-              <input id="profile-start-date" class="input" value="${careerStartDate}" placeholder="e.g. Jul 2024">
-              <p class="hint">Used to estimate your years of experience for seniority caps.</p>
+              <input id="profile-start-date" type="month" class="input" value="${careerStartDate}" placeholder="YYYY-MM">
+              <p class="hint">Used to estimate your years of experience for seniority caps (YYYY-MM).</p>
             </div>
             <div class="field">
               <label for="profile-fixed">Total fixed pay (LPA, fixed + ESOP)</label>
@@ -171,18 +183,19 @@ export async function render(root, { store, api, ui }) {
     const saveBtn = root.querySelector("#profile-save-btn");
     if (saveBtn) {
       saveBtn.addEventListener("click", async () => {
-        const roleVal = root.querySelector("#profile-role")?.value.trim() || targetRole;
-        const titleVal = root.querySelector("#profile-title")?.value.trim() || currentTitle;
-        const employerVal = root.querySelector("#profile-employer")?.value.trim() || currentCompany;
-        const startVal = root.querySelector("#profile-start-date")?.value.trim() || careerStartDate;
-        const fixedVal = root.querySelector("#profile-fixed")?.value.trim() || salaryFixed;
-        const esopVal = root.querySelector("#profile-esop")?.value.trim() || salaryEsop;
+        const roleVal = root.querySelector("#profile-role")?.value.trim() || "";
+        const titleVal = root.querySelector("#profile-title")?.value.trim() || "";
+        const employerVal = root.querySelector("#profile-employer")?.value.trim() || "";
+        const rawDate = root.querySelector("#profile-start-date")?.value.trim();
+        const startVal = normalizeMonth(rawDate) || (rawDate === "" ? null : undefined);
+        const fixedVal = root.querySelector("#profile-fixed")?.value.trim() || "";
+        const esopVal = root.querySelector("#profile-esop")?.value.trim() || "";
 
         const updatedProfile = {
           ...profile,
           targetDesignation: roleVal,
-          currentTitle: titleVal,
-          currentEmployer: employerVal,
+          currentTitle: titleVal || undefined,
+          currentEmployer: employerVal || undefined,
           careerStartDate: startVal,
           currentSalaryFixedLPA: fixedVal ? parseFloat(fixedVal) : undefined,
           currentSalaryEsopLPA: esopVal ? parseFloat(esopVal) : undefined,
@@ -195,7 +208,12 @@ export async function render(root, { store, api, ui }) {
         try {
           if (userId) {
             const saveRes = await api.saveProfile(userId, { profile: updatedProfile });
-            store.set({ profile: saveRes.profile || updatedProfile });
+            const saved = saveRes.profile || updatedProfile;
+            targetRole = saved.targetDesignation || "";
+            currentTitle = saved.currentTitle || "";
+            currentCompany = saved.currentEmployer || "";
+            careerStartDate = normalizeMonth(saved.careerStartDate) || "";
+            store.set({ profile: saved });
           } else {
             store.set({ profile: updatedProfile });
           }

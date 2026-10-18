@@ -14,7 +14,9 @@ export async function render(root, { store, api, ui }) {
   let digest = state.digest || { enabled: true, hour: 9 };
   let timezone = "Asia/Kolkata";
   
-  let locations = (state.profile?.preferredCity ? state.profile.preferredCity.split(",").map(s => s.trim()).filter(Boolean) : ["Bengaluru", "Remote"]);
+  let locations = (state.profile?.preferredCity
+    ? state.profile.preferredCity.split(",").map((s) => s.trim()).filter((s) => Boolean(s) && s.toLowerCase() !== "remote")
+    : []);
   let companies = state.companies || { greenhouse: [], lever: [], ashby: [] };
 
   let showCompanyModal = false;
@@ -63,12 +65,12 @@ export async function render(root, { store, api, ui }) {
           <p class="muted">Preferred locations and tracked ATS company boards.</p>
 
           <div class="settings-tags">
-            ${locations.map((loc) => ui.html`
+            ${locations.length > 0 ? locations.map((loc) => ui.html`
               <span class="chip-edit">
                 ${loc}
                 <button type="button" data-remove-loc="${loc}" aria-label="Remove location ${loc}">×</button>
               </span>
-            `)}
+            `) : ui.html`<p class="muted" style="margin: 6px 0; font-size:13px;">No specific cities set (remote roles are always included).</p>`}
             <div class="settings-add-chip">
               <input id="settings-new-loc" class="settings-add-input" placeholder="+ Add location">
               <button type="button" class="btn btn-ghost" id="settings-add-loc-btn" style="min-height:var(--target); padding:0 14px; font-size:13px;">Add</button>
@@ -155,9 +157,10 @@ export async function render(root, { store, api, ui }) {
     if (digestSwitch) digestSwitch.addEventListener("change", updateDigestSettings);
     if (morningSelect) morningSelect.addEventListener("change", updateDigestSettings);
 
-    // Wire Location chips
+    // Wire Location chips with rollback on failure
     const saveLocations = async (newLocs) => {
-      locations = newLocs;
+      const prevLocs = [...locations];
+      locations = newLocs.filter((l) => l.trim().toLowerCase() !== "remote");
       renderView();
       if (userId) {
         try {
@@ -165,8 +168,13 @@ export async function render(root, { store, api, ui }) {
           await api.saveProfile(userId, { profile: { preferredCity } });
           store.set({ profile: { ...(state.profile || {}), preferredCity } });
           ui.toast({ message: "Location preferences updated." });
+          ui.announce("Location preferences updated.");
         } catch (err) {
-          console.error(err);
+          console.error("Failed to save locations:", err);
+          locations = prevLocs;
+          renderView();
+          ui.toast({ message: err.message || "Failed to update location preferences." });
+          ui.announce("Failed to update location preferences.");
         }
       }
     };
@@ -182,7 +190,13 @@ export async function render(root, { store, api, ui }) {
     const addLocBtn = root.querySelector("#settings-add-loc-btn");
     const addLoc = () => {
       const val = newLocInput.value.trim();
-      if (val && !locations.includes(val)) {
+      if (!val) return;
+      if (val.toLowerCase() === "remote") {
+        ui.toast({ message: "Remote roles are already included by default." });
+        newLocInput.value = "";
+        return;
+      }
+      if (!locations.includes(val)) {
         saveLocations([...locations, val]);
       }
     };
