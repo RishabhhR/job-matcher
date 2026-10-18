@@ -1,0 +1,50 @@
+/* JobMatcher v2 design tokens - design/ui-redesign/README.md section 4.
+   Owned by TASK-054 (foundation). View tasks consume these; don't redefine them. */
+:root {
+  /* color */
+  --bg: #f4f2ee;
+  --surface: #ffffff;
+  --surface-2: #fafaf8;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-2: rgba(0, 0, 0, 0.16);
+  --text: #1a2226;
+  --text-2: #4b5b6b;   /* >= 7:1 on white */
+  --text-3: #5f6b78;   /* >= 4.5:1 on white; replaces the old #8a97a3 */
+  --accent: #0a66c2;
+  --accent-hover: #084f96;
+  --accent-soft: rgba(10, 102, 194, 0.08);
+  --good: #047857;
+  --good-soft: rgba(4, 120, 87, 0.08);
+  --mid: #b45309;
+  --mid-soft: rgba(180, 83, 9, 0.08);
+  --weak: #5f6b78;
+  --weak-soft: rgba(95, 107, 120, 0.1);
+  --danger: #b42318;
+  --danger-soft: rgba(180, 35, 24, 0.08);
+
+  /* type (Inter) */
+  --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fs-page: 22px;   --lh-page: 28px;
+  --fs-section: 17px; --lh-section: 24px;
+  --fs-card: 16px;   --lh-card: 22px;
+  --fs-body: 15px;   --lh-body: 23px;
+  --fs-meta: 13px;   --lh-meta: 18px;
+
+  /* spacing (4px scale) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+
+  /* shape + depth */
+  --r-card: 12px;
+  --r-ctl: 8px;
+  --r-pill: 999px;
+  --shadow: 0 1px 2px rgba(20, 30, 40, 0.04), 0 4px 16px rgba(20, 30, 40, 0.04);
+  --glass: blur(16px) saturate(180%);
+
+  /* layout */
+  --max: 1080px;
+  --rail: 300px;
+  --nav-h: 60px;
+  --bottomnav-h: 64px;
+  --target: 44px;    /* minimum interactive size (DEC-007 amendment 7) */
+  --focus: 2px solid var(--accent);
+}

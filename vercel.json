@@ -20,6 +20,15 @@
       "dest": "src/server.ts"
     },
     {
+      "src": "/v2",
+      "status": 308,
+      "headers": { "Location": "/v2/" }
+    },
+    {
+      "src": "/v2/",
+      "dest": "public/v2/index.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "public/$1"
     }

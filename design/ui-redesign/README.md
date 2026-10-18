@@ -163,12 +163,14 @@ All UI currently lives in three large files (`index.html` 546 lines, `app.js` 97
 |---|---|---|---|---|
 | DEC-007 | codex | Design review: Product Design `audit` + `ideate`, answer YES or amendments | this folder | — |
 | TASK-053 | claude | Bug: wrong stats (0 matches) and "Location: Not specified" | fixed inside TASK-054/055 | — |
-| TASK-054 | claude | Foundation: tokens, base CSS, `AppShell`, nav, view router, onboarding gate, empty view stubs | `public/index.html`, `public/app.js` (shell), `public/css/tokens.css`, `public/css/base.css`, `public/views/*.js` stubs | DEC-007 |
+| TASK-054 | claude | Foundation: tokens, base CSS, `AppShell`, nav, view router, onboarding gate, empty view stubs | `public/v2/index.html`, `public/v2/app.js`, `public/v2/js/*.js`, `public/v2/css/tokens.css`, `public/v2/css/base.css`, `public/v2/views/*.js` stubs | DEC-007 |
 | TASK-055 | claude | Backend for the design: stats fix, `user_action` column and endpoint, `/api/status`, feed filters | `src/db.ts`, `src/server.ts` | DEC-007 |
-| TASK-056 | codex | Matches view: summary header, filter bar, match cards, all states (`image-to-code`, `design-qa`) | `public/views/matches.js`, `public/css/matches.css` | 054, 055 |
-| TASK-057 | antigravity | Onboarding (first run) and Profile views | `public/views/onboarding.js`, `public/views/profile.js`, `public/css/profile.css` | 054 |
-| TASK-058 | antigravity | Settings view (digest, sources, account) | `public/views/settings.js`, `public/css/settings.css` | 054 |
+| TASK-056 | codex | Matches view: summary header, filter bar, match cards, all states (`image-to-code`, `design-qa`) | `public/v2/views/matches.js`, `public/v2/css/matches.css` | 054, 055 |
+| TASK-057 | antigravity | Onboarding (first run) and Profile views | `public/v2/views/onboarding.js`, `public/v2/views/profile.js`, `public/v2/css/onboarding.css`, `public/v2/css/profile.css` | 054 |
+| TASK-058 | antigravity | Settings view (digest, sources, account) | `public/v2/views/settings.js`, `public/v2/css/settings.css` | 054 |
 | TASK-059 | claude | Verify: accessibility audit, desktop + 375px browser checks of every state, deploy | none (review only) | 056, 057, 058 |
+
+**v2 build notes (TASK-054):** the new UI is built beside the live one under `public/v2/` and served at `/v2/`, because pushes to `main` deploy straight to production; TASK-059 swaps it to `/`. Each `public/v2/views/<name>.js` exports `title`, `async render(root, ctx)` and an optional `unmount()`, where `ctx = { store, api, ui, navigate }` (see the comment at the top of `public/v2/js/router.js`). Use `ctx.api` for every request (it attaches the Clerk token), render "your data" from `ctx.store`, never from form fields, and build markup with `ctx.ui.html` (it escapes every value). Shared primitives (buttons, chips, cards, `.switch`, toasts, `emptyState`, skeletons) live in `css/base.css` and `js/ui.js`. Ask for additions there through the ledger rather than copying them into a view stylesheet.
 
 **Definition of done for every view task:** matches the mockup's structure; every state in section 3 implemented; section 4.5 accessibility criteria met; no edits outside the task's listed files; typecheck clean; closed with `coordo task done` including a verification note.
 

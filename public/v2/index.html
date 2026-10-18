@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobMatcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Foundation (TASK-054) -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <!-- View styles: each file is owned by its view task; do not edit index.html to add more. -->
+  <link rel="stylesheet" href="css/matches.css">    <!-- TASK-056 (codex) -->
+  <link rel="stylesheet" href="css/onboarding.css"> <!-- TASK-057 (antigravity) -->
+  <link rel="stylesheet" href="css/profile.css">    <!-- TASK-057 (antigravity) -->
+  <link rel="stylesheet" href="css/settings.css">   <!-- TASK-058 (antigravity) -->
+  <!-- Clerk: publishable key is public by design; the secret key never reaches the browser. -->
+  <script>window.__clerk_publishable_key = "pk_test_c2tpbGxlZC1vcmNhLTc4LmNsZXJrLmFjY291bnRzLmRldiQ";</script>
+  <script async crossorigin="anonymous" src="https://skilled-orca-78.clerk.accounts.dev/npm/@clerk/clerk-js@4/dist/clerk.browser.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#view-root">Skip to content</a>
+
+  <div id="boot" class="boot" role="status">Loading JobMatcher…</div>
+  <div id="auth-root" class="auth-root" hidden></div>
+
+  <header class="topnav" id="topnav" hidden>
+    <div class="topnav-in">
+      <a class="logo" href="#/matches"><span class="logo-mark" aria-hidden="true">J</span>JobMatcher</a>
+      <nav class="topnav-links" aria-label="Primary">
+        <a href="#/matches" data-route="matches">Matches</a>
+        <a href="#/profile" data-route="profile">Profile</a>
+        <a href="#/settings" data-route="settings">Settings</a>
+      </nav>
+      <div class="account">
+        <button type="button" id="account-btn" class="avatar" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
+          <span id="avatar-initials" aria-hidden="true">?</span><span class="sr-only">Account menu</span>
+        </button>
+        <div id="account-menu" class="menu" role="menu" aria-labelledby="account-btn" hidden>
+          <p class="menu-label" id="account-email"></p>
+          <button type="button" role="menuitem" id="signout-btn" class="menu-item">Sign out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="view-root" tabindex="-1"></main>
+
+  <nav class="bottomnav" id="bottomnav" aria-label="Primary" hidden>
+    <a href="#/matches" data-route="matches">Matches</a>
+    <a href="#/profile" data-route="profile">Profile</a>
+    <a href="#/settings" data-route="settings">Settings</a>
+  </nav>
+
+  <!-- Polite live region for route changes, scan progress and action results. -->
+  <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="toasts" class="toasts"></div>
+</body>
+</html>
