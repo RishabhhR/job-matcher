@@ -61,12 +61,12 @@ export async function render(root, { store, api, ui }) {
           <p class="muted">We read your CV to score jobs. Only the summary below is shown here; your contact details stay private.</p>
           
           <div class="profile-cv-card">
-            <div class="profile-file-badge" aria-hidden="true">PDF</div>
+            <div class="profile-file-badge" aria-hidden="true">CV</div>
             <div class="profile-cv-info">
-              <p class="profile-cv-filename">${hasCv ? "Uploaded_CV.pdf" : "No CV uploaded yet"}</p>
+              <p class="profile-cv-filename">${hasCv ? "CV on file" : "No CV uploaded yet"}</p>
               <p class="profile-cv-summary">
                 ${hasCv
-                  ? `${(currentTitle && currentCompany) ? `${currentTitle} at ${currentCompany}` : (currentTitle || currentCompany || "CV uploaded")}${careerStartDate ? ` · Career start: ${careerStartDate}` : " · Verified profile"}`
+                  ? `${(currentTitle && currentCompany) ? `${currentTitle} at ${currentCompany}` : (currentTitle || currentCompany || "CV uploaded")}${careerStartDate ? ` · Career start: ${careerStartDate}` : ""}`
                   : "Upload your CV to unlock personalized matching and scoring."}
               </p>
             </div>
