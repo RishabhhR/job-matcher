@@ -116,6 +116,7 @@ export async function runDigest(options?: { slot?: "am" | "pm"; mode?: "scrape" 
     let scored;
     try {
       scored = await runJobMatcher({
+        userId,
         cvText,
         profile,
         companies,

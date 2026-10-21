@@ -155,6 +155,7 @@ async function runHourlyCron() {
       const userCompanies = await getUserCompanies(due.userId) ?? companies;
       console.log(`[cron-hourly] Scraping and scoring jobs for user ${due.userLogId}...`);
       const scored = await runJobMatcher({
+        userId: due.userId,
         cvText: due.cvText,
         profile: profile as any,
         companies: userCompanies,
