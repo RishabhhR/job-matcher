@@ -59,6 +59,11 @@ export const getStatus = (userId) => get(`/api/status?userId=${encodeURIComponen
 export const getMatches = ({ userId, page = 1, limit = 10, filter = "new", sort = "best", minScore, source }) =>
   post("/api/match/page", { userId, page, limit, filter, sort, minScore, source });
 
+/** Send a privacy-filtered product event; telemetry must never affect the user flow. */
+export function trackEvent(event, properties = {}) {
+  return post("/api/events", { event, properties }).catch(() => null);
+}
+
 /** Save / Applied / Not relevant. action = 'saved' | 'applied' | 'dismissed', or null to undo. */
 export const setMatchAction = (userId, matchId, action) =>
   post(`/api/matches/${encodeURIComponent(matchId)}/action`, { userId, action });

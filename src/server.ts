@@ -29,6 +29,7 @@ import {
   setMatchUserAction,
   getUserStatus,
   saveUserProfileData,
+  upsertScrapeSourceStatuses,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
@@ -39,6 +40,7 @@ import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, type ScoredMatch } from "./match.js";
 import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
+import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -82,6 +84,50 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(attachVerifiedClerkUser);
 app.use(express.static(publicDir));
+
+// Narrow client-event endpoint. It accepts only a fixed event/property allowlist,
+// uses a service-level distinct ID, and never stores user IDs, CV text, job text,
+// email addresses, URLs, or request bodies in PostHog.
+const CLIENT_EVENTS = new Set([
+  "cv_upload_success", "cv_upload_error", "profile_save_success", "profile_save_error",
+  "match_feed_load_success", "match_feed_load_error", "scan_started", "scan_completed",
+  "scan_error", "match_action_success", "match_action_error",
+]);
+const CLIENT_EVENT_PROPERTIES = new Set([
+  "file_type", "text_length", "duration_ms", "result_count", "status_code", "error_type", "action",
+]);
+app.post("/api/events", async (req, res) => {
+  if (isProduction && !req.verifiedClerkUserId) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+  const { event, properties } = req.body ?? {};
+  if (typeof event !== "string" || !CLIENT_EVENTS.has(event) || !properties || typeof properties !== "object" || Array.isArray(properties)) {
+    res.status(400).json({ error: "Unsupported event." });
+    return;
+  }
+  const safeProperties: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (!CLIENT_EVENT_PROPERTIES.has(key)) continue;
+    if (key === "error_type") {
+      safeProperties[key] = typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(value) ? value : "Error";
+    } else if (key === "file_type" || key === "action") {
+      if (typeof value === "string" && /^[A-Za-z0-9.+_-]{1,30}$/.test(value)) safeProperties[key] = value;
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      safeProperties[key] = Math.max(0, Math.min(1_000_000, value));
+    }
+  }
+  const propertiesForCapture = { ...safeProperties, surface: "web-v2" };
+  if (event.endsWith("_error")) {
+    const clientError = new Error("Client operation failed");
+    clientError.name = String(safeProperties.error_type || "Error");
+    await captureTelemetryError(event, clientError, propertiesForCapture);
+  } else {
+    await captureTelemetryEvent(event, propertiesForCapture);
+  }
+  res.status(204).end();
+});
+
 app.use("/api", async (_req, res, next) => {
   try {
     await ensureMigrated();
@@ -319,16 +365,21 @@ app.post("/api/upload-cv", async (req, res) => {
     return;
   }
   try {
-    const { fileName, fileType, fileData } = req.body;
-    if (!fileData) {
+    const { fileName, fileType, fileData } = req.body ?? {};
+    if (typeof fileData !== "string" || !fileData || typeof fileName !== "string") {
       res.status(400).json({ error: "Missing file data" });
       return;
     }
+    if (fileData.length > 9_500_000) {
+      res.status(413).json({ error: "That file is too large to parse. Please upload a file under 7 MB." });
+      return;
+    }
+    const lowerFileName = fileName.toLowerCase();
 
     const buffer = Buffer.from(fileData, "base64");
     let text = "";
 
-    if (fileType === "application/pdf" || fileName.endsWith(".pdf")) {
+    if (fileType === "application/pdf" || lowerFileName.endsWith(".pdf")) {
       const pdfreaderModule = await import("pdfreader");
       const PdfReader = pdfreaderModule.PdfReader || (pdfreaderModule as any).default?.PdfReader;
       if (!PdfReader) {
@@ -336,36 +387,66 @@ app.post("/api/upload-cv", async (req, res) => {
       }
 
       text = await new Promise<string>((resolve, reject) => {
-        let content = "";
+        const items: Array<{ page: number; x: number; y: number; w: number; sw: number; text: string }> = [];
         const reader = new PdfReader();
         reader.parseBuffer(buffer, (err: any, item: any) => {
           if (err) {
-            reject(err);
+            reject(new Error("pdf_parse_failed"));
           } else if (!item) {
+            items.sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+            const lines: Array<{ page: number; y: number; items: typeof items }> = [];
+            for (const fragment of items) {
+              let line = lines[lines.length - 1];
+              if (!line || line.page !== fragment.page || Math.abs(line.y - fragment.y) > 0.35) {
+                line = { page: fragment.page, y: fragment.y, items: [] };
+                lines.push(line);
+              }
+              line.items.push(fragment);
+            }
+            const content = lines.map((line) => {
+              let previous: typeof items[number] | undefined;
+              return line.items.map((fragment) => {
+                const gap = previous ? fragment.x - (previous.x + previous.w) : 0;
+                const needsSpace = previous && gap > Math.max(0.25, previous.sw * 0.45);
+                previous = fragment;
+                return `${needsSpace ? " " : ""}${fragment.text}`;
+              }).join("");
+            }).join("\n");
             resolve(content);
           } else if (item.text) {
-            content += item.text + " ";
+            items.push({ page: Number(item.page || 1), x: Number(item.x || 0), y: Number(item.y || 0), w: Number(item.w || 0), sw: Number(item.sw || 0.25), text: String(item.text) });
           }
         });
       });
     } else if (
       fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      fileName.endsWith(".docx")
+      lowerFileName.endsWith(".docx")
     ) {
       const mammothModule = await import("mammoth");
       const mammoth = mammothModule.default || mammothModule;
       const result = await mammoth.extractRawText({ buffer });
       text = result.value || "";
-    } else if (fileType === "text/plain" || fileName.endsWith(".txt")) {
+    } else if (fileType === "text/plain" || lowerFileName.endsWith(".txt")) {
       text = buffer.toString("utf-8");
     } else {
       res.status(400).json({ error: "Unsupported file type. Please upload a PDF, DOCX, or TXT file." });
       return;
     }
 
-    res.json({ text: text.trim() });
+    const normalizedText = text.replace(/[\t\u00a0]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (normalizedText.replace(/[^\p{L}\p{N}]/gu, "").length < 20) {
+      await captureTelemetryError("cv_parse_quality", new Error("insufficient_extracted_text"), { file_type: fileType === "application/pdf" || lowerFileName.endsWith(".pdf") ? "pdf" : lowerFileName.endsWith(".docx") ? "docx" : "txt" });
+      res.status(422).json({ error: "We couldn't read enough text from this file. Try a text-based PDF, DOCX, or paste your resume text." });
+      return;
+    }
+    void captureTelemetryEvent("cv_parse_completed", {
+      file_type: fileType === "application/pdf" || lowerFileName.endsWith(".pdf") ? "pdf" : lowerFileName.endsWith(".docx") ? "docx" : "txt",
+      text_length: normalizedText.length,
+    });
+    res.json({ text: normalizedText });
   } catch (error) {
-    res.status(500).json({ error: "Failed to parse file: " + (error as Error).message });
+    await captureTelemetryError("cv_parse", error, { file_type: typeof req.body?.fileName === "string" && req.body.fileName.toLowerCase().endsWith(".pdf") ? "pdf" : "other" });
+    res.status(500).json({ error: "We couldn't parse that file. Try a text-based PDF, DOCX, or paste your resume text." });
   }
 });
 
@@ -663,6 +744,29 @@ app.post("/api/match", async (req, res) => {
     const naukriPostings = filterByLoc(naukriRaw);
     sendEvent("progress", { status: "scraping_naukri_complete", message: `Fetched ${naukriRaw.length} Naukri postings, ${naukriPostings.length} matched location filter.` });
 
+    try {
+    try {
+      await upsertScrapeSourceStatuses(userId, Object.entries(sourceHealth).map(([source, health]) => ({
+        source,
+        count: health.count,
+        ok: health.ok,
+        errorCode: health.ok ? undefined : "SCRAPE_FAILED",
+      })));
+    } catch (error) {
+      void captureTelemetryError("persist_scrape_health", error);
+    }
+    } catch (error) {
+      void captureTelemetryError("persist_scrape_health", error);
+      sendEvent("progress", { status: "source_warning", message: "Scrape health could not be saved; continuing with matching." });
+    }
+    for (const [source, health] of Object.entries(sourceHealth)) {
+      void captureTelemetryEvent("scrape_source_result", { source, posting_count: health.count, success: health.ok });
+    }
+    void captureTelemetryEvent("scrape_completed", {
+      source_count: Object.keys(sourceHealth).length,
+      failed_source_count: Object.values(sourceHealth).filter((health) => !health.ok).length,
+      raw_posting_count: atsPostings.length + linkedinPostings.length + naukriPostings.length,
+    });
     sendEvent("progress", { status: "scrape_health", message: Object.entries(sourceHealth).map(([source, health]) => `${source}=${health.ok ? health.count : `ERR(${health.error?.slice(0, 60)})`}`).join(", ") });
     const rawPostings = [...atsPostings, ...linkedinPostings, ...naukriPostings];
     sendEvent("progress", { status: "processing", message: `Total raw postings collected: ${rawPostings.length}. Running deduplication...` });
@@ -747,7 +851,8 @@ app.post("/api/match", async (req, res) => {
     sendEvent("done", { userId, totalMatches, results });
   } catch (error) {
     console.error("Match error:", error);
-    sendEvent("error", { message: (error as Error).message });
+    await captureTelemetryError("initial_match_scan", error);
+    sendEvent("error", { message: "The scan couldn't finish. Please try again; your profile and saved matches are still available." });
   } finally {
     res.end();
   }
@@ -856,10 +961,20 @@ app.post("/api/match/page", async (req, res) => {
     }));
 
     res.json({ success: true, results, total, page, limit });
+    void captureTelemetryEvent("match_feed_loaded", { result_count: results.length, total_count: total });
   } catch (error) {
     console.error("Match page error:", error);
-    res.status(500).json({ error: (error as Error).message });
+    await captureTelemetryError("match_feed_load", error, { page: Number.isInteger(page) ? Number(page) : 0 });
+    res.status(500).json({ error: "We couldn't load your matches. Please try again." });
   }
+});
+
+// Capture failures that escape a route's local recovery path, including ownership
+// lookups and auth middleware. Do not serialize backend diagnostics to the client.
+app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  void captureTelemetryError("http_unhandled", error, { method: req.method });
+  if (res.headersSent) return next(error);
+  res.status(500).json({ error: "The request could not be completed. Please try again." });
 });
 
 // Catch-all route to serve the frontend

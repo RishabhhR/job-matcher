@@ -3,6 +3,7 @@
 // CV card with parsed summary + Replace CV + PII-redacted text disclosure.
 // Experience & pay with helper copy.
 // Saves persisted via api.saveProfile (TASK-063).
+import { inferCvProfile } from "../js/cvProfile.js";
 
 export const title = "Profile";
 
@@ -33,7 +34,7 @@ function normalizeMonth(val) {
 export async function render(root, { store, api, ui }) {
   const state = store.get();
   const userId = state.userId;
-  const profile = state.profile || {};
+  let profile = state.profile || {};
   let cvText = state.cvText || "";
   let hasCv = state.hasCv;
 
@@ -151,25 +152,46 @@ export async function render(root, { store, api, ui }) {
       replaceBtn.addEventListener("click", () => replaceFile.click());
       replaceFile.addEventListener("change", async (e) => {
         if (e.target.files && e.target.files[0]) {
+          const startedAt = performance.now();
           isUploadingCv = true;
           renderView();
           try {
             const uploadRes = await api.uploadCv(e.target.files[0]);
             const newCvText = uploadRes.text || "";
+            const inferred = inferCvProfile(newCvText);
+            const updatedProfile = { ...profile };
+            if (!currentTitle && inferred.currentTitle) updatedProfile.currentTitle = currentTitle = inferred.currentTitle;
+            if (!skills.length && inferred.skills.length) updatedProfile.skills = skills = inferred.skills;
+            void api.trackEvent("cv_upload_success", {
+              file_type: e.target.files[0].name.split(".").pop()?.toLowerCase() || "unknown",
+              text_length: newCvText.length,
+              duration_ms: Math.round(performance.now() - startedAt),
+            });
             if (userId) {
-              const saveRes = await api.saveProfile(userId, { cvText: newCvText });
+              const saveRes = await api.saveProfile(userId, { cvText: newCvText, profile: {
+                ...(updatedProfile.currentTitle ? { currentTitle: updatedProfile.currentTitle } : {}),
+                ...(updatedProfile.skills ? { skills: updatedProfile.skills } : {}),
+              } });
               cvText = newCvText;
               hasCv = Boolean(saveRes.hasCv ?? (newCvText && newCvText.trim()));
-              store.set({ cvText: newCvText, hasCv, profile: saveRes.profile || profile });
+              profile = saveRes.profile || updatedProfile;
+              store.set({ cvText: newCvText, hasCv, profile });
             } else {
               cvText = newCvText;
               hasCv = true;
-              store.set({ cvText, hasCv: true });
+              profile = updatedProfile;
+              store.set({ cvText, hasCv: true, profile });
             }
             ui.toast({ message: "CV uploaded and saved successfully!" });
             ui.announce("CV uploaded and saved.");
           } catch (err) {
             console.error(err);
+            void api.trackEvent("cv_upload_error", {
+              file_type: e.target.files[0].name.split(".").pop()?.toLowerCase() || "unknown",
+              status_code: Number(err?.status || 0),
+              error_type: err?.name || "Error",
+              duration_ms: Math.round(performance.now() - startedAt),
+            });
             ui.toast({ message: err.message || "Failed to upload CV" });
           } finally {
             isUploadingCv = false;
@@ -190,6 +212,7 @@ export async function render(root, { store, api, ui }) {
         const startVal = normalizeMonth(rawDate) || (rawDate === "" ? null : undefined);
         const fixedVal = root.querySelector("#profile-fixed")?.value.trim() || "";
         const esopVal = root.querySelector("#profile-esop")?.value.trim() || "";
+        const skillsVal = skills.slice(0, 40);
 
         const updatedProfile = {
           ...profile,
@@ -200,7 +223,7 @@ export async function render(root, { store, api, ui }) {
           currentSalaryFixedLPA: fixedVal ? parseFloat(fixedVal) : undefined,
           currentSalaryEsopLPA: esopVal ? parseFloat(esopVal) : undefined,
           currentSalaryCurrency: salaryCurrency,
-          skills,
+          skills: skillsVal,
         };
 
         isSaving = true;
@@ -217,10 +240,13 @@ export async function render(root, { store, api, ui }) {
           } else {
             store.set({ profile: updatedProfile });
           }
+          skills = Array.isArray(store.get().profile?.skills) ? [...store.get().profile.skills] : skillsVal;
+          void api.trackEvent("profile_save_success");
           ui.toast({ message: "Profile saved successfully!" });
           ui.announce("Profile changes saved.");
         } catch (err) {
           console.error(err);
+          void api.trackEvent("profile_save_error", { status_code: Number(err?.status || 0), error_type: err?.name || "Error" });
           ui.toast({ message: err.message || "Failed to save profile" });
         } finally {
           isSaving = false;

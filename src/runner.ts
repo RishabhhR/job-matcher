@@ -4,6 +4,8 @@ import { fetchNaukri, type NaukriSearchInput } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
 import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
 import { locationPatterns, placesLabel, primaryPlace, splitPlaces } from "./location.js";
+import { upsertScrapeSourceStatuses } from "./db.js";
+import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 
 // Build location filter patterns from a user's profile preferences.
 // Always includes remote/hybrid/anywhere. If no country or city is set, returns
@@ -24,6 +26,7 @@ function filterByLocation(postings: RawPosting[], profile: Profile): RawPosting[
 }
 
 export interface RunnerOptions {
+  userId?: string;
   cvText: string;
   profile: Profile;
   companies: {
@@ -63,6 +66,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     } catch (err) {
       const message = (err as Error).message || String(err);
       sourceHealth[source] = { count: 0, ok: false, error: message };
+      void captureTelemetryError("scrape_source", err, { source });
       onProgress("source_error", `Source "${source}" failed and was skipped (other sources continue): ${message}`);
       return [];
     }
@@ -126,6 +130,27 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const healthSummary = Object.entries(sourceHealth)
     .map(([s, h]) => `${s}=${h.ok ? h.count : `ERR(${h.error?.slice(0, 60)})`}`)
     .join(", ");
+  if (options.userId) {
+    try {
+      await upsertScrapeSourceStatuses(options.userId, Object.entries(sourceHealth).map(([source, health]) => ({
+        source,
+        count: health.count,
+        ok: health.ok,
+        errorCode: health.ok ? undefined : "SCRAPE_FAILED",
+      })));
+    } catch (error) {
+      void captureTelemetryError("persist_scrape_health", error);
+      onProgress("source_warning", "Scrape health could not be saved; continuing with matching.");
+    }
+  }
+  for (const [source, health] of Object.entries(sourceHealth)) {
+    void captureTelemetryEvent("scrape_source_result", { source, posting_count: health.count, success: health.ok });
+  }
+  void captureTelemetryEvent("scrape_completed", {
+    source_count: Object.keys(sourceHealth).length,
+    failed_source_count: Object.values(sourceHealth).filter((health) => !health.ok).length,
+    raw_posting_count: rawPostings.length,
+  });
   onProgress("scrape_health", `Per-source scrape results: ${healthSummary}`);
 
   onProgress("processing", `Total raw postings collected: ${rawPostings.length}. Running deduplication...`);

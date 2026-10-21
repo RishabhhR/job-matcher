@@ -25,6 +25,7 @@ function activeFilters() {
 
 async function loadPage({ reset = false } = {}) {
   if (!state.userId) return;
+  const startedAt = performance.now();
   const id = ++requestId;
   clearTimeout(slowLoadTimer);
   if (reset) { state.page = 1; state.results = []; state.total = 0; }
@@ -45,10 +46,19 @@ async function loadPage({ reset = false } = {}) {
     state.results = reset ? (data.results || []) : [...state.results, ...(data.results || [])];
     state.total = Number(data.total || 0);
     state.loading = false;
+    void context.api.trackEvent("match_feed_load_success", {
+      result_count: state.results.length,
+      duration_ms: Math.round(performance.now() - startedAt),
+    });
   } catch (error) {
     if (id !== requestId) return;
     state.loading = false;
     state.error = error?.message || "We couldn't load your matches.";
+    void context.api.trackEvent("match_feed_load_error", {
+      status_code: Number(error?.status || 0),
+      error_type: error?.name || "Error",
+      duration_ms: Math.round(performance.now() - startedAt),
+    });
   }
   clearTimeout(slowLoadTimer);
   slowLoadTimer = null;

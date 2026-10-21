@@ -29,6 +29,7 @@ export type ProfilePatch = {
   careerStartDate?: string | null;
   preferredCountry?: string | null;
   preferredCity?: string | null;
+  skills?: string[];
 };
 
 const PROFILE_TEXT_FIELDS = ["targetDesignation", "currentEmployer", "currentTitle", "preferredCountry", "preferredCity"] as const;
@@ -65,6 +66,11 @@ export function parseProfilePatch(value: unknown): ProfilePatch | null {
     if (v === null || v === "") out.careerStartDate = null;
     else if (typeof v === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(v)) out.careerStartDate = v;
     else return null;
+  }
+  if ("skills" in input) {
+    const value = input.skills;
+    if (!Array.isArray(value) || value.length > 40 || value.some((item) => typeof item !== "string" || item.trim().length < 1 || item.trim().length > 50)) return null;
+    out.skills = [...new Set(value.map((item) => (item as string).trim()))];
   }
   return out;
 }

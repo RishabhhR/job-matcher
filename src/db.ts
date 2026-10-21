@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client";
 import { randomUUID } from "node:crypto";
+import { captureTelemetryEvent } from "./telemetry.js";
 
 let _client: any;
 export const client = new Proxy({} as any, {
@@ -89,6 +90,15 @@ const SCHEMA = [
     postings_new INTEGER,
     error_text TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS jm_scrape_source_status (
+    user_id TEXT NOT NULL REFERENCES jm_users(id),
+    source TEXT NOT NULL,
+    last_attempt_at TEXT NOT NULL,
+    last_success_at TEXT,
+    last_count INTEGER NOT NULL DEFAULT 0,
+    last_error_code TEXT,
+    PRIMARY KEY (user_id, source)
+  )`,
   `CREATE TABLE IF NOT EXISTS jm_email_send_log (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES jm_users(id),
@@ -132,6 +142,7 @@ export async function migrate() {
     "ALTER TABLE jm_user_job_matches ADD COLUMN user_action TEXT",
     "ALTER TABLE jm_users ADD COLUMN clerk_id TEXT",
     "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
+    "ALTER TABLE jm_user_profiles ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'",
   ];
   const finalStatements = ["CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)"];
 
@@ -321,13 +332,14 @@ export interface DbProfile {
   careerStartDate?: string;
   preferredCountry?: string;
   preferredCity?: string;
+  skills?: string[];
 }
 
 export async function upsertUserProfile(userId: string, profile: DbProfile): Promise<void> {
   await client.execute({
     sql: `INSERT INTO jm_user_profiles
-      (user_id, target_designation, current_employer, current_title, current_salary_fixed_lpa, current_salary_esop_lpa, current_salary_currency, career_start_date, preferred_country, preferred_city, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      (user_id, target_designation, current_employer, current_title, current_salary_fixed_lpa, current_salary_esop_lpa, current_salary_currency, career_start_date, preferred_country, preferred_city, skills_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(user_id) DO UPDATE SET
         target_designation = excluded.target_designation,
         current_employer = excluded.current_employer,
@@ -338,6 +350,7 @@ export async function upsertUserProfile(userId: string, profile: DbProfile): Pro
         career_start_date = excluded.career_start_date,
         preferred_country = excluded.preferred_country,
         preferred_city = excluded.preferred_city,
+        skills_json = excluded.skills_json,
         updated_at = datetime('now')`,
     args: [
       userId,
@@ -350,6 +363,7 @@ export async function upsertUserProfile(userId: string, profile: DbProfile): Pro
       profile.careerStartDate ?? null,
       profile.preferredCountry ?? null,
       profile.preferredCity ?? null,
+      JSON.stringify(profile.skills ?? []),
     ],
   });
 }
@@ -539,6 +553,23 @@ export async function finishScrapeRun(
   });
 }
 
+export async function upsertScrapeSourceStatuses(
+  userId: string,
+  statuses: Array<{ source: string; count: number; ok: boolean; errorCode?: string }>
+): Promise<void> {
+  if (!statuses.length) return;
+  await client.batch(statuses.map(({ source, count, ok, errorCode }) => ({
+    sql: `INSERT INTO jm_scrape_source_status (user_id, source, last_attempt_at, last_success_at, last_count, last_error_code)
+          VALUES (?, ?, datetime('now'), CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END, ?, ?)
+          ON CONFLICT(user_id, source) DO UPDATE SET
+            last_attempt_at = datetime('now'),
+            last_success_at = CASE WHEN ? = 1 THEN datetime('now') ELSE jm_scrape_source_status.last_success_at END,
+            last_count = ?,
+            last_error_code = ?`,
+    args: [userId, source, ok ? 1 : 0, count, errorCode ?? null, ok ? 1 : 0, count, errorCode ?? null],
+  })), "write");
+}
+
 // Read-path used when local data/cv.txt + profile.json aren't available (e.g. the
 // Vercel deployment, which never has the gitignored data files) - lets a deployment
 // with only Turso credentials configured still run the digest end-to-end.
@@ -568,7 +599,7 @@ export async function getUserProfileRow(userId: string): Promise<DbProfile | nul
   const result = await client.execute({
     sql: `SELECT target_designation, current_employer, current_title, current_salary_fixed_lpa,
                  current_salary_esop_lpa, current_salary_currency, career_start_date,
-                 preferred_country, preferred_city
+                 preferred_country, preferred_city, skills_json
           FROM jm_user_profiles WHERE user_id = ?`,
     args: [userId],
   });
@@ -584,6 +615,7 @@ export async function getUserProfileRow(userId: string): Promise<DbProfile | nul
     careerStartDate: (row.career_start_date as string) ?? undefined,
     preferredCountry: (row.preferred_country as string) ?? undefined,
     preferredCity: (row.preferred_city as string) ?? undefined,
+    skills: (() => { try { return JSON.parse(String(row.skills_json || "[]")); } catch { return []; } })(),
   };
 }
 
@@ -610,6 +642,7 @@ export async function saveUserProfileData(
       careerStartDate: merged.careerStartDate ?? undefined,
       preferredCountry: merged.preferredCountry ?? undefined,
       preferredCity: merged.preferredCity ?? undefined,
+      skills: merged.skills ?? [],
     });
   }
   if (update.cvText !== undefined) await upsertCv(userId, update.cvText);
@@ -724,10 +757,20 @@ export async function getPaginatedMatchesForUser(userId: string, offset: number,
           LIMIT ? OFFSET ?`,
     args: [...args, limit, offset],
   });
-  return result.rows.map((row: any) => ({
-    ...row,
-    sourceMetadata: typeof row.sourceMetadata === "string" ? JSON.parse(row.sourceMetadata) : undefined,
-  }));
+  let invalidMetadataRows = 0;
+  const rows = result.rows.map((row: any) => {
+    let sourceMetadata: unknown;
+    if (typeof row.sourceMetadata === "string" && row.sourceMetadata) {
+      try {
+        sourceMetadata = JSON.parse(row.sourceMetadata);
+      } catch {
+        invalidMetadataRows++;
+      }
+    }
+    return { ...row, sourceMetadata };
+  });
+  if (invalidMetadataRows) await captureTelemetryEvent("feed_metadata_invalid", { row_count: invalidMetadataRows });
+  return rows;
 }
 
 export async function getTotalMatchCountForUser(userId: string, opts: MatchFeedOptions = {}): Promise<number> {
@@ -893,14 +936,16 @@ export interface UserStatus {
 // Derived from real data rather than the in-memory scrape_health log, so it works
 // for every pipeline (hourly cron and UI) without touching the runner.
 export async function getUserStatus(userId: string): Promise<UserStatus> {
-  const [scan, scored, digest, user, sources] = await Promise.all([
+  const [scan, scored, digest, user, sources, checks] = await Promise.all([
     client.execute("SELECT MAX(scraped_at) AS t FROM jm_job_postings"),
     client.execute({ sql: "SELECT MAX(matched_at) AS t FROM jm_user_job_matches WHERE user_id = ? AND status IN ('new', 'scored')", args: [userId] }),
     client.execute({ sql: "SELECT MAX(sent_at) AS t FROM jm_email_send_log WHERE user_id = ? AND status = 'sent'", args: [userId] }),
     client.execute({ sql: "SELECT digest_enabled, digest_hour, timezone FROM jm_users WHERE id = ?", args: [userId] }),
     client.execute("SELECT source, COUNT(*) AS n FROM jm_job_postings WHERE scraped_at >= datetime('now', '-1 day') GROUP BY source"),
+    client.execute({ sql: "SELECT source, last_attempt_at, last_success_at, last_count, last_error_code FROM jm_scrape_source_status WHERE user_id = ?", args: [userId] }),
   ]);
   const counts = new Map<string, number>(sources.rows.map((r: any) => [String(r.source), Number(r.n)]));
+  const sourceChecks = new Map<string, any>(checks.rows.map((r: any) => [String(r.source), r]));
   const u: any = user.rows[0] ?? {};
   return {
     lastScanAt: (scan.rows[0]?.t as string) ?? null,
@@ -911,13 +956,23 @@ export async function getUserStatus(userId: string): Promise<UserStatus> {
     timezone: (u.timezone as string) || "Asia/Kolkata",
     sources: KNOWN_SOURCES.map((s) => {
       const count24h = counts.get(s) ?? 0;
+      const check = sourceChecks.get(s);
+      const recentlyChecked = Boolean(check?.last_attempt_at && Date.parse(String(check.last_attempt_at).replace(" ", "T") + "Z") >= Date.now() - 24 * 60 * 60 * 1000);
+      const hasError = Boolean(check?.last_error_code);
+      const healthy = recentlyChecked ? !hasError : count24h > 0;
       return {
         source: s,
         count24h,
-        healthy: count24h > 0,
-        statusText: count24h > 0
-          ? `${count24h} ${count24h === 1 ? "job" : "jobs"} in the last 24 hours`
-          : "No jobs in the last 24 hours. This source may be blocked or temporarily down.",
+        healthy,
+        statusText: recentlyChecked && hasError
+          ? "The latest source check failed. Other sources can still return jobs."
+          : recentlyChecked && Number(check?.last_count || 0) === 0
+            ? "Checked successfully; no postings were returned in the latest scrape."
+            : recentlyChecked && count24h === 0
+              ? `The latest scrape returned ${Number(check?.last_count || 0)} postings; results have not appeared in the feed yet.`
+            : count24h > 0
+              ? `${count24h} ${count24h === 1 ? "job" : "jobs"} in the last 24 hours`
+              : "No recent source check is available.",
       };
     }),
   };

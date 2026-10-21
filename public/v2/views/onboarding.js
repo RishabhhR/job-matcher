@@ -2,6 +2,7 @@
 // 3-step wizard: Upload CV -> Check what we found -> Where and when -> Find matches.
 // On completion: runs api.runScan to persist profile/cv/settings to the DB and start matching,
 // sets store state, and navigates to matches feed.
+import { inferCvProfile } from "../js/cvProfile.js";
 
 export const title = "Get started";
 
@@ -47,77 +48,10 @@ export async function render(root, { store, api, ui, navigate }) {
   let roleError = "";
 
   function inferProfileFromText(text) {
-    if (!text) return;
-    const lower = text.toLowerCase();
-
-    if (!targetRole) {
-      if (lower.includes("software engineer") || lower.includes("developer") || lower.includes("backend") || lower.includes("frontend") || lower.includes("full stack")) {
-        targetRole = "Software Engineer";
-      } else if (lower.includes("product manager") || lower.includes("apm") || lower.includes("associate product manager") || lower.includes("technical product manager")) {
-        targetRole = "Product Manager";
-      } else if (lower.includes("product designer") || lower.includes("ux designer") || lower.includes("ui designer") || lower.includes("ui/ux")) {
-        targetRole = "Product Designer";
-      } else if (lower.includes("data scientist") || lower.includes("machine learning") || lower.includes("data analyst")) {
-        targetRole = "Data Scientist";
-      } else if (lower.includes("engineering manager") || lower.includes("tech lead")) {
-        targetRole = "Engineering Manager";
-      }
-    }
-
-    if (!currentTitle) {
-      if (lower.includes("associate product manager") || lower.includes("apm")) {
-        currentTitle = "Associate Product Manager";
-      } else if (lower.includes("senior product manager") || lower.includes("sr product manager") || lower.includes("sr. product manager")) {
-        currentTitle = "Senior Product Manager";
-      } else if (lower.includes("product manager")) {
-        currentTitle = "Product Manager";
-      } else if (lower.includes("senior software engineer") || lower.includes("sr software engineer") || lower.includes("sr. software engineer")) {
-        currentTitle = "Senior Software Engineer";
-      } else if (lower.includes("software engineer")) {
-        currentTitle = "Software Engineer";
-      } else if (lower.includes("product designer")) {
-        currentTitle = "Product Designer";
-      } else if (lower.includes("ux designer")) {
-        currentTitle = "UX Designer";
-      }
-    }
-
-    if (!currentEmployer) {
-      const atMatch = text.match(/(?:at|@)\s+([A-Z][a-zA-Z0-9&.-]+(?:\s+[A-Z][a-zA-Z0-9&.-]+)?)/);
-      if (atMatch && atMatch[1]) {
-        const candidate = atMatch[1].trim();
-        const skip = ["present", "current", "scale", "work", "home", "remote", "least", "university", "college"];
-        if (!skip.includes(candidate.toLowerCase())) {
-          currentEmployer = candidate;
-        }
-      }
-    }
-
-    if (!careerStartDate) {
-      const dateMatch = text.match(/\b(20[0-2][0-9])-(0[1-9]|1[0-2])\b/);
-      if (dateMatch) {
-        careerStartDate = dateMatch[0];
-      } else {
-        const yearMatch = text.match(/\b(20[0-2][0-9])\b/);
-        if (yearMatch) {
-          careerStartDate = `${yearMatch[1]}-01`;
-        }
-      }
-    }
-
-    const detected = [];
-    const candidates = [
-      "growth", "experimentation", "sql", "python", "pricing", "analytics",
-      "fintech", "quick commerce", "consumer", "logistics", "ai", "b2b",
-      "figma", "user research", "wireframing", "prototyping", "design systems",
-      "react", "node.js", "typescript", "javascript", "golang", "java", "kubernetes", "aws", "docker"
-    ];
-    for (const c of candidates) {
-      if (lower.includes(c) && !detected.includes(c)) detected.push(c);
-    }
-    if (detected.length > 0) {
-      skills = Array.from(new Set([...skills, ...detected])).slice(0, 8);
-    }
+    const inferred = inferCvProfile(text);
+    if (!currentTitle) currentTitle = inferred.currentTitle;
+    if (!targetRole) targetRole = inferred.targetDesignation;
+    if (!skills.length) skills = inferred.skills;
   }
 
   function renderStep() {
@@ -200,14 +134,17 @@ export async function render(root, { store, api, ui, navigate }) {
       cvFileName = file.name;
       renderStep1();
       try {
+        const startedAt = performance.now();
         const res = await api.uploadCv(file);
         cvText = res.text || "";
         inferProfileFromText(cvText);
+        void api.trackEvent("cv_upload_success", { file_type: file.name.split(".").pop()?.toLowerCase() || "unknown", text_length: cvText.length, duration_ms: Math.round(performance.now() - startedAt) });
         ui.toast({ message: "CV uploaded successfully!" });
         step = 2;
         renderStep();
       } catch (err) {
         console.error(err);
+        void api.trackEvent("cv_upload_error", { file_type: file.name.split(".").pop()?.toLowerCase() || "unknown", status_code: Number(err?.status || 0), error_type: err?.name || "Error" });
         isUploading = false;
         renderStep1();
         ui.toast({ message: err.message || "Failed to read CV file" });
@@ -273,7 +210,7 @@ export async function render(root, { store, api, ui, navigate }) {
         <div class="onb-header">
           <p class="onb-step-tag">Step 2 of 3</p>
           <h1>Check what we found</h1>
-          <p>We read your experience and matched skills. Tweak anything that isn't quite right.</p>
+          <p>We prefill only details we can identify confidently. Review them before continuing; you can add your company, career start date, or skills if they were missed.</p>
         </div>
 
         <div class="onb-progress" aria-hidden="true">
@@ -594,15 +531,22 @@ export async function render(root, { store, api, ui, navigate }) {
       navigate("matches");
 
       // Persist profile and run scan in background
+      const scanStartedAt = performance.now();
+      void api.trackEvent("scan_started");
       try {
-        await api.runScan(payload, (type, data) => {
+        const result = await api.runScan(payload, (type, data) => {
           if (type === "progress" && data.message) {
             ui.announce(data.message);
           }
         });
+        void api.trackEvent("scan_completed", {
+          result_count: Number(result.totalMatches || 0),
+          duration_ms: Math.round(performance.now() - scanStartedAt),
+        });
         await store.refresh();
       } catch (err) {
         console.error("Initial scan error:", err);
+        void api.trackEvent("scan_error", { status_code: Number(err?.status || 0), error_type: err?.name || "Error", duration_ms: Math.round(performance.now() - scanStartedAt) });
         await store.refresh();
       }
     });

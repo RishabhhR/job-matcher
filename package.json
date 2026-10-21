@@ -22,6 +22,7 @@
     "mammoth": "^1.12.0",
     "pdfreader": "^3.0.8",
     "playwright-core": "^1.64.0",
+    "posthog-node": "^5.56.4",
     "resend": "^6.17.1"
   },
   "devDependencies": {
