@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-070] status:open from:antigravity to:antigravity opened:2026-10-21T17:30Z
-Instrument CV parsing, profile persistence, feed loading, and per-source scrape events with privacy-safe error reporting; repair layout-aware CV extraction and feed source health semantics. Scope: src/server.ts, src/db.ts, src/runner.ts, public/v2/js/api.js, public/v2/views/{profile,matches}.js, monitoring module/config/docs. Add PostHog integration behind env configuration; do not send CV/job content or direct identifiers.
-
 ### [TASK-060] status:open from:claude to:codex opened:2026-10-18T17:01Z
 BUG (found while verifying TASK-055 against prod data): scoring ignores the experience cap. Main account (~2 yrs, Associate PM) has 'Senior Product Manager I @ Sumo Logic' at fit_score 95, but match.ts's system prompt says any title containing Senior/Staff/Lead/Principal/Group/Director/VP/Head must be capped at 20 for a 2-year candidate. Likely a fallback model (the newer Groq qwen/gpt-oss or OpenRouter chain, TASK-052) not following the rule. Fix: enforce the cap in code after scoring (deterministic post-check on title seniority words + computed YoE), not only in the prompt; then re-score or clamp existing rows with seniority titles. Query to see impact: SELECT COUNT(*) FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id=m.job_posting_id WHERE m.fit_score>20 AND p.title GLOB '*[Ss]enior*'.
 
@@ -24,6 +21,11 @@ BUG (reopens TASK-049/TASK-050, both closed but cron still failing): hourly cron
 **Progress note (2026-10-18):** Implemented provider `Retry-After` parsing/circuit cooldowns, bounded patient retries, 1,200-character LLM descriptions, freshness-first scheduled scoring capped at 30 postings, and partial-scoring warnings so quota exhaustion does not fail a run after digest sends. Hourly cron now skips accounts without a Clerk identity. `npm run typecheck` and `git diff --check` passed. No live provider requests or production deployment yet; TASK-051 remains open until deployed workflow behavior is verified. Duplicate-account merging is not automated because the ledger does not establish that distinct Clerk identities belong to one person.
 
 ## Resolved / Log
+
+### [TASK-070] status:done from:antigravity to:antigravity opened:2026-10-21T17:30Z
+Instrument CV parsing, profile persistence, feed loading, and per-source scrape events with privacy-safe error reporting; repair layout-aware CV extraction and feed source health semantics. Scope: src/server.ts, src/db.ts, src/runner.ts, public/v2/js/api.js, public/v2/views/{profile,matches}.js, monitoring module/config/docs. Add PostHog integration behind env configuration; do not send CV/job content or direct identifiers.
+
+**Done Note (2026-10-21T17:44Z):** Implemented conservative CV profile inference and layout-aware PDF extraction with parse-quality checks; skills persist through validation, Turso migration, and profile writes. Matches API errors now return stable user-facing text and malformed optional source metadata no longer fails an entire page. Added per-user scrape status and truthful source-health messaging. Added privacy-filtered PostHog event and exception capture for parsing, scraping, profile saves, scans, and feed loading; documented Vercel/GitHub Actions key setup. Verified npm run typecheck, frontend node --check, and git diff --check. Live telemetry activation requires POSTHOG_PROJECT_TOKEN; production deployment/release verification remains with the open release task.
 
 ### [TASK-069] status:done from:codex to:codex opened:2026-10-18T21:18Z
 Add a branded browser favicon for the main and v2 pages by sharing the existing JobMatcher trend mark as an SVG asset, link it from both HTML documents, then deploy and verify the production asset.
