@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-083] status:open from:claude to:claude opened:2026-10-22T20:00Z
+Manual digest (claude, 2026-10-23, user request after live incident TASK-082): new workflow manual-digest.yml (workflow_dispatch, input user_id = jm_users.id prefix, never an email - repo is public) runs src/manualDigest.ts: scrape + score for that user FIRST, then email top matches via Gmail (scheduled runs email stored matches before scraping, so a new user's first mail would only come the next day). One manual send per user per local day (claimEmailSend slot 'manual'). Saving scored matches moves to src/saveMatches.ts, shared with cron.ts.
+
 ### [TASK-082] status:open from:claude to:claude opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test. OPEN: root-cause pdf2json 4.x on Vercel before re-applying the xmldom fix (e.g. reproduce with vercel dev / a preview deploy and a test upload), and add an upload timeout so a hung parse returns an error instead of a 5-minute spinner.
 
