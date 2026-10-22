@@ -2,6 +2,11 @@ name: Send Service Restoration Update
 
 on:
   workflow_dispatch:
+    inputs:
+      target_email:
+        description: "Specific user email to send update to (leave empty for all users)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Send Service Restoration Email to All Users
+      - name: Send Service Restoration Email
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
@@ -27,4 +32,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          TARGET_EMAIL: ${{ inputs.target_email }}
         run: npm run send-service-update

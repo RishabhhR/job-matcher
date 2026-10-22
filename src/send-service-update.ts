@@ -6,12 +6,18 @@ async function main() {
   console.log("[send-service-update] Initializing service restoration broadcast...");
   await ensureMigrated();
 
-  // Find all registered users with clerk_id
-  const usersRes = await client.execute(
-    "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL"
-  );
+  // Find registered users with clerk_id (filter by TARGET_EMAIL if set)
+  const targetEmail = process.env.TARGET_EMAIL?.trim().toLowerCase();
+  const usersRes = targetEmail
+    ? await client.execute({
+        sql: "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL AND lower(email) = ?",
+        args: [targetEmail],
+      })
+    : await client.execute(
+        "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL"
+      );
   const users = usersRes.rows;
-  console.log(`[send-service-update] Found ${users.length} registered users.`);
+  console.log(`[send-service-update] Found ${users.length} target registered user(s).`);
 
   let successCount = 0;
   let errorCount = 0;
