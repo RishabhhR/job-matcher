@@ -274,7 +274,7 @@ async function performAction(card, button) {
     return;
   }
   if (operation === "saved") await saveAction(match, "saved", { hide: false, message: "Match saved" });
-  if (operation === "unsave") await saveAction(match, null, { hide: false, message: "Removed from saved matches" });
+  if (operation === "unsave") await saveAction(match, null, { hide: false, message: "Removed from saved matches", eventAction: "unsave" });
   if (operation === "dismissed") await saveAction(match, "dismissed", { hide: true, message: "Match hidden", undo: true });
 }
 
@@ -282,7 +282,8 @@ function safeHttpUrl(value) {
   try { const url = new URL(value); return url.protocol === "https:" || url.protocol === "http:"; } catch { return false; }
 }
 
-async function saveAction(match, action, { hide, message, undo = false }) {
+async function saveAction(match, action, { hide, message, undo = false, eventAction = action || "unsave" }) {
+  const startedAt = performance.now();
   const previous = match.userAction || null;
   const wasVisible = state.results.includes(match);
   const removeFromCurrentTab = hide || (state.tab === "new" && Boolean(action)) || (state.tab === "saved" && action !== "saved") || (state.tab === "applied" && action !== "applied");
@@ -293,8 +294,18 @@ async function saveAction(match, action, { hide, message, undo = false }) {
   try {
     await context.api.setMatchAction(state.userId, match.matchId, action);
     await context.store.refresh();
-    context.ui.toast({ message, actionLabel: undo ? "Undo" : undefined, onAction: undo ? () => saveAction(match, previous, { hide: false, message: "Dismissal undone" }) : undefined });
+    void context.api.trackEvent("match_action_success", {
+      action: eventAction,
+      duration_ms: Math.round(performance.now() - startedAt),
+    });
+    context.ui.toast({ message, actionLabel: undo ? "Undo" : undefined, onAction: undo ? () => saveAction(match, previous, { hide: false, message: "Dismissal undone", eventAction: "undo" }) : undefined });
   } catch (error) {
+    void context.api.trackEvent("match_action_error", {
+      action: eventAction,
+      status_code: Number(error?.status || 0),
+      error_type: error?.name || "Error",
+      duration_ms: Math.round(performance.now() - startedAt),
+    });
     match.userAction = previous;
     if (removeFromCurrentTab && wasVisible) { match.__dismissed = false; state.results.unshift(match); state.total += 1; }
     draw();

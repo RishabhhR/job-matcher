@@ -17,7 +17,11 @@ Client events are authenticated and allowlisted by `/api/events`. Error events i
 - CV parsing: `cv_parse_completed`, `$exception` for parser failures, and `cv_upload_success` / `cv_upload_error` from the interface.
 - Profile persistence: `profile_save_success` / `profile_save_error`.
 - Matches: `match_feed_loaded`, `$exception` for feed failures, and `match_feed_load_success` / `match_feed_load_error` from the interface.
+- Match actions: `match_action_success` / `match_action_error` for save, unsave, apply, dismiss, and undo actions.
 - Scraping: `scrape_completed` and one `scrape_source_result` per source, including a success flag and posting count.
 - Onboarding: `scan_started`, `scan_completed`, and `scan_error`.
+- Other diagnostics: `$exception` for parser, scan, scraper, and unhandled request errors; `feed_metadata_invalid` only when malformed feed metadata is found.
+
+Events appear in the project schema after the first occurrence. Events with no matching user action or failure remain absent until that condition happens.
 
 The Matches source panel now reads scrape success separately from posting volume. A healthy scrape that returns zero jobs is labeled as a successful empty result; a failed scrape is labeled as a failed source check. This prevents quiet job boards from being reported as blocked.
