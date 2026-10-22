@@ -235,7 +235,10 @@ async function callGitHubModels(messages: Message[], model?: string, timeoutMs =
   }
 }
 
-async function callOpenRouter(messages: Message[], timeoutMs = 30000): Promise<LLMResult> {
+// Free OpenRouter models are slow: one 6-posting batch on nemotron-3.5-super took 100-255s
+// (TASK-080). The timer stays armed until the body is read - clearing it once headers
+// arrived let a stalled body hang a run indefinitely.
+async function callOpenRouter(messages: Message[], model: string, timeoutMs = 300000): Promise<LLMResult> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return { offline: true, content: "", warning: "OPENROUTER_API_KEY not set" };
 
@@ -248,23 +251,19 @@ async function callOpenRouter(messages: Message[], timeoutMs = 30000): Promise<L
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        // "mistralai/mistral-7b-instruct" isn't a free model - would fail (or charge)
-        // on a $0-balance account. Confirmed via GET /v1/models that this is a current
-        // ":free" model with declared JSON-mode support. qwen3-next-80b was tried
-        // first but its upstream provider (Venice) was persistently 429-ing as
-        // oversubscribed; nemotron-3-super's upstream (Nvidia) responded cleanly.
-        model: "nvidia/nemotron-3-super-120b-a12b:free",
+        model,
         messages,
         temperature: 0.2,
         response_format: { type: "json_object" },
       }),
     });
-    clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      clearTimeout(timer);
       return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `OpenRouter HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
+    clearTimeout(timer);
     return { offline: false, content: data.choices[0].message.content };
   } catch {
     clearTimeout(timer);
@@ -409,10 +408,20 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   noteRetry(gh);
   if (gh.warning) console.warn(`[ai] github (${ghModel}): ${gh.warning}`);
 
-  const or = await callWithCircuit("openrouter", () => callOpenRouter(messages));
-  if (!or.offline) return { content: or.content, provider: "openrouter", warning: "Used OpenRouter fallback" };
-  noteRetry(or);
-  if (or.warning) console.warn(`[ai] openrouter: ${or.warning}`);
+  // OpenRouter free tier (TASK-080): ~50 free-model requests/day, 20/min, failed attempts
+  // count too - so each model has its own circuit breaker. Only ":free" models with JSON
+  // mode; nemotron-3-super:free started returning 404 (provider gone) in Oct 2026.
+  const openRouterModels = [
+    process.env.OPENROUTER_MODEL || "nvidia/nemotron-3.5-super-vl:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+  ];
+  for (const model of [...new Set(openRouterModels)]) {
+    const or = await callWithCircuit(`openrouter:${model}`, () => callOpenRouter(messages, model));
+    if (!or.offline) return { content: or.content, provider: `openrouter-${model}`, warning: "Used OpenRouter fallback" };
+    noteRetry(or);
+    if (or.warning) console.warn(`[ai] openrouter (${model}): ${or.warning}`);
+  }
 
   // Cerebras' free tier now needs a card (HTTP 402); kept last so a paid key still works.
   const cerebras = await callWithCircuit("cerebras", () => callCerebras(messages));
