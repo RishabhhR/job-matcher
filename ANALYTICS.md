@@ -20,8 +20,10 @@ counted. Anonymous browser IDs can represent the same person on multiple devices
 
 The production domain is authorized for Web Analytics. Heatmap capture is enabled
 in the PostHog project, with `https://job-matcher-ecru.vercel.app/*` saved as
-the allowed URL pattern. This covers the legacy page and all `/v2/` hash routes
-within the free plan's three-pattern limit. PostHog recorded a click coordinate
+the allowed URL pattern. PostHog currently accepts this rule and reports that
+it covers all observed legacy and `/v2/` pages. Its free-plan notice says
+capture will be limited to three pages from 15 November 2026; revisit the
+rule before that change. PostHog recorded a click coordinate
 on the authenticated Matches route after this rule was saved. Saved views are
 available for [sign-in](https://us.posthog.com/project/679145/heatmaps/EVyNHy1b),
 [Matches](https://us.posthog.com/project/679145/heatmaps/AMLQf4gy),
