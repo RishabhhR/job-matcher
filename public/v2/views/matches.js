@@ -8,6 +8,9 @@ let state = null;
 let requestId = 0;
 let slowLoadTimer = null;
 const PAGE_SIZE = 10;
+// "new" holds every match without a Save/Applied/Not relevant action, not just the ones
+// since the last digest, so it is labelled "To review" (TASK-059).
+const TAB_LABELS = { new: "To review", saved: "Saved", applied: "Applied", all: "All" };
 
 const dateLabel = (value, ui) => value ? ui.timeAgo(value) : "";
 const profileValue = (profile, ...keys) => {
@@ -199,7 +202,7 @@ function draw() {
   const tabs = ["new", "saved", "applied", "all"];
   const filter = context.ui.html`
     <div class="filter-panel card card-pad-sm" data-analytics-section="matches_filters">
-      <nav class="match-tabs" aria-label="Filter matches">${tabs.map((tab) => context.ui.html`<button type="button" class="match-tab ${state.tab === tab ? "is-active" : ""}" data-tab="${tab}" aria-current="${state.tab === tab ? "page" : "false"}">${humanize(tab)} <span>${Number(countFor[tab] || 0)}</span></button>`)}</nav>
+      <nav class="match-tabs" aria-label="Filter matches">${tabs.map((tab) => context.ui.html`<button type="button" class="match-tab ${state.tab === tab ? "is-active" : ""}" data-tab="${tab}" aria-current="${state.tab === tab ? "page" : "false"}">${TAB_LABELS[tab]} <span>${Number(countFor[tab] || 0)}</span></button>`)}</nav>
       <div class="filter-controls">
         <label class="sr-only" for="match-search">Filter by title or company</label><input id="match-search" class="input match-search" type="search" placeholder="Filter by title or company" value="${state.query}" />
         <label class="sr-only" for="minimum-score">Minimum score</label><select class="select" id="minimum-score"><option value="">Any score</option><option value="60" ${state.minScore === "60" ? "selected" : ""}>Score 60+</option><option value="70" ${state.minScore === "70" ? "selected" : ""}>Score 70+</option><option value="80" ${state.minScore === "80" ? "selected" : ""}>Score 80+</option></select>
