@@ -55,7 +55,26 @@ export class LLMProvidersUnavailableError extends Error {
   }
 }
 
-async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Promise<LLMResult> {
+export function resetDisabledProviders(): void {
+  disabledProviders.clear();
+}
+
+export function getDisabledProviders(): Map<string, number> {
+  return new Map(disabledProviders);
+}
+
+export async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Promise<LLMResult> {
+  const provider = key.includes(":") ? key.split(":")[0] : key;
+  const providerKey = `provider:${provider}`;
+
+  const providerDisabledUntil = disabledProviders.get(providerKey);
+  if (providerDisabledUntil && providerDisabledUntil > Date.now()) {
+    return { offline: true, content: "", retryAfterMs: providerDisabledUntil - Date.now(), warning: `Provider ${provider} is cooling down` };
+  }
+  if (providerDisabledUntil) {
+    disabledProviders.delete(providerKey);
+  }
+
   const disabledUntil = disabledProviders.get(key);
   if (disabledUntil && disabledUntil > Date.now()) return { offline: true, content: "", retryAfterMs: disabledUntil - Date.now() };
   if (disabledUntil) {
@@ -67,6 +86,14 @@ async function callWithCircuit(key: string, call: () => Promise<LLMResult>): Pro
       ? result.retryAfterMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS
       : CIRCUIT_COOLDOWN_MS;
     disabledProviders.set(key, Date.now() + cooldownMs);
+
+    // Rate limits (429) or billing/credential errors (401, 402, 403) affect the entire
+    // provider organization/account. Trip the provider circuit so subsequent models
+    // on the same shared quota avoid doomed HTTP calls. 404 is model-specific.
+    if (result.status !== 404) {
+      disabledProviders.set(providerKey, Date.now() + cooldownMs);
+    }
+
     if (result.status === 429) result.retryAfterMs = cooldownMs;
   }
   return result;
@@ -125,12 +152,13 @@ async function callGemini(systemPrompt: string, userPrompt: string, timeoutMs = 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return { offline: true, content: "", warning: "GEMINI_API_KEY not set" };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const preferredModel = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const res = await fetch(url, {
+  const postToModel = async (model: string) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    return fetch(url, {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json" },
@@ -140,17 +168,70 @@ async function callGemini(systemPrompt: string, userPrompt: string, timeoutMs = 
         generationConfig: { responseMimeType: "application/json", temperature: 0.2 },
       }),
     });
+  };
+
+  try {
+    let res = await postToModel(preferredModel);
+    // If the configured/default lite model returns 404 (not yet enabled on account), fall back to gemini-2.5-flash
+    if (res.status === 404 && preferredModel !== "gemini-2.5-flash") {
+      res = await postToModel("gemini-2.5-flash");
+    }
     clearTimeout(timer);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Gemini HTTP ${res.status}: ${body.slice(0, 300)}` };
     }
     const data = await res.json();
-    const content = data.candidates[0].content.parts[0].text;
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) return { offline: true, content: "", warning: "Gemini response contained no candidate parts" };
     return { offline: false, content };
   } catch {
     clearTimeout(timer);
     return { offline: true, content: "", warning: "Gemini request failed or timed out" };
+  }
+}
+
+async function callGitHubModels(messages: Message[], model?: string, timeoutMs = 60000): Promise<LLMResult> {
+  const apiKey = process.env.GITHUB_MODELS_TOKEN || process.env.GITHUB_TOKEN;
+  if (!apiKey) return { offline: true, content: "", warning: "GITHUB_TOKEN / GITHUB_MODELS_TOKEN not set" };
+
+  const targetModel = model || process.env.GITHUB_MODEL || "gpt-4o-mini";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: targetModel,
+        messages,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return {
+        offline: true,
+        content: "",
+        status: res.status,
+        retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined,
+        warning: `GitHub Models HTTP ${res.status}: ${body.slice(0, 300)}`
+      };
+    }
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return { offline: true, content: "", warning: "GitHub Models response contained no content" };
+    return { offline: false, content };
+  } catch {
+    clearTimeout(timer);
+    return { offline: true, content: "", warning: "GitHub Models request failed or timed out" };
   }
 }
 
@@ -320,6 +401,13 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   if (!gemini.offline) return { content: gemini.content, provider: "gemini", warning: "Used Gemini fallback" };
   noteRetry(gemini);
   if (gemini.warning) console.warn(`[ai] gemini: ${gemini.warning}`);
+
+  // GitHub Models via Azure AI (free via GITHUB_TOKEN or GITHUB_MODELS_TOKEN)
+  const ghModel = process.env.GITHUB_MODEL || "gpt-4o-mini";
+  const gh = await callWithCircuit(`github:${ghModel}`, () => callGitHubModels(messages, ghModel));
+  if (!gh.offline) return { content: gh.content, provider: `github-${ghModel}`, warning: "Used GitHub Models fallback" };
+  noteRetry(gh);
+  if (gh.warning) console.warn(`[ai] github (${ghModel}): ${gh.warning}`);
 
   const or = await callWithCircuit("openrouter", () => callOpenRouter(messages));
   if (!or.offline) return { content: or.content, provider: "openrouter", warning: "Used OpenRouter fallback" };

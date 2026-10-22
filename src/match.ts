@@ -97,11 +97,67 @@ function sanitizeDescriptionForLLM(text: string): string {
     .slice(0, 1200);
 }
 
+export const DEFAULT_BATCH_SIZE = Number(process.env.SCORE_BATCH_SIZE) || 4;
+
+export function extractValidScoreItems(
+  rawResults: unknown,
+  postings: RawPosting[],
+  yearsOfExperience: number | null
+): Map<number, LLMScoreItem> {
+  const scoredMap = new Map<number, LLMScoreItem>();
+  if (!Array.isArray(rawResults)) return scoredMap;
+  const validLabels = new Set(["upgrade", "lateral", "downgrade", "unknown"]);
+
+  // If the LLM omitted job_index entirely but returned an array matching the postings count,
+  // we can infer indices sequentially.
+  const hasExplicitIndex = rawResults.some((r) => r && typeof r === "object" && "job_index" in r);
+
+  for (let i = 0; i < rawResults.length; i++) {
+    const r = rawResults[i];
+    if (!r || typeof r !== "object") continue;
+
+    const targetIndex = hasExplicitIndex ? (r as any).job_index : i;
+    if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= postings.length) continue;
+    if (scoredMap.has(targetIndex)) continue;
+
+    const fitScore = (r as any).fit_score;
+    const reasoningTextRaw = (r as any).reasoning_text;
+    const compFitLabel = (r as any).comp_fit_label;
+
+    if (typeof fitScore !== "number" || !Number.isFinite(fitScore)) continue;
+    if (typeof reasoningTextRaw !== "string") continue;
+    if (!validLabels.has(compFitLabel)) continue;
+
+    let score = Math.max(0, Math.min(100, fitScore));
+    let reasoningText = reasoningTextRaw || "Evaluated by AI";
+    if (reasoningText.toLowerCase().includes("prompt injection") || reasoningText.toLowerCase().includes("redacted_injection")) {
+      score = 0;
+    }
+    const seniorityGuard = enforceEarlyCareerSeniorityCap(score, postings[targetIndex].title, yearsOfExperience);
+    if (seniorityGuard.capped) {
+      score = seniorityGuard.fitScore;
+      reasoningText = `${reasoningText.trim()} Seniority cap applied: this senior-level title is a poor fit for an early-career profile.`;
+    }
+
+    scoredMap.set(targetIndex, {
+      job_index: targetIndex,
+      fit_score: score,
+      comp_fit_label: compFitLabel,
+      reasoning_text: reasoningText,
+    });
+  }
+  return scoredMap;
+}
+
 export async function scoreBatch(
   cvText: string,
   profile: Profile,
   postings: RawPosting[]
 ): Promise<{ results: LLMScoreItem[]; provider: string; warning?: string }> {
+  if (postings.length === 0) {
+    return { results: [], provider: "none" };
+  }
+
   // Random per-run delimiter nonce: even if some bracket somehow survived, the
   // untrusted content cannot guess this tag name to forge a matching close tag.
   const nonce = randomBytes(6).toString("hex");
@@ -146,41 +202,15 @@ Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score":
 
   const { content, provider, warning } = await callLLM(messages);
   const parsed = parseJSON<{ results: LLMScoreItem[] }>(content, { results: [] });
-  if (!Array.isArray(parsed.results) || parsed.results.length !== postings.length) {
-    throw new Error(`LLM returned ${Array.isArray(parsed.results) ? parsed.results.length : 0} scores for ${postings.length} postings.`);
+  const scoredMap = extractValidScoreItems(parsed.results, postings, yearsOfExperience);
+
+  if (scoredMap.size === 0) {
+    throw new Error(`LLM returned no valid scores for ${postings.length} postings.`);
   }
 
-  const seenIndexes = new Set<number>();
-  const validLabels = new Set(["upgrade", "lateral", "downgrade", "unknown"]);
-  const validatedResults = parsed.results.map((r) => {
-    if (!Number.isInteger(r.job_index) || r.job_index < 0 || r.job_index >= postings.length || seenIndexes.has(r.job_index)) {
-      throw new Error("LLM returned a missing, duplicate, or invalid job_index.");
-    }
-    if (typeof r.fit_score !== "number" || !Number.isFinite(r.fit_score) || typeof r.reasoning_text !== "string") {
-      throw new Error(`LLM returned an invalid score object for job index ${r.job_index}.`);
-    }
-    if (!validLabels.has(r.comp_fit_label)) {
-      throw new Error(`LLM returned an invalid comp_fit_label for job index ${r.job_index}.`);
-    }
-    seenIndexes.add(r.job_index);
-    let score = Math.max(0, Math.min(100, r.fit_score));
-    let reasoningText = r.reasoning_text || "Evaluated by AI";
-    if (r.reasoning_text.toLowerCase().includes("prompt injection") || r.reasoning_text.toLowerCase().includes("redacted_injection")) {
-      score = 0;
-    }
-    const seniorityGuard = enforceEarlyCareerSeniorityCap(score, postings[r.job_index].title, yearsOfExperience);
-    if (seniorityGuard.capped) {
-      score = seniorityGuard.fitScore;
-      reasoningText = `${reasoningText.trim()} Seniority cap applied: this senior-level title is a poor fit for an early-career profile.`;
-    }
-    return {
-      job_index: r.job_index,
-      fit_score: score,
-      comp_fit_label: r.comp_fit_label,
-      reasoning_text: reasoningText,
-    };
-  });
-
+  // Return whatever valid scores were parsed. Partial returns will be salvaged
+  // by scoreBatchWithRetry so only missing postings are retried, preventing token waste.
+  const validatedResults = Array.from(scoredMap.values()).sort((a, b) => a.job_index - b.job_index);
   return { results: validatedResults, provider, warning };
 }
 
@@ -206,55 +236,117 @@ async function scoreBatchWithRetry(
   batch: RawPosting[],
   retryOptions: RetryOptions = {}
 ): Promise<{ results: LLMScoreItem[]; provider: string; warning?: string }> {
+  if (batch.length === 0) return { results: [], provider: "none" };
   const { retries, baseBackoffMs, maxBackoffMs } = { ...FAST_RETRY, ...retryOptions };
-  for (let attempt = 0; attempt <= retries; attempt++) {
+
+  // Track successfully evaluated postings by their original index in 'batch'
+  const accumulated = new Map<number, LLMScoreItem>();
+  let remainingIndices = batch.map((_, i) => i);
+  let lastProvider = "none";
+  let lastWarning: string | undefined;
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= retries && remainingIndices.length > 0; attempt++) {
     try {
-      return await scoreBatch(cvText, profile, batch);
+      const subBatch = remainingIndices.map((i) => batch[i]);
+      const { results, provider, warning } = await scoreBatch(cvText, profile, subBatch);
+      lastProvider = provider;
+      if (warning) lastWarning = warning;
+
+      // Map sub-batch results back to original batch indices
+      for (const item of results) {
+        const originalIndex = remainingIndices[item.job_index];
+        if (originalIndex !== undefined) {
+          accumulated.set(originalIndex, {
+            ...item,
+            job_index: originalIndex,
+          });
+        }
+      }
+
+      // Re-evaluate what remains unscored
+      remainingIndices = remainingIndices.filter((idx) => !accumulated.has(idx));
+      if (remainingIndices.length === 0) {
+        break; // All postings in the batch have been successfully scored!
+      }
+
+      console.warn(
+        `[match] Partial batch scored: ${accumulated.size}/${batch.length} postings complete. Retrying ${remainingIndices.length} remaining posting(s) without discarding successful scores.`
+      );
     } catch (err) {
-      if (attempt === retries) {
-        console.error(`[match] batch failed after ${retries} retries: ${(err as Error).message}`);
-        throw new Error(`Scoring batch failed after ${retries + 1} attempts: ${(err as Error).message}`);
+      lastError = err as Error;
+      if (attempt === retries || remainingIndices.length === 0) {
+        break;
       }
       const retryAfterMs = err instanceof LLMProvidersUnavailableError ? err.retryAfterMs : undefined;
       if (retryAfterMs !== undefined && retryAfterMs > maxBackoffMs) {
         console.warn(`[match] provider reset is ${retryAfterMs}ms away, beyond this run's retry budget; not retrying early.`);
-        throw err;
+        break;
       }
       const backoffMs = Math.max(Math.min(baseBackoffMs * 2 ** attempt, maxBackoffMs), retryAfterMs ?? 0);
       console.warn(`[match] provider chain unavailable; retrying in ${backoffMs}ms (attempt ${attempt + 1}/${retries})...`);
       await sleep(backoffMs);
     }
   }
-  return { results: [], provider: "none" };
+
+  // If we scored at least one posting, preserve and return the successful scores!
+  if (accumulated.size > 0) {
+    if (remainingIndices.length > 0) {
+      console.warn(
+        `[match] Batch partially scored: saved ${accumulated.size} of ${batch.length} postings; ${remainingIndices.length} remaining postings left pending due to provider capacity.`
+      );
+    }
+    return {
+      results: Array.from(accumulated.values()).sort((a, b) => a.job_index - b.job_index),
+      provider: lastProvider,
+      warning: lastWarning,
+    };
+  }
+
+  throw new Error(`Scoring batch failed after ${retries + 1} attempts: ${lastError?.message || "All LLM providers unavailable."}`);
 }
 
 export async function scoreAll(
   cvText: string,
   profile: Profile,
   postings: RawPosting[],
-  batchSize = 6,
+  batchSize = DEFAULT_BATCH_SIZE,
   retryOptions: RetryOptions = {}
 ): Promise<{ results: ScoredMatch[]; provider: string }> {
   const batches = chunk(postings, batchSize);
   const matches: ScoredMatch[] = [];
   let lastProvider = "none";
+  let hasBatchFailure = false;
 
   for (const batch of batches) {
-    const { results, provider, warning } = await scoreBatchWithRetry(cvText, profile, batch, retryOptions);
-    lastProvider = provider;
-    if (warning) console.warn(`[match] provider=${provider} warning=${warning}`);
-    for (const r of results) {
-      const posting = batch[r.job_index];
-      if (!posting) continue;
-      matches.push({
-        posting,
-        fitScore: r.fit_score,
-        compFitLabel: r.comp_fit_label,
-        reasoningText: r.reasoning_text,
-      });
+    try {
+      const { results, provider, warning } = await scoreBatchWithRetry(cvText, profile, batch, retryOptions);
+      lastProvider = provider;
+      if (warning) console.warn(`[match] provider=${provider} warning=${warning}`);
+      for (const r of results) {
+        const posting = batch[r.job_index];
+        if (!posting) continue;
+        matches.push({
+          posting,
+          fitScore: r.fit_score,
+          compFitLabel: r.comp_fit_label,
+          reasoningText: r.reasoning_text,
+        });
+      }
+    } catch (err) {
+      hasBatchFailure = true;
+      console.warn(`[match] A batch failed during scoreAll: ${(err as Error).message}`);
+      // If some matches were already scored in earlier batches, don't discard them!
+      // The circuit breaker is open so subsequent batches will fail anyway. Stop the loop.
+      break;
     }
-    const sleepMs = provider === "gemini" ? 4000 : 1500;
+    const sleepMs = lastProvider === "gemini" ? 4000 : 1500;
     await sleep(sleepMs);
+  }
+
+  // If no postings could be scored at all and we had a batch failure, throw
+  if (matches.length === 0 && postings.length > 0 && hasBatchFailure) {
+    throw new LLMProvidersUnavailableError("All LLM providers failed to score any postings.");
   }
 
   return {
