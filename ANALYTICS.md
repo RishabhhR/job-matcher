@@ -18,13 +18,20 @@ bounce and scroll reports. `page_leave.active_duration_ms` counts time while the
 tab is visible. A browser without JavaScript, or with tracking blocked, is not
 counted. Anonymous browser IDs can represent the same person on multiple devices.
 
-The PostHog project has heatmap capture enabled. The SDK captures click maps and
-scroll data; on PostHog's free plan, configure up to three allowed URL patterns
-in **Project settings → Heatmaps → Heatmap capture URLs**. Recommended current
-pages: `https://job-matcher-ecru.vercel.app/v2/#/matches`,
-`https://job-matcher-ecru.vercel.app/v2/#/profile`, and
-`https://job-matcher-ecru.vercel.app/v2/#/settings`. The `/#/` fragment is a
-client route, so check PostHog's recorded URL format before adding patterns.
+The production domain is authorized for Web Analytics. Heatmap capture is enabled
+in the PostHog project, with `https://job-matcher-ecru.vercel.app/*` saved as
+the allowed URL pattern. This covers the legacy page and all `/v2/` hash routes
+within the free plan's three-pattern limit. PostHog recorded a click coordinate
+on the authenticated Matches route after this rule was saved. Heatmap overlays
+for authenticated pages may show a sign-in screen when PostHog renders their
+background without the user's browser session; the captured click coordinates
+and section-view events remain available.
+
+The [JobMatcher Product Analytics dashboard](https://us.posthog.com/project/679145/dashboard/2246568)
+contains visitors, visits, average session duration, average active time per
+page, top pages, CTA clicks, sections seen, and page loads. The Web Analytics
+view also reports visitor and session metrics. Counts begin with the browser
+analytics rollout on 22 October 2026, so earlier periods will be empty.
 
 No CV text, profile field values, email address, job title, job URL, or match ID
 is sent as a custom event property. Autocapture masks text and element
