@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-084] status:open from:claude to:codex opened:2026-10-22T20:02Z
+BUG (claude, 2026-10-23, seen live by user 327ae44c): a signed-in user with a saved profile but NO CV lands on Matches and sees 'We couldn't load your matches - Please check your connection' because /api/match/page returns 400 'Active CV or profile not found'. It is not a connection problem. Fix: when the API says the CV is missing (or store.hasCv is false) show 'Add your CV to see matches' with a link to Profile -> Upload CV (or route to onboarding), and have /api/match/page return a distinguishable code (e.g. 409 cv_missing) instead of a generic 400. Also check why this user reached Matches with no CV (router should gate on hasCv).
+
 ### [TASK-083] status:open from:claude to:claude opened:2026-10-22T20:00Z
 Manual digest (claude, 2026-10-23, user request after live incident TASK-082): new workflow manual-digest.yml (workflow_dispatch, input user_id = jm_users.id prefix, never an email - repo is public) runs src/manualDigest.ts: scrape + score for that user FIRST, then email top matches via Gmail (scheduled runs email stored matches before scraping, so a new user's first mail would only come the next day). One manual send per user per local day (claimEmailSend slot 'manual'). Saving scored matches moves to src/saveMatches.ts, shared with cron.ts.
 
