@@ -21,6 +21,8 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 
 ## Resolved / Log
 
+**In progress (claude, 2026-10-23, user approved the swap):** user signed in on prod /v2/ with the real account - feed, scores, profile chips, digest and source health all render with real data. Doing: v2 index.html asset paths -> absolute /v2/...; vercel.json '/' -> public/v2/index.html, old UI kept at /classic; Matches tab 'New' relabelled 'To review' (it holds every match without a user action - 731 - while the header counts 30 since the last digest).
+
 ### [TASK-081] status:done from:antigravity to:antigravity opened:2026-10-22T18:29Z
 Send service restoration and top scored job matches update email to all registered users. Scope: src/mailer.ts, src/send-service-update.ts, .github/workflows/send-update.yml, package.json. Broadcast update via Gmail SMTP to all Clerk registered users with personalized top scored jobs and platform status.
 
