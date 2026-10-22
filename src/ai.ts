@@ -228,7 +228,7 @@ async function callCerebras(messages: Message[], timeoutMs = 60000): Promise<LLM
   }
 }
 
-async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMResult> {
+async function callMistral(messages: Message[], model: string, timeoutMs = 60000): Promise<LLMResult> {
   const apiKey = process.env.MISTRAL_API_KEY;
   if (!apiKey) return { offline: true, content: "", warning: "MISTRAL_API_KEY not set" };
 
@@ -241,7 +241,7 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
       signal: controller.signal,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "mistral-small-latest",
+        model,
         messages,
         temperature: 0.2,
         response_format: { type: "json_object" },
@@ -262,8 +262,8 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
 }
 
 export async function callLLM(messages: Message[]): Promise<{ content: string; provider: string; warning?: string }> {
-  // Fallback chain: primary Groq model → Mistral → two more Groq models → Gemini
-  // → OpenRouter → Cerebras. Keep stale model names out of
+  // Fallback chain: Groq gpt-oss-20b → Groq gpt-oss-120b → Mistral (ministral 14B,
+  // then 8B) → Groq qwen → Gemini → OpenRouter → Cerebras. Keep stale model names out of
   // this chain: a decommissioned Groq default silently pushes every batch to Gemini.
   let shortestRetryAfterMs: number | undefined;
   const noteRetry = (result: LLMResult) => {
@@ -278,19 +278,29 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   noteRetry(groq);
   if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
 
-  // Mistral second (TASK-074): its free tier allows far more tokens per minute than
-  // Groq's 6-12K, so it absorbs the load when the primary Groq model is throttled.
-  const mistral = await callWithCircuit("mistral", () => callMistral(messages));
-  if (!mistral.offline) return { content: mistral.content, provider: "mistral", warning: "Used Mistral fallback" };
-  noteRetry(mistral);
-  if (mistral.warning) console.warn(`[ai] mistral: ${mistral.warning}`);
-
   const groqFallbackModel = "openai/gpt-oss-120b";
   if (primaryModel !== groqFallbackModel) {
     const groqSmall = await callWithCircuit(`groq:${groqFallbackModel}`, () => callGroq(messages, groqFallbackModel));
     if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-gpt-oss-120b", warning: "Used Groq GPT-OSS fallback model" };
     noteRetry(groqSmall);
     if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
+  }
+
+  // Mistral after both GPT-OSS models (TASK-074/077): the free plan allows ministral-14b-2512 937,500
+  // tokens/min (30 req/min) and ministral-8b-2512 625,000 (188 req/min), vs Groq's
+  // 6-12K, so it absorbs the load when both Groq models are throttled. It sits behind
+  // gpt-oss-120b because its scores were noisier on real postings (mean 27 points off
+  // stored scores across 12 postings).
+  // mistral-small/medium get 0 req/min and mistral-large is 403 on the free plan.
+  const mistralModels = [
+    process.env.MISTRAL_MODEL || "ministral-14b-2512",
+    process.env.MISTRAL_FALLBACK_MODEL || "ministral-8b-2512",
+  ];
+  for (const model of [...new Set(mistralModels)]) {
+    const mistral = await callWithCircuit(`mistral:${model}`, () => callMistral(messages, model));
+    if (!mistral.offline) return { content: mistral.content, provider: `mistral-${model}`, warning: "Used Mistral fallback" };
+    noteRetry(mistral);
+    if (mistral.warning) console.warn(`[ai] mistral (${model}): ${mistral.warning}`);
   }
 
   const qwenModel = "qwen/qwen3.8-27b";
