@@ -111,10 +111,27 @@ test("status reports every known source with readable text, not color alone", as
   const linkedin = status.sources.find((s) => s.source === "linkedin")!;
   assert.equal(linkedin.healthy, true);
   assert.match(linkedin.statusText, /in the last 24 hours/);
+  // No scrape check recorded and no jobs: unhealthy, explained in words (TASK-070 wording).
   const naukri = status.sources.find((s) => s.source === "naukri")!;
   assert.equal(naukri.healthy, false);
-  assert.match(naukri.statusText, /may be blocked/);
+  assert.match(naukri.statusText, /No recent source check/);
   assert.ok(status.lastScanAt);
+});
+
+test("source health follows the latest per-user scrape check (TASK-070)", async () => {
+  await db.upsertScrapeSourceStatuses(userId, [
+    { source: "greenhouse", count: 0, ok: false, errorCode: "HTTP_503" },
+    { source: "lever", count: 0, ok: true },
+  ]);
+  const status = await db.getUserStatus(userId);
+  const greenhouse = status.sources.find((s) => s.source === "greenhouse")!;
+  assert.equal(greenhouse.healthy, false);
+  assert.match(greenhouse.statusText, /latest source check failed/);
+  const lever = status.sources.find((s) => s.source === "lever")!;
+  assert.equal(lever.healthy, true); // checked fine, just returned nothing
+  assert.match(lever.statusText, /Checked successfully/);
+  // Every source still carries text, never colour alone (DEC-007).
+  for (const s of status.sources) assert.ok(s.statusText.length > 0);
 });
 
 test("nextDigestAt rolls to the next local occurrence of the hour", () => {
