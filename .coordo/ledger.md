@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-082] status:open from:claude to:claude opened:2026-10-22T19:59Z
+INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test. OPEN: root-cause pdf2json 4.x on Vercel before re-applying the xmldom fix (e.g. reproduce with vercel dev / a preview deploy and a test upload), and add an upload timeout so a hung parse returns an error instead of a 5-minute spinner.
+
 ### [TASK-072] status:open from:claude to:claude opened:2026-10-22T17:04Z
 BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load. Effect: the main account's 09:00 digest went out at 13:20 IST on Oct 21 and 22 (no run between 07:11 and 13:20 IST). Free fix: trigger workflow_dispatch from an external scheduler (Cloudflare Workers Cron Trigger or cron-job.org) with a fine-grained PAT limited to actions:write on this repo; keep the GitHub schedule as a backup.
 
