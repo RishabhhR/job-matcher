@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, repairSeniorityCaps, getActiveCvText, getUserProfileRow, getUserCompanies, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { sendDigestEmail } from "./mailer.js";
 import { canonicalizeUrl } from "./normalize.js";
@@ -154,6 +154,7 @@ async function runHourlyCron() {
       const profile = { ...due.profile, notifyEmail: due.email };
       const userCompanies = await getUserCompanies(due.userId) ?? companies;
       console.log(`[cron-hourly] Scraping and scoring jobs for user ${due.userLogId}...`);
+      const alreadyScored = await getRecentlyScoredPostingHashes(due.userId);
       const scored = await runJobMatcher({
         userId: due.userId,
         cvText: due.cvText,
@@ -162,6 +163,7 @@ async function runHourlyCron() {
         linkedin: { maxResults: 100 },
         onProgress: (status, message) => console.log(`[${due.userLogId}][${status.toUpperCase()}] ${message}`),
         patient: true,
+        alreadyScored,
       });
 
       console.log(`[cron-hourly] Saving matches for user ${due.userLogId}...`);

@@ -655,6 +655,25 @@ export async function saveUserProfileData(
   return { profile, companies, hasCv: Boolean(cvText && cvText.trim()) };
 }
 
+/**
+ * Postings (dedup_hash) already scored for this user since their CV and profile last
+ * changed, within the last `maxAgeDays` (TASK-073). Scheduled runs skip these instead
+ * of re-scoring the same postings every day; older scores are refreshed eventually.
+ */
+export async function getRecentlyScoredPostingHashes(userId: string, maxAgeDays = 14): Promise<Set<string>> {
+  const result = await client.execute({
+    sql: `SELECT p.dedup_hash AS h
+          FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id = m.job_posting_id
+          WHERE m.user_id = ?
+            AND m.status IN ('new', 'scored')
+            AND m.matched_at >= datetime('now', ?)
+            AND m.matched_at >= COALESCE((SELECT MAX(updated_at) FROM jm_user_profiles WHERE user_id = ?), '')
+            AND m.matched_at >= COALESCE((SELECT MAX(created_at) FROM jm_cvs WHERE user_id = ? AND is_active = 1), '')`,
+    args: [userId, `-${Math.max(1, Math.floor(maxAgeDays))} days`, userId, userId],
+  });
+  return new Set(result.rows.map((row: any) => String(row.h)));
+}
+
 export async function deletePendingMatches(userId: string): Promise<void> {
   await client.execute({
     sql: "DELETE FROM jm_user_job_matches WHERE user_id = ? AND status = 'pending'",

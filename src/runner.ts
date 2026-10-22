@@ -2,7 +2,8 @@ import { fetchAshby, fetchGreenhouse, fetchLever, type RawPosting } from "./scra
 import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
 import { fetchNaukri, type NaukriSearchInput } from "./scrapers/naukri.js";
 import { dedupePostings } from "./normalize.js";
-import { keywordPrefilter, scoreAll, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
+import { keywordPrefilter, scoreAll, computeYearsOfExperience, PATIENT_RETRY, type Profile, type ScoredMatch, type RetryOptions } from "./match.js";
+import { postingHash, selectScheduledCandidates } from "./candidates.js";
 import { locationPatterns, placesLabel, primaryPlace, splitPlaces } from "./location.js";
 import { upsertScrapeSourceStatuses } from "./db.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
@@ -40,6 +41,8 @@ export interface RunnerOptions {
   };
   naukri?: NaukriSearchInput;
   onProgress?: (status: string, message: string) => void;
+  /** Scheduled runs: dedup hashes of postings already scored for this user since their CV/profile changed (TASK-073). */
+  alreadyScored?: Set<string>;
   // Scheduled scrape-only crons have a whole hour before the separate email cron
   // fires, so it's worth riding out rate limits with long waits instead of giving
   // up fast - interactive/SSE callers (the web UI) should leave this off.
@@ -47,7 +50,7 @@ export interface RunnerOptions {
 }
 
 export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch[]> {
-  const { cvText, profile, companies, linkedin, naukri, onProgress = () => {}, patient = false } = options;
+  const { cvText, profile, companies, linkedin, naukri, onProgress = () => {}, patient = false, alreadyScored } = options;
   const retryOptions: RetryOptions = patient ? PATIENT_RETRY : {};
 
   const locationLabel = placesLabel(profile) || "all locations";
@@ -166,8 +169,19 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     return [];
   }
 
+  // Scheduled runs skip postings already scored since the CV/profile last changed, so the
+  // LLM budget (and the 40 LinkedIn description fetches below) go to new postings (TASK-073).
+  const unscored = patient && alreadyScored ? shortlisted.filter((p) => !alreadyScored.has(postingHash(p))) : shortlisted;
+  if (unscored.length < shortlisted.length) {
+    onProgress("processing", `Skipping ${shortlisted.length - unscored.length} postings already scored since the CV/profile last changed; ${unscored.length} are new.`);
+  }
+  if (unscored.length === 0) {
+    onProgress("complete", "No new postings since the last scan.");
+    return [];
+  }
+
   // Fetch descriptions only for the matching/filtered subset of LinkedIn jobs (cap at 40 to prevent Vercel timeout)
-  const allLinkedinToFetch = shortlisted.filter((p) => p.source === "linkedin" && !p.descriptionText);
+  const allLinkedinToFetch = unscored.filter((p) => p.source === "linkedin" && !p.descriptionText);
   const linkedinToFetch = allLinkedinToFetch.slice(0, 40);
 
   if (linkedinToFetch.length > 0) {
@@ -176,7 +190,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   }
 
   // Only keep postings that actually have descriptions (ATS boards + successfully fetched LinkedIn)
-  const finalShortlist = shortlisted.filter((p) => {
+  const finalShortlist = unscored.filter((p) => {
     if (p.source === "linkedin") {
       return p.descriptionText && p.descriptionText.length > 0;
     }
@@ -188,28 +202,28 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     return [];
   }
 
-  // Scheduled runs share provider quotas across every due user. Score a bounded,
-  // freshness-first slice so one hourly tick cannot consume the whole account's
-  // free-tier budget; interactive searches retain the complete shortlist.
+  // Scheduled runs share provider quotas across every due user, so they score a bounded
+  // slice: reachable titles first, then newest, undated postings counted as just scraped
+  // (candidates.ts). Interactive searches retain the complete shortlist.
   const scheduledScoreLimit = 30;
-  const scoreCandidates = patient
-    ? finalShortlist
-        .map((posting, index) => ({ posting, index, timestamp: posting.postedAt ? Date.parse(posting.postedAt) : Number.NaN }))
-        .sort((a, b) => {
-          const aTime = Number.isFinite(a.timestamp) ? a.timestamp : Number.NEGATIVE_INFINITY;
-          const bTime = Number.isFinite(b.timestamp) ? b.timestamp : Number.NEGATIVE_INFINITY;
-          return bTime - aTime || a.index - b.index;
-        })
-        .slice(0, scheduledScoreLimit)
-        .map(({ posting }) => posting)
-    : finalShortlist;
-  if (scoreCandidates.length < finalShortlist.length) {
-    onProgress("scoring_limit", `Scheduled run capped scoring to the ${scoreCandidates.length} freshest postings; ${finalShortlist.length - scoreCandidates.length} remain eligible for later runs.`);
+  const selection = patient
+    ? selectScheduledCandidates(finalShortlist, {
+        yearsOfExperience: computeYearsOfExperience(profile.careerStartDate),
+        limit: scheduledScoreLimit,
+      })
+    : null;
+  const scoreCandidates = selection ? selection.candidates : finalShortlist;
+  if (selection && selection.deferred > 0) {
+    onProgress("scoring_limit", `Scheduled run capped scoring to ${scoreCandidates.length} postings; ${selection.deferred} remain eligible for later runs.`);
   }
-  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Mistral -> Gemini -> OpenRouter -> Cerebras)...`);
+  if (selection) {
+    const mix = scoreCandidates.reduce<Record<string, number>>((acc, p) => ((acc[p.source] = (acc[p.source] ?? 0) + 1), acc), {});
+    onProgress("scoring_mix", `Scoring by source: ${Object.entries(mix).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  }
+  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Mistral -> Gemini -> GitHub Models -> OpenRouter -> Cerebras)...`);
   
   // Custom progress for scoring
-  const batchSize = 6;
+  const batchSize = Number(process.env.SCORE_BATCH_SIZE) || 4;
   const totalPostings = scoreCandidates.length;
   const totalBatches = Math.ceil(totalPostings / batchSize);
   const scoredMatches: ScoredMatch[] = [];
