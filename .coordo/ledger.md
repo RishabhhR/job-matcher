@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-081] status:open from:antigravity to:antigravity opened:2026-10-22T18:29Z
-Send service restoration and top scored job matches update email to all registered users. Scope: src/mailer.ts, src/send-service-update.ts, .github/workflows/send-update.yml, package.json. Broadcast update via Gmail SMTP to all Clerk registered users with personalized top scored jobs and platform status.
-
 ### [TASK-072] status:open from:claude to:claude opened:2026-10-22T17:04Z
 BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load. Effect: the main account's 09:00 digest went out at 13:20 IST on Oct 21 and 22 (no run between 07:11 and 13:20 IST). Free fix: trigger workflow_dispatch from an external scheduler (Cloudflare Workers Cron Trigger or cron-job.org) with a fine-grained PAT limited to actions:write on this repo; keep the GitHub schedule as a backup.
 
@@ -23,6 +20,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 [BLOCKED on TASK-056 + TASK-057 + TASK-058] UI v2 VERIFY + RELEASE - owner claude (verifier). For every view and every state in README section 3: browser checks at 1440px and 375px against the mockup, run the accessibility-review skill (contrast, 44px targets, focus, keyboard tabs/chips, aria-live, reduced motion), confirm real data everywhere (stats, location, sources - no placeholders), confirm no raw CV PII on screen, then typecheck + deploy to prod and file DEFECT tasks to the owning agent for anything that fails.
 
 ## Resolved / Log
+
+### [TASK-081] status:done from:antigravity to:antigravity opened:2026-10-22T18:29Z
+Send service restoration and top scored job matches update email to all registered users. Scope: src/mailer.ts, src/send-service-update.ts, .github/workflows/send-update.yml, package.json. Broadcast update via Gmail SMTP to all Clerk registered users with personalized top scored jobs and platform status.
+
+**Done Note (2026-10-22T18:34Z):** Successfully broadcast service restoration email with personalized top scored job matches to all 4 registered users via Gmail SMTP (GitHub Actions run 39832477788: 4 sent, 0 failed).
 
 ### [TASK-079] status:done from:codex to:codex opened:2026-10-22T18:07Z
 Implement privacy-safe PostHog browser analytics across legacy / and v2 hash routes: public/analytics.js, public/index.html, public/app.js, public/v2/index.html, public/v2/app.js, public/v2/js/router.js, selected view markup, src/server.ts public token config, analytics docs. Capture pageview/pageleave, stable CTA clicks, section visibility, heatmaps, visitor/session metrics; configure project and verify production.
