@@ -7,11 +7,6 @@
 
 ## Tasks
 
-### [TASK-076] status:open from:claude to:claude opened:2026-10-22T17:13Z
-SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advisories in @xmldom/xmldom <=0.8.14 (XML injection / DoS, e.g. GHSA-wh4c-j3r5-mjhp), pulled in by the CV DOCX parser (mammoth) that handles user-uploaded files on /api/upload-cv. Fix: upgrade the dependency chain (or override @xmldom/xmldom to a patched version) and re-run DOCX upload tests; do not use npm audit fix --force blindly (breaking changes).
-
-**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; codex please don't start on it.
-
 ### [TASK-073] status:open from:claude to:claude opened:2026-10-22T17:04Z
 PROPOSAL (claude, 2026-10-22): LLM throughput/reliability. Today each run scrapes ~1,000 Bengaluru postings but scores only 30 (TASK-051 cap); Groq free TPM (6-8K) is hit inside those 30 (batch of 6 ~6.6K tokens, 8s sleep); 58 + 83 matches sit 'pending'; Cerebras is paid-only now (402) yet still in the chain; Gemini fallback uses gemini-2.5-flash rather than the higher-quota Flash-Lite. Plan (free): (1) local embedding pre-rank in the runner (@huggingface/transformers, bge-small-en-v1.5, CPU) to rank ALL postings vs CV and send only the top N to the LLM - also a score fallback so a digest is never empty when every provider is down; (2) add GitHub Models via the Actions GITHUB_TOKEN (permissions: models: read) as a provider; (3) Mistral free tier (1B tokens/month, 1 req/s) moved up the chain; Gemini -> Flash-Lite; drop Cerebras; (4) pace by provider TPM instead of a fixed 8s, rotate providers instead of always starting at Groq; (5) cache scores per (posting, profile hash) and drain 'pending' a few batches per run. Awaiting user choice.
 
@@ -30,6 +25,13 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 [BLOCKED on TASK-056 + TASK-057 + TASK-058] UI v2 VERIFY + RELEASE - owner claude (verifier). For every view and every state in README section 3: browser checks at 1440px and 375px against the mockup, run the accessibility-review skill (contrast, 44px targets, focus, keyboard tabs/chips, aria-live, reduced motion), confirm real data everywhere (stats, location, sources - no placeholders), confirm no raw CV PII on screen, then typecheck + deploy to prod and file DEFECT tasks to the owning agent for anything that fails.
 
 ## Resolved / Log
+
+### [TASK-076] status:done from:claude to:claude opened:2026-10-22T17:13Z
+SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advisories in @xmldom/xmldom <=0.8.14 (XML injection / DoS, e.g. GHSA-wh4c-j3r5-mjhp), pulled in by the CV DOCX parser (mammoth) that handles user-uploaded files on /api/upload-cv. Fix: upgrade the dependency chain (or override @xmldom/xmldom to a patched version) and re-run DOCX upload tests; do not use npm audit fix --force blindly (breaking changes).
+
+**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; codex please don't start on it.
+
+**Done Note (2026-10-22T18:03Z):** Fixed 5391ecd via pinned npm overrides (all >=2 weeks old): @xmldom/xmldom 0.8.15 (mammoth); pdfreader -> pdf2json 4.1.0 (zero deps; 3.1.4 bundled its own vulnerable xmldom); proxy-addr 2.0.8 (was CRITICAL, via express); qs 6.16.0; cheerio -> undici 7.29.1. Prod audit: 1 critical + 2 high + several moderate -> 3 moderate, all sprintf-js via argparse via mammoth: no patched sprintf-js exists and argparse is only used by mammoth's CLI, not the library path - accepted. Verified: typecheck, 22/22 tests, CI green, PDF + DOCX CV extraction identical before/after on Node 22 (same logic as /api/upload-cv), prod smoke OK. Live PDF upload on Vercel not exercised (needs a signed-in session) - pdf2json 4.1.0 needs Node >=22.23.2.
 
 ### [TASK-060] status:done from:claude to:codex opened:2026-10-18T17:01Z
 BUG (found while verifying TASK-055 against prod data): scoring ignores the experience cap. Main account (~2 yrs, Associate PM) has 'Senior Product Manager I @ Sumo Logic' at fit_score 95, but match.ts's system prompt says any title containing Senior/Staff/Lead/Principal/Group/Director/VP/Head must be capped at 20 for a 2-year candidate. Likely a fallback model (the newer Groq qwen/gpt-oss or OpenRouter chain, TASK-052) not following the rule. Fix: enforce the cap in code after scoring (deterministic post-check on title seniority words + computed YoE), not only in the prompt; then re-score or clamp existing rows with seniority titles. Query to see impact: SELECT COUNT(*) FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id=m.job_posting_id WHERE m.fit_score>20 AND p.title GLOB '*[Ss]enior*'.
