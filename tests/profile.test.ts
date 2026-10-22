@@ -82,3 +82,11 @@ test("saveUserProfileData saves without a scan and merges partial profile patche
   });
   assert.equal(Number(active.rows[0].n), 1);
 });
+
+test("upsertUserProfile accepts a profile with blank optional fields (onboarding)", async () => {
+  // Onboarding sends no pay/employer; undefined used to crash libSQL ("Unsupported type of value").
+  await db.upsertUserProfile(userId, { targetDesignation: "Product Designer" } as any);
+  const saved = await db.getUserProfileRow(userId);
+  assert.equal(saved?.targetDesignation, "Product Designer");
+  assert.equal(saved?.currentSalaryFixedLPA ?? null, null);
+});
