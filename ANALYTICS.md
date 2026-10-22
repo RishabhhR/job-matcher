@@ -22,10 +22,15 @@ The production domain is authorized for Web Analytics. Heatmap capture is enable
 in the PostHog project, with `https://job-matcher-ecru.vercel.app/*` saved as
 the allowed URL pattern. This covers the legacy page and all `/v2/` hash routes
 within the free plan's three-pattern limit. PostHog recorded a click coordinate
-on the authenticated Matches route after this rule was saved. Heatmap overlays
-for authenticated pages may show a sign-in screen when PostHog renders their
-background without the user's browser session; the captured click coordinates
-and section-view events remain available.
+on the authenticated Matches route after this rule was saved. Saved views are
+available for [sign-in](https://us.posthog.com/project/679145/heatmaps/EVyNHy1b),
+[Matches](https://us.posthog.com/project/679145/heatmaps/AMLQf4gy),
+[Profile](https://us.posthog.com/project/679145/heatmaps/IGjyOUQh), and
+[Settings](https://us.posthog.com/project/679145/heatmaps/37mU3esD).
+PostHog's live iframe preview cannot load the authenticated app pages; click
+coordinates and section-view events are still captured. Do not use a signed-out
+screenshot as the background for authenticated-page heatmaps because its layout
+would be misleading.
 
 The [JobMatcher Product Analytics dashboard](https://us.posthog.com/project/679145/dashboard/2246568)
 contains visitors, visits, average session duration, average active time per
