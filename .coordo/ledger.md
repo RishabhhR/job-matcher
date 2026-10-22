@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-081] status:open from:antigravity to:antigravity opened:2026-10-22T18:29Z
+Send service restoration and top scored job matches update email to all registered users. Scope: src/mailer.ts, src/send-service-update.ts, .github/workflows/send-update.yml, package.json. Broadcast update via Gmail SMTP to all Clerk registered users with personalized top scored jobs and platform status.
+
 ### [TASK-072] status:open from:claude to:claude opened:2026-10-22T17:04Z
 BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load. Effect: the main account's 09:00 digest went out at 13:20 IST on Oct 21 and 22 (no run between 07:11 and 13:20 IST). Free fix: trigger workflow_dispatch from an external scheduler (Cloudflare Workers Cron Trigger or cron-job.org) with a fine-grained PAT limited to actions:write on this repo; keep the GitHub schedule as a backup.
 

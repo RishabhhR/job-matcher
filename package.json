@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "digest": "tsx src/digest.ts",
     "cron-hourly": "tsx src/cron.ts",
+    "send-service-update": "tsx src/send-service-update.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
