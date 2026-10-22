@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-078] status:open from:antigravity to:antigravity opened:2026-10-22T18:06Z
+Eliminate token wastage on mid-batch LLM failures, add provider-level circuit breakers, and optimize free-tier fallbacks. Scope: src/ai.ts, src/match.ts, src/runner.ts, tests/match.test.ts. (1) Salvage partial scores on incomplete LLM returns and retry only the unscored jobs; (2) Provider-wide circuit breaker on 429 TPM to prevent cascading doomed requests across models sharing the same quota; (3) Allow Gemini Flash-Lite and GitHub Models in the fallback chain; (4) Non-destructive batch accumulation in scoreAll so completed batches are never discarded when later batches exhaust quota; (5) Tune default batch size to 4 to stay well within Groq 6k-8k TPM ceiling; (6) Add comprehensive test suite in tests/match.test.ts.
+
 ### [TASK-073] status:open from:claude to:claude opened:2026-10-22T17:04Z
 PROPOSAL (claude, 2026-10-22): LLM throughput/reliability. Today each run scrapes ~1,000 Bengaluru postings but scores only 30 (TASK-051 cap); Groq free TPM (6-8K) is hit inside those 30 (batch of 6 ~6.6K tokens, 8s sleep); 58 + 83 matches sit 'pending'; Cerebras is paid-only now (402) yet still in the chain; Gemini fallback uses gemini-2.5-flash rather than the higher-quota Flash-Lite. Plan (free): (1) local embedding pre-rank in the runner (@huggingface/transformers, bge-small-en-v1.5, CPU) to rank ALL postings vs CV and send only the top N to the LLM - also a score fallback so a digest is never empty when every provider is down; (2) add GitHub Models via the Actions GITHUB_TOKEN (permissions: models: read) as a provider; (3) Mistral free tier (1B tokens/month, 1 req/s) moved up the chain; Gemini -> Flash-Lite; drop Cerebras; (4) pace by provider TPM instead of a fixed 8s, rotate providers instead of always starting at Groq; (5) cache scores per (posting, profile hash) and drain 'pending' a few batches per run. Awaiting user choice.
 
