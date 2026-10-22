@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-077] status:open from:claude to:claude opened:2026-10-22T17:14Z
-Mistral model fix (claude, 2026-10-22, from user's console screenshots + live probes): the free plan IS active, but the code calls mistral-small-latest, which the plan gives 0 req/min (429); mistral-medium-latest likewise; mistral-large-2512 returns 403 'not available in your subscription tier'. ministral-14b-2512 works (937,500 TPM, 30 RPM) and ministral-8b-2512 works (625,000 TPM, 188 RPM). Change callMistral to ministral-14b-2512 with ministral-8b-2512 as fallback (env MISTRAL_MODEL / MISTRAL_FALLBACK_MODEL), then compare its scores with stored Groq scores on real postings before relying on it.
-
 ### [TASK-076] status:open from:claude to:codex opened:2026-10-22T17:13Z
 SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advisories in @xmldom/xmldom <=0.8.14 (XML injection / DoS, e.g. GHSA-wh4c-j3r5-mjhp), pulled in by the CV DOCX parser (mammoth) that handles user-uploaded files on /api/upload-cv. Fix: upgrade the dependency chain (or override @xmldom/xmldom to a patched version) and re-run DOCX upload tests; do not use npm audit fix --force blindly (breaking changes).
 
@@ -47,6 +44,11 @@ BUG (reopens TASK-049/TASK-050, both closed but cron still failing): hourly cron
 **Progress note (2026-10-18):** Implemented provider `Retry-After` parsing/circuit cooldowns, bounded patient retries, 1,200-character LLM descriptions, freshness-first scheduled scoring capped at 30 postings, and partial-scoring warnings so quota exhaustion does not fail a run after digest sends. Hourly cron now skips accounts without a Clerk identity. `npm run typecheck` and `git diff --check` passed. No live provider requests or production deployment yet; TASK-051 remains open until deployed workflow behavior is verified. Duplicate-account merging is not automated because the ledger does not establish that distinct Clerk identities belong to one person.
 
 ## Resolved / Log
+
+### [TASK-077] status:done from:claude to:claude opened:2026-10-22T17:14Z
+Mistral model fix (claude, 2026-10-22, from user's console screenshots + live probes): the free plan IS active, but the code calls mistral-small-latest, which the plan gives 0 req/min (429); mistral-medium-latest likewise; mistral-large-2512 returns 403 'not available in your subscription tier'. ministral-14b-2512 works (937,500 TPM, 30 RPM) and ministral-8b-2512 works (625,000 TPM, 188 RPM). Change callMistral to ministral-14b-2512 with ministral-8b-2512 as fallback (env MISTRAL_MODEL / MISTRAL_FALLBACK_MODEL), then compare its scores with stored Groq scores on real postings before relying on it.
+
+**Done Note (2026-10-22T17:16Z):** Landed (git log TASK-077). Chain: groq gpt-oss-20b -> groq gpt-oss-120b -> mistral ministral-14b-2512 -> ministral-8b-2512 -> groq qwen -> gemini -> openrouter -> cerebras. Live probes: only ministral-3b/8b/14b-2512 are callable on the free plan (small/medium/vibe 0 RPM, large 403, leanstral is a Labs model needing admin enable). Quality check on 12 real postings, Mistral only: 12/12 scored in 13.8s, mean |stored - mistral| 27.5 points, 6/12 within 15 - mixed (better on 'SAP PM' = plant maintenance, harsher on some Naukri 'PM' roles), hence placed behind gpt-oss-120b. Typecheck clean; tests 20 pass + pre-existing TASK-075 failure.
 
 ### [TASK-074] status:done from:claude to:claude opened:2026-10-22T17:09Z
 Mistral never used since Oct 18 (user report, claude diagnosed 2026-10-22): MISTRAL_API_KEY is in GitHub secrets and the workflow env, but (1) Mistral is 7th in callLLM's chain (groq 20b -> groq 120b -> groq qwen -> gemini -> cerebras -> mistral -> openrouter) and a Groq fallback has answered every batch since Oct 18, so it is never reached; (2) the account currently refuses chat calls: a 5-token request returns 429 with header x-ratelimit-limit-req-minute: 0 while GET /v1/models returns 200 - the free plan is not active on this workspace (user must re-enable it in the Mistral console). claude: move Mistral to right after the primary Groq model so it takes the load when Groq hits its per-minute token limit; Cerebras (paid-only, 402) moved to the end.
