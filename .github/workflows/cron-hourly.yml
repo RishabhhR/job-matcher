@@ -1,6 +1,10 @@
 name: Hourly Scrape, Score, & Email Digest (Multi-User)
 
 on:
+  # Primary trigger (TASK-072): cron-job.org calls the workflow_dispatch API every
+  # hour at :30 UTC, because GitHub only started 3-7 of the 24 scheduled runs a day.
+  # This schedule stays as a backup; the concurrency group and the per-user digest
+  # claim make a duplicate trigger a quick no-op.
   schedule:
     # :30 UTC is the top of the hour in Asia/Kolkata (UTC+05:30), matching
     # users' stored local digest hours and avoiding top-of-hour runner congestion.
@@ -39,6 +43,9 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          # Gmail SMTP (TASK-071): when both are set, digests go through Gmail instead of Resend.
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         run: npm run cron-hourly

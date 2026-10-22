@@ -1,5 +1,31 @@
 import { Resend } from "resend";
+import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
 import type { Row } from "@libsql/client";
+
+// Gmail SMTP (TASK-071) is used when GMAIL_USER + GMAIL_APP_PASSWORD are set: free,
+// no domain to verify, and it delivers to any recipient (Resend's test sender only
+// reaches the Resend account owner). Resend remains the fallback when they are not set.
+export function mailProvider(env: NodeJS.ProcessEnv = process.env): "gmail" | "resend" {
+  return env.GMAIL_USER?.trim() && env.GMAIL_APP_PASSWORD?.trim() ? "gmail" : "resend";
+}
+
+let _gmail: Transporter | null = null;
+function getGmail(): Transporter {
+  if (!_gmail) {
+    _gmail = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.GMAIL_USER!.trim(),
+        // Google shows app passwords in groups of four; spaces are not part of it.
+        pass: process.env.GMAIL_APP_PASSWORD!.replace(/\s+/g, ""),
+      },
+    });
+  }
+  return _gmail;
+}
 
 let _resend: Resend | null = null;
 function getResend() {
@@ -43,6 +69,14 @@ export function safeApplyUrl(value: unknown): string {
   }
 }
 
+function safeGmailError(err: unknown): string {
+  const e = err as { code?: string; responseCode?: number; message?: string };
+  if (e?.code === "EAUTH" || e?.responseCode === 535) {
+    return "Gmail rejected the login. GMAIL_APP_PASSWORD must be a Google app password (2-Step Verification on), not the account password.";
+  }
+  return String(e?.message ?? err).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]");
+}
+
 function safeResendError(message: string): string {
   if (/only send testing emails to your own email address/i.test(message)) {
     return "Resend is in test mode and cannot send to this recipient. Verify a sending domain in Resend and configure RESEND_FROM_EMAIL.";
@@ -83,12 +117,32 @@ export async function sendDigestEmail(
   idempotencyKey?: string
 ): Promise<string> {
   const slotLabel = slot === "am" ? "Morning" : "Evening";
+  const subject = `${slotLabel} Job Matches — ${matches.length} roles ranked`;
+  const html = renderHtml(matches, slot);
+
+  if (mailProvider() === "gmail") {
+    try {
+      const info = await getGmail().sendMail({
+        from: { name: "JobMatcher", address: process.env.GMAIL_USER!.trim() },
+        to: toEmail,
+        subject,
+        html,
+        // Duplicate sends are already prevented by the DB claim (claimEmailSend);
+        // this header just lets mail clients thread/dedupe retries.
+        headers: idempotencyKey ? { "X-Entity-Ref-ID": idempotencyKey } : undefined,
+      });
+      return info.messageId || "unknown";
+    } catch (err) {
+      throw new Error(`Gmail send failed: ${safeGmailError(err)}`);
+    }
+  }
+
   const resend = getResend();
   const { data, error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL?.trim() || "Job Matcher <onboarding@resend.dev>",
     to: toEmail,
-    subject: `${slotLabel} Job Matches — ${matches.length} roles ranked`,
-    html: renderHtml(matches, slot),
+    subject,
+    html,
   }, idempotencyKey ? { idempotencyKey } : undefined);
 
   if (error) throw new Error(`Resend send failed: ${safeResendError(error.message)}`);
