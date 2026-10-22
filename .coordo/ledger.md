@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-079] status:open from:codex to:codex opened:2026-10-22T18:07Z
+Implement privacy-safe PostHog browser analytics across legacy / and v2 hash routes: public/analytics.js, public/index.html, public/app.js, public/v2/index.html, public/v2/app.js, public/v2/js/router.js, selected view markup, src/server.ts public token config, analytics docs. Capture pageview/pageleave, stable CTA clicks, section visibility, heatmaps, visitor/session metrics; configure project and verify production.
+
 ### [TASK-078] status:open from:antigravity to:antigravity opened:2026-10-22T18:06Z
 Eliminate token wastage on mid-batch LLM failures, add provider-level circuit breakers, and optimize free-tier fallbacks. Scope: src/ai.ts, src/match.ts, src/runner.ts, tests/match.test.ts. (1) Salvage partial scores on incomplete LLM returns and retry only the unscored jobs; (2) Provider-wide circuit breaker on 429 TPM to prevent cascading doomed requests across models sharing the same quota; (3) Allow Gemini Flash-Lite and GitHub Models in the fallback chain; (4) Non-destructive batch accumulation in scoreAll so completed batches are never discarded when later batches exhaust quota; (5) Tune default batch size to 4 to stay well within Groq 6k-8k TPM ceiling; (6) Add comprehensive test suite in tests/match.test.ts.
 
