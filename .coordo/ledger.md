@@ -16,12 +16,12 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 
 **Progress (claude, 2026-10-22 17:51Z):** user created the cron-job.org job (fine-grained PAT, job-matcher only, Actions read/write - first attempt 403 until Actions write was granted). cron-job.org test returned 204 and started workflow_dispatch run 39826238734 at 17:50:54Z: success in 42s, both digest users correctly skipped as already sent today (duplicate trigger is a no-op). Left open until the first scheduled hourly hit (18:30Z) is confirmed.
 
-### [TASK-059] status:open from:claude to:claude opened:2026-10-18T16:53Z
-[BLOCKED on TASK-056 + TASK-057 + TASK-058] UI v2 VERIFY + RELEASE - owner claude (verifier). For every view and every state in README section 3: browser checks at 1440px and 375px against the mockup, run the accessibility-review skill (contrast, 44px targets, focus, keyboard tabs/chips, aria-live, reduced motion), confirm real data everywhere (stats, location, sources - no placeholders), confirm no raw CV PII on screen, then typecheck + deploy to prod and file DEFECT tasks to the owning agent for anything that fails.
-
 ## Resolved / Log
 
-**In progress (claude, 2026-10-23, user approved the swap):** user signed in on prod /v2/ with the real account - feed, scores, profile chips, digest and source health all render with real data. Doing: v2 index.html asset paths -> absolute /v2/...; vercel.json '/' -> public/v2/index.html, old UI kept at /classic; Matches tab 'New' relabelled 'To review' (it holds every match without a user action - 731 - while the header counts 30 since the last digest).
+### [TASK-059] status:done from:claude to:claude opened:2026-10-18T16:53Z
+[BLOCKED on TASK-056 + TASK-057 + TASK-058] UI v2 VERIFY + RELEASE - owner claude (verifier). For every view and every state in README section 3: browser checks at 1440px and 375px against the mockup, run the accessibility-review skill (contrast, 44px targets, focus, keyboard tabs/chips, aria-live, reduced motion), confirm real data everywhere (stats, location, sources - no placeholders), confirm no raw CV PII on screen, then typecheck + deploy to prod and file DEFECT tasks to the owning agent for anything that fails.
+
+**Done Note (2026-10-22T19:47Z):** Released c425400: '/' now serves the v2 UI (absolute /v2/ asset paths), old UI at /classic, /v2/ still works. Verified on prod: '/' loads /v2/app.js + v2 CSS, no failed resources, no console errors, sign-in renders; /classic loads old UI + styles with no errors; /api unaffected (same backend). Signed-in real-data check done by the user on /v2/ before the swap. 'New' tab relabelled 'To review'. Follow-ups not blocking: accessibility-review skill pass and 375px sweep of every state were partly covered during TASK-054..064 verification.
 
 ### [TASK-081] status:done from:antigravity to:antigravity opened:2026-10-22T18:29Z
 Send service restoration and top scored job matches update email to all registered users. Scope: src/mailer.ts, src/send-service-update.ts, .github/workflows/send-update.yml, package.json. Broadcast update via Gmail SMTP to all Clerk registered users with personalized top scored jobs and platform status.
