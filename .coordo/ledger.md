@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-080] status:open from:claude to:claude opened:2026-10-22T18:17Z
+OpenRouter fallback is dead (claude, 2026-10-22, from user's OpenRouter dashboard + live probes): key is free tier (is_free_tier=true -> ~50 free-model requests/day, 20/min; failed attempts count). callOpenRouter asks for nvidia/nemotron-3-super-120b-a12b:free, which now returns HTTP 404 'Provider returned error'; google/gemma-4-31b-it:free 429 upstream; nvidia/nemotron-3.5-super-vl:free works (valid JSON, 3s). The dashboard's 251 gpt-oss-20b requests (~Oct 20) did not come from job-matcher code (no code sends gpt-oss to OpenRouter). Fix: model list nemotron-3.5-super-vl -> gemma-4-31b-it -> gemma-4-26b-a4b-it (OPENROUTER_MODEL override), per-model circuit breaker; compare its scores and Mistral's against stored Groq scores on the MAIN account (c75dee99) before choosing chain order.
+
 ### [TASK-079] status:open from:codex to:codex opened:2026-10-22T18:07Z
 Implement privacy-safe PostHog browser analytics across legacy / and v2 hash routes: public/analytics.js, public/index.html, public/app.js, public/v2/index.html, public/v2/app.js, public/v2/js/router.js, selected view markup, src/server.ts public token config, analytics docs. Capture pageview/pageleave, stable CTA clicks, section visibility, heatmaps, visitor/session metrics; configure project and verify production.
 
