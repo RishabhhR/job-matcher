@@ -12,11 +12,6 @@ SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advis
 
 **Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; codex please don't start on it.
 
-### [TASK-075] status:open from:claude to:claude opened:2026-10-22T17:13Z
-BUG (claude, found 2026-10-22 while testing TASK-071): CI on main has failed since TASK-070 (f81ed1a, 2026-10-21). tests/feed.test.ts:116 'status reports every known source with readable text, not color alone' expects statusText to match /may be blocked/, but getUserStatus now returns 'No recent source check is available.' Either the new per-user scraper-health text dropped the 'may be blocked' wording the test (and DEC-007 amendment 'source down needs text') relies on, or the test needs updating to the new contract. Reproduce: npm test. Owner of TASK-070 please fix and get CI green.
-
-**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; antigravity please don't start on it.
-
 ### [TASK-073] status:open from:claude to:claude opened:2026-10-22T17:04Z
 PROPOSAL (claude, 2026-10-22): LLM throughput/reliability. Today each run scrapes ~1,000 Bengaluru postings but scores only 30 (TASK-051 cap); Groq free TPM (6-8K) is hit inside those 30 (batch of 6 ~6.6K tokens, 8s sleep); 58 + 83 matches sit 'pending'; Cerebras is paid-only now (402) yet still in the chain; Gemini fallback uses gemini-2.5-flash rather than the higher-quota Flash-Lite. Plan (free): (1) local embedding pre-rank in the runner (@huggingface/transformers, bge-small-en-v1.5, CPU) to rank ALL postings vs CV and send only the top N to the LLM - also a score fallback so a digest is never empty when every provider is down; (2) add GitHub Models via the Actions GITHUB_TOKEN (permissions: models: read) as a provider; (3) Mistral free tier (1B tokens/month, 1 req/s) moved up the chain; Gemini -> Flash-Lite; drop Cerebras; (4) pace by provider TPM instead of a fixed 8s, rotate providers instead of always starting at Groq; (5) cache scores per (posting, profile hash) and drain 'pending' a few batches per run. Awaiting user choice.
 
@@ -45,6 +40,13 @@ BUG (reopens TASK-049/TASK-050, both closed but cron still failing): hourly cron
 **Progress note (2026-10-18):** Implemented provider `Retry-After` parsing/circuit cooldowns, bounded patient retries, 1,200-character LLM descriptions, freshness-first scheduled scoring capped at 30 postings, and partial-scoring warnings so quota exhaustion does not fail a run after digest sends. Hourly cron now skips accounts without a Clerk identity. `npm run typecheck` and `git diff --check` passed. No live provider requests or production deployment yet; TASK-051 remains open until deployed workflow behavior is verified. Duplicate-account merging is not automated because the ledger does not establish that distinct Clerk identities belong to one person.
 
 ## Resolved / Log
+
+### [TASK-075] status:done from:claude to:claude opened:2026-10-22T17:13Z
+BUG (claude, found 2026-10-22 while testing TASK-071): CI on main has failed since TASK-070 (f81ed1a, 2026-10-21). tests/feed.test.ts:116 'status reports every known source with readable text, not color alone' expects statusText to match /may be blocked/, but getUserStatus now returns 'No recent source check is available.' Either the new per-user scraper-health text dropped the 'may be blocked' wording the test (and DEC-007 amendment 'source down needs text') relies on, or the test needs updating to the new contract. Reproduce: npm test. Owner of TASK-070 please fix and get CI green.
+
+**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; antigravity please don't start on it.
+
+**Done Note (2026-10-22T17:57Z):** Fixed eaff389: the code (TASK-070's per-user scrape-check health) was right; the test asserted the old 'may be blocked' wording. Test updated + new test for failed-check / checked-but-empty branches and text-on-every-source. 22/22 pass; CI on main green again (first green since 2026-10-21).
 
 ### [TASK-071] status:done from:claude to:claude opened:2026-10-22T17:04Z
 BUG (claude, 2026-10-22, from cron logs): every cron failure since 2026-10-20 (2/day, ~07:50 and ~14:00 UTC) is the SAME cause - 'Resend is in test mode and cannot send to this recipient'. Resend's test sender only delivers to the Resend account owner's address, so user f08cb082 (log id da2897a3, digest 13:00) has had no digest since 2026-10-13 and each failed send turns the whole run red. AI scoring succeeded in every one of these runs. Fix options (user decision): (a) verify a domain in Resend + set RESEND_FROM_EMAIL; (b) switch the mailer to Gmail SMTP with an app password (free, no domain, any recipient); (c) disable digests for accounts that are not the Resend owner. Also: a per-user send failure should be logged as that user's failure, not fail the whole job.
