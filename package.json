@@ -38,9 +38,6 @@
   },
   "overrides": {
     "@xmldom/xmldom": "0.8.15",
-    "pdfreader": {
-      "pdf2json": "4.1.0"
-    },
     "proxy-addr": "2.0.8",
     "qs": "6.16.0",
     "cheerio": {
