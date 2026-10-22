@@ -187,7 +187,7 @@ function draw() {
   const greeting = s.user?.name ? s.user.name.trim().split(/\s+/)[0] : "there";
   const scanDate = status.lastScanAt ? `Last scan ${context.ui.timeAgo(status.lastScanAt)}` : "Waiting for the first scan";
   const header = context.ui.html`
-    <section class="matches-summary card card-pad" aria-labelledby="matches-title">
+    <section class="matches-summary card card-pad" aria-labelledby="matches-title" data-analytics-section="matches_summary">
       <div class="summary-copy"><h1 id="matches-title" class="page-title" tabindex="-1">${greetingWord()}, ${greeting}</h1>
         <p class="summary-count">${Number(stats.newSinceLastDigest || 0)} new ${Number(stats.newSinceLastDigest || 0) === 1 ? "match" : "matches"} since your last digest</p>
         <p class="summary-meta">${scanDate} · ${sources.length ? `${healthyCount} of ${sources.length} sources healthy` : "Source health unavailable"} · Next digest ${digest}</p>
@@ -198,7 +198,7 @@ function draw() {
 
   const tabs = ["new", "saved", "applied", "all"];
   const filter = context.ui.html`
-    <div class="filter-panel card card-pad-sm">
+    <div class="filter-panel card card-pad-sm" data-analytics-section="matches_filters">
       <nav class="match-tabs" aria-label="Filter matches">${tabs.map((tab) => context.ui.html`<button type="button" class="match-tab ${state.tab === tab ? "is-active" : ""}" data-tab="${tab}" aria-current="${state.tab === tab ? "page" : "false"}">${humanize(tab)} <span>${Number(countFor[tab] || 0)}</span></button>`)}</nav>
       <div class="filter-controls">
         <label class="sr-only" for="match-search">Filter by title or company</label><input id="match-search" class="input match-search" type="search" placeholder="Filter by title or company" value="${state.query}" />
@@ -209,7 +209,7 @@ function draw() {
     </div>`;
 
   const rail = context.ui.html`
-    <aside class="rail matches-rail" aria-label="Search and source information">
+    <aside class="rail matches-rail" aria-label="Search and source information" data-analytics-section="matches_sidebar">
       <section class="card card-pad-sm rail-card"><p class="eyebrow">Your search</p><h2 class="rail-title">${role}</h2><div class="chip-row">${city || country ? context.ui.html`<span class="chip">${city}${city && country ? ", " : ""}${country}</span>` : ""}${years ? context.ui.html`<span class="chip">~${years} yrs experience</span>` : ""}</div><a class="link-btn" href="#/profile">Edit profile <span aria-hidden="true">→</span></a></section>
       <section class="card card-pad-sm rail-card"><div class="row"><p class="eyebrow">Daily digest</p><span class="chip ${s.digest?.enabled === false ? "" : "chip-good"}">${s.digest?.enabled === false ? "Off" : "On"}</span></div><p class="rail-detail">${s.digest?.enabled === false ? "Digest emails are paused" : `Next: ${digest}`}</p><a class="link-btn" href="#/settings">Digest settings <span aria-hidden="true">→</span></a></section>
       <section class="card card-pad-sm rail-card"><p class="eyebrow">Sources</p>${sources.length ? sources.map((source) => context.ui.html`<div class="source-row"><span><span class="dot ${source.healthy ? "" : "dot-warn"}" aria-hidden="true"></span>${sourceLabel(source.source)}</span><span class="source-count">${Number(source.count24h || 0).toLocaleString()} jobs</span></div>${!source.healthy ? context.ui.html`<p class="source-status">${source.statusText || "Temporarily unavailable"}</p>` : ""}`) : context.ui.html`<p class="rail-detail">Source health is not available yet.</p>`}</section>
@@ -242,7 +242,7 @@ function draw() {
     feedContent = context.ui.html`${results.map(cardMarkup)}${state.results.length < state.total ? context.ui.html`<button class="btn btn-ghost load-more" type="button" ${state.loading ? "disabled" : ""}>${state.loading ? "Loading…" : "Load more matches"}</button>` : ""}${state.loading ? context.ui.html`<div class="card skeleton match-skeleton" aria-label="Loading more matches"></div>` : ""}`;
   }
   const note = context.ui.html`<p class="score-note">Fit is estimated from your profile and the role; it is not a hiring probability.</p>`;
-  rootNode.innerHTML = context.ui.html`<div class="page">${header}<div class="layout-rail matches-layout"><main class="matches-main">${filter}${note}<section class="match-list stack" aria-label="Job matches">${feedContent}</section></main>${rail}</div></div>`;
+  rootNode.innerHTML = context.ui.html`<div class="page">${header}<div class="layout-rail matches-layout"><main class="matches-main">${filter}${note}<section class="match-list stack" aria-label="Job matches" data-analytics-section="match_feed">${feedContent}</section></main>${rail}</div></div>`;
   bindEvents();
   restoreFocus(savedFocus);
 }

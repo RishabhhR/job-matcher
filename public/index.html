@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Job Matcher & Scraper</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">
+  <script src="/analytics.js"></script>
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -95,7 +96,7 @@
         </aside>
 
         <div class="center-feed">
-          <section class="search-card" id="search-card">
+        <section class="search-card" id="search-card" data-analytics-section="search_card">
             <button type="button" class="search-card-pill" id="search-card-toggle">
               <span class="search-card-pill-icon">🎯</span>
               <span id="search-card-pill-label">Start a new search…</span>
@@ -125,7 +126,7 @@
       <form id="matcher-form">
 
         <!-- STEP 1: Profile -->
-        <section class="panel wizard-step active" id="step-profile" data-step-panel="profile">
+        <section class="panel wizard-step active" id="step-profile" data-step-panel="profile" data-analytics-section="wizard_profile">
           <h2 class="panel-title">Your Profile</h2>
           <p class="panel-subtitle">Tell us who you are so the AI can judge fit accurately.</p>
 
@@ -200,7 +201,7 @@
         </section>
 
         <!-- STEP 2: Search Preferences -->
-        <section class="panel wizard-step" id="step-preferences" data-step-panel="preferences">
+        <section class="panel wizard-step" id="step-preferences" data-step-panel="preferences" data-analytics-section="wizard_preferences">
           <h2 class="panel-title">Search Preferences</h2>
           <p class="panel-subtitle">Refine where we search and how we notify you.</p>
 
@@ -334,7 +335,7 @@
           </div>
 
           <!-- Scored Results Feed -->
-          <div class="results-container" id="step-results" data-step-panel="results">
+          <div class="results-container" id="step-results" data-step-panel="results" data-analytics-section="wizard_results">
             <div class="results-header hidden" id="results-count-container">
               <h3>Top Matches Found (<span id="results-count">0</span>)</h3>
             </div>
@@ -399,7 +400,7 @@
         <div class="settings-grid">
           
           <!-- Column 1: Analytics & Stats -->
-          <section class="panel stats-panel">
+          <section class="panel stats-panel" data-analytics-section="settings_stats">
             <h2 class="panel-title">Dashboard Insights</h2>
             <p class="panel-subtitle">Key metrics aggregated from your LLM evaluations.</p>
             
@@ -461,7 +462,7 @@
           </section>
 
           <!-- Column 2: Digest Settings -->
-          <section class="panel configurations-panel">
+          <section class="panel configurations-panel" data-analytics-section="settings_preferences">
             <h2 class="panel-title">Digest & Account Settings</h2>
             <p class="panel-subtitle">Manage automated reports and account details.</p>
 

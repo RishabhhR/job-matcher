@@ -209,6 +209,7 @@ async function authFetch(url, options = {}) {
 }
 
 function showLogin() {
+  window.JobMatcherAnalytics?.trackPage("sign_in");
   authContainer.classList.remove("hidden");
   appContainer.classList.add("hidden");
   window.Clerk.mountSignIn(authContainer, {
@@ -217,6 +218,7 @@ function showLogin() {
 }
 
 function showApp() {
+  window.JobMatcherAnalytics?.trackPage("legacy_wizard");
   authContainer.classList.add("hidden");
   appContainer.classList.remove("hidden");
   userProfileHeader.classList.remove("hidden");
@@ -683,6 +685,7 @@ const viewWizard = document.getElementById("view-wizard");
 const viewSettings = document.getElementById("view-settings");
 
 navBtnWizard.addEventListener("click", () => {
+  window.JobMatcherAnalytics?.trackPage("legacy_wizard");
   navBtnWizard.classList.add("active");
   navBtnSettings.classList.remove("active");
   viewWizard.classList.remove("hidden");
@@ -691,6 +694,7 @@ navBtnWizard.addEventListener("click", () => {
 });
 
 navBtnSettings.addEventListener("click", async () => {
+  window.JobMatcherAnalytics?.trackPage("legacy_settings");
   navBtnWizard.classList.remove("active");
   navBtnSettings.classList.add("active");
   viewWizard.classList.add("hidden");

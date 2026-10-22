@@ -12,6 +12,7 @@ const bootSlowTimer = setTimeout(() => boot.classList.add("is-slow"), 4000);
 bootRetry.addEventListener("click", () => location.reload());
 
 function showBootFailure(message) {
+  window.JobMatcherAnalytics?.trackPage("auth_error");
   clearTimeout(bootSlowTimer);
   boot.classList.remove("is-slow");
   boot.classList.add("boot-failed");
@@ -70,6 +71,7 @@ async function main() {
   }
 
   if (!clerkUser) {
+    window.JobMatcherAnalytics?.trackPage("sign_in");
     clearTimeout(bootSlowTimer);
     boot.setAttribute("aria-busy", "false");
     boot.hidden = true;
@@ -83,6 +85,7 @@ async function main() {
   try {
     await store.loadAccount(clerkUser);
   } catch (err) {
+    window.JobMatcherAnalytics?.trackPage("account_error");
     console.error("Account load failed:", err);
     clearTimeout(bootSlowTimer);
     boot.setAttribute("aria-busy", "false");

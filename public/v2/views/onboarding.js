@@ -82,7 +82,7 @@ export async function render(root, { store, api, ui, navigate }) {
           <div class="onb-progress-bar"></div>
         </div>
 
-        <div class="onb-dropzone" id="onb-dropzone" role="button" tabindex="0" aria-label="Drop your CV here or click to choose file">
+        <div class="onb-dropzone" id="onb-dropzone" role="button" tabindex="0" aria-label="Drop your CV here or click to choose file" data-analytics-section="onboarding_cv">
           <input type="file" id="onb-file-input" accept=".pdf,.docx,.txt" hidden>
           <div class="onb-drop-icon" aria-hidden="true">↑</div>
           <h2>${isUploading ? "Reading your CV…" : "Drop your CV here"}</h2>
@@ -219,7 +219,7 @@ export async function render(root, { store, api, ui, navigate }) {
           <div class="onb-progress-bar"></div>
         </div>
 
-        <div class="card onb-card">
+        <div class="card onb-card" data-analytics-section="onboarding_profile">
           <div class="field">
             <label for="step2-role">Target role <span style="color:var(--danger)">*</span></label>
             <input id="step2-role" class="input ${roleError ? 'input-error' : ''}" value="${targetRole}" placeholder="e.g. Product Manager, UX Designer, Software Engineer">
@@ -357,7 +357,7 @@ export async function render(root, { store, api, ui, navigate }) {
           <div class="onb-progress-bar is-active"></div>
         </div>
 
-        <div class="card onb-card">
+        <div class="card onb-card" data-analytics-section="onboarding_preferences">
           <div class="field">
             <label class="label">Target locations</label>
             <div class="onb-tags-wrap" id="onb-loc-list">

@@ -85,6 +85,19 @@ app.use(express.json({ limit: "10mb" }));
 app.use(attachVerifiedClerkUser);
 app.use(express.static(publicDir));
 
+// The PostHog project token is a public browser identifier, unlike an API key.
+// Serving it from the configured environment keeps the static pages in sync with
+// server-side telemetry without committing a project-specific token to Git.
+app.get("/api/analytics-config", (_req, res) => {
+  const token = process.env.POSTHOG_PROJECT_TOKEN || "";
+  const configuredHost = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
+  const host = /^https:\/\/[a-z0-9.-]+\.posthog\.com$/i.test(configuredHost)
+    ? configuredHost
+    : "https://us.i.posthog.com";
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json({ token: /^phc_[A-Za-z0-9]+$/.test(token) ? token : "", host });
+});
+
 // Narrow client-event endpoint. It accepts only a fixed event/property allowlist,
 // uses a service-level distinct ID, and never stores user IDs, CV text, job text,
 // email addresses, URLs, or request bodies in PostHog.

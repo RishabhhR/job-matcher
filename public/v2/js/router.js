@@ -71,6 +71,7 @@ export async function showRoute() {
     document.title = `${module.title || name} · JobMatcher`;
     await module.render(viewRoot, { store, api, ui, navigate });
     if (token !== renderToken) return;
+    window.JobMatcherAnalytics?.trackPage(name);
     // Move focus to the view's heading so keyboard and screen-reader users land at the top.
     const heading = viewRoot.querySelector("h1");
     if (heading) {
@@ -84,6 +85,7 @@ export async function showRoute() {
   } catch (err) {
     console.error(`Failed to render ${name}:`, err);
     if (token !== renderToken) return;
+    window.JobMatcherAnalytics?.trackPage(name);
     viewRoot.replaceChildren(
       ui.emptyState({
         title: "Something went wrong loading this page",
