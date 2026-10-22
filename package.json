@@ -10,7 +10,8 @@
     "cron-hourly": "tsx src/cron.ts",
     "send-service-update": "tsx src/send-service-update.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "manual-digest": "tsx src/manualDigest.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.10.0",

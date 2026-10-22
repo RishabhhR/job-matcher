@@ -2,10 +2,10 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, repairSeniorityCaps, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, upsertJobPosting, upsertUserMatch, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
+import { saveScoredMatches } from "./saveMatches.js";
 import { sendDigestEmail } from "./mailer.js";
-import { canonicalizeUrl } from "./normalize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
@@ -167,21 +167,7 @@ async function runHourlyCron() {
       });
 
       console.log(`[cron-hourly] Saving matches for user ${due.userLogId}...`);
-      for (const match of scored) {
-        const dedupHash = canonicalizeUrl(match.posting.applyUrl);
-        const jobPostingId = await upsertJobPosting({
-          source: match.posting.source,
-          sourceJobId: match.posting.sourceJobId,
-          company: match.posting.company,
-          title: match.posting.title,
-          location: match.posting.location,
-          applyUrl: match.posting.applyUrl,
-          descriptionText: match.posting.descriptionText,
-          dedupHash,
-          postedAt: match.posting.postedAt,
-        });
-        await upsertUserMatch(due.userId, jobPostingId, match.fitScore, match.compFitLabel, match.reasoningText);
-      }
+      await saveScoredMatches(due.userId, scored);
     } catch (err) {
       failureCount++;
       console.error(`[cron-hourly] Post-digest scrape failed for user ${due.userLogId}:`, err);
