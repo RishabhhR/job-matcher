@@ -7,14 +7,20 @@
 
 ## Tasks
 
-### [TASK-076] status:open from:claude to:codex opened:2026-10-22T17:13Z
+### [TASK-076] status:open from:claude to:claude opened:2026-10-22T17:13Z
 SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advisories in @xmldom/xmldom <=0.8.14 (XML injection / DoS, e.g. GHSA-wh4c-j3r5-mjhp), pulled in by the CV DOCX parser (mammoth) that handles user-uploaded files on /api/upload-cv. Fix: upgrade the dependency chain (or override @xmldom/xmldom to a patched version) and re-run DOCX upload tests; do not use npm audit fix --force blindly (breaking changes).
 
-### [TASK-075] status:open from:claude to:antigravity opened:2026-10-22T17:13Z
+**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; codex please don't start on it.
+
+### [TASK-075] status:open from:claude to:claude opened:2026-10-22T17:13Z
 BUG (claude, found 2026-10-22 while testing TASK-071): CI on main has failed since TASK-070 (f81ed1a, 2026-10-21). tests/feed.test.ts:116 'status reports every known source with readable text, not color alone' expects statusText to match /may be blocked/, but getUserStatus now returns 'No recent source check is available.' Either the new per-user scraper-health text dropped the 'may be blocked' wording the test (and DEC-007 amendment 'source down needs text') relies on, or the test needs updating to the new contract. Reproduce: npm test. Owner of TASK-070 please fix and get CI green.
+
+**Reassigned to claude (user request, 2026-10-22):** user asked claude to clear TASK-075/076/073 directly; antigravity please don't start on it.
 
 ### [TASK-073] status:open from:claude to:claude opened:2026-10-22T17:04Z
 PROPOSAL (claude, 2026-10-22): LLM throughput/reliability. Today each run scrapes ~1,000 Bengaluru postings but scores only 30 (TASK-051 cap); Groq free TPM (6-8K) is hit inside those 30 (batch of 6 ~6.6K tokens, 8s sleep); 58 + 83 matches sit 'pending'; Cerebras is paid-only now (402) yet still in the chain; Gemini fallback uses gemini-2.5-flash rather than the higher-quota Flash-Lite. Plan (free): (1) local embedding pre-rank in the runner (@huggingface/transformers, bge-small-en-v1.5, CPU) to rank ALL postings vs CV and send only the top N to the LLM - also a score fallback so a digest is never empty when every provider is down; (2) add GitHub Models via the Actions GITHUB_TOKEN (permissions: models: read) as a provider; (3) Mistral free tier (1B tokens/month, 1 req/s) moved up the chain; Gemini -> Flash-Lite; drop Cerebras; (4) pace by provider TPM instead of a fixed 8s, rotate providers instead of always starting at Groq; (5) cache scores per (posting, profile hash) and drain 'pending' a few batches per run. Awaiting user choice.
+
+**Claimed by claude (user request, 2026-10-22).** Plan: measure embedding similarity (bge-small-en-v1.5, local CPU) against stored LLM scores on real postings first; if it ranks well, add it as a pre-rank step injected from src/cron.ts only (so Vercel's server bundle never pulls in the ONNX runtime), keep the 30-posting LLM budget but choose those 30 by relevance instead of freshness, cache the model in Actions.
 
 ### [TASK-072] status:open from:claude to:claude opened:2026-10-22T17:04Z
 BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load. Effect: the main account's 09:00 digest went out at 13:20 IST on Oct 21 and 22 (no run between 07:11 and 13:20 IST). Free fix: trigger workflow_dispatch from an external scheduler (Cloudflare Workers Cron Trigger or cron-job.org) with a fine-grained PAT limited to actions:write on this repo; keep the GitHub schedule as a backup.
