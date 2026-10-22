@@ -206,7 +206,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   if (scoreCandidates.length < finalShortlist.length) {
     onProgress("scoring_limit", `Scheduled run capped scoring to the ${scoreCandidates.length} freshest postings; ${finalShortlist.length - scoreCandidates.length} remain eligible for later runs.`);
   }
-  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Gemini -> Cerebras -> Mistral -> OpenRouter)...`);
+  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Mistral -> Groq fallbacks -> Gemini -> OpenRouter -> Cerebras)...`);
   
   // Custom progress for scoring
   const batchSize = 6;

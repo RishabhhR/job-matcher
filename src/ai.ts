@@ -262,8 +262,8 @@ async function callMistral(messages: Message[], timeoutMs = 60000): Promise<LLMR
 }
 
 export async function callLLM(messages: Message[]): Promise<{ content: string; provider: string; warning?: string }> {
-  // Fallback chain: current Groq chat model → a second current Groq chat model
-  // → Gemini → Cerebras → Mistral → OpenRouter. Keep stale model names out of
+  // Fallback chain: primary Groq model → Mistral → two more Groq models → Gemini
+  // → OpenRouter → Cerebras. Keep stale model names out of
   // this chain: a decommissioned Groq default silently pushes every batch to Gemini.
   let shortestRetryAfterMs: number | undefined;
   const noteRetry = (result: LLMResult) => {
@@ -277,6 +277,13 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   if (!groq.offline) return { content: groq.content, provider: "groq" };
   noteRetry(groq);
   if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
+
+  // Mistral second (TASK-074): its free tier allows far more tokens per minute than
+  // Groq's 6-12K, so it absorbs the load when the primary Groq model is throttled.
+  const mistral = await callWithCircuit("mistral", () => callMistral(messages));
+  if (!mistral.offline) return { content: mistral.content, provider: "mistral", warning: "Used Mistral fallback" };
+  noteRetry(mistral);
+  if (mistral.warning) console.warn(`[ai] mistral: ${mistral.warning}`);
 
   const groqFallbackModel = "openai/gpt-oss-120b";
   if (primaryModel !== groqFallbackModel) {
@@ -304,20 +311,16 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   noteRetry(gemini);
   if (gemini.warning) console.warn(`[ai] gemini: ${gemini.warning}`);
 
-  const cerebras = await callWithCircuit("cerebras", () => callCerebras(messages));
-  if (!cerebras.offline) return { content: cerebras.content, provider: "cerebras", warning: "Used Cerebras fallback" };
-  noteRetry(cerebras);
-  if (cerebras.warning) console.warn(`[ai] cerebras: ${cerebras.warning}`);
-
-  const mistral = await callWithCircuit("mistral", () => callMistral(messages));
-  if (!mistral.offline) return { content: mistral.content, provider: "mistral", warning: "Used Mistral fallback" };
-  noteRetry(mistral);
-  if (mistral.warning) console.warn(`[ai] mistral: ${mistral.warning}`);
-
   const or = await callWithCircuit("openrouter", () => callOpenRouter(messages));
   if (!or.offline) return { content: or.content, provider: "openrouter", warning: "Used OpenRouter fallback" };
   noteRetry(or);
   if (or.warning) console.warn(`[ai] openrouter: ${or.warning}`);
+
+  // Cerebras' free tier now needs a card (HTTP 402); kept last so a paid key still works.
+  const cerebras = await callWithCircuit("cerebras", () => callCerebras(messages));
+  if (!cerebras.offline) return { content: cerebras.content, provider: "cerebras", warning: "Used Cerebras fallback" };
+  noteRetry(cerebras);
+  if (cerebras.warning) console.warn(`[ai] cerebras: ${cerebras.warning}`);
 
   const reason = shortestRetryAfterMs === undefined
     ? "All LLM providers rejected or could not complete the request. Check provider configuration, billing, model availability, and rate limits."
