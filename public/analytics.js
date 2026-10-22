@@ -33,7 +33,9 @@
       if (queue.length < 100) queue.push([event, payload, unload]);
       return;
     }
-    client.capture(event, payload, unload ? { transport: "sendBeacon", send_instantly: true } : undefined);
+    // The HTML snippet starts as a queue, then replaces window.posthog with the
+    // loaded SDK. Always read the current global; the original queue goes stale.
+    window.posthog.capture(event, payload, unload ? { transport: "sendBeacon", send_instantly: true } : undefined);
   }
 
   function leavePage(unload = false) {
