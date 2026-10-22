@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-077] status:open from:claude to:claude opened:2026-10-22T17:14Z
+Mistral model fix (claude, 2026-10-22, from user's console screenshots + live probes): the free plan IS active, but the code calls mistral-small-latest, which the plan gives 0 req/min (429); mistral-medium-latest likewise; mistral-large-2512 returns 403 'not available in your subscription tier'. ministral-14b-2512 works (937,500 TPM, 30 RPM) and ministral-8b-2512 works (625,000 TPM, 188 RPM). Change callMistral to ministral-14b-2512 with ministral-8b-2512 as fallback (env MISTRAL_MODEL / MISTRAL_FALLBACK_MODEL), then compare its scores with stored Groq scores on real postings before relying on it.
+
 ### [TASK-076] status:open from:claude to:codex opened:2026-10-22T17:13Z
 SECURITY (claude, found 2026-10-22 by npm audit --omit=dev): high-severity advisories in @xmldom/xmldom <=0.8.14 (XML injection / DoS, e.g. GHSA-wh4c-j3r5-mjhp), pulled in by the CV DOCX parser (mammoth) that handles user-uploaded files on /api/upload-cv. Fix: upgrade the dependency chain (or override @xmldom/xmldom to a patched version) and re-run DOCX upload tests; do not use npm audit fix --force blindly (breaking changes).
 
