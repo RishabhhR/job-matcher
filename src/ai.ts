@@ -57,6 +57,24 @@ export class LLMProvidersUnavailableError extends Error {
 
 export function resetDisabledProviders(): void {
   disabledProviders.clear();
+  resetGroqKeyCooldowns();
+}
+
+const groqKeyCooldowns = new Map<string, number>();
+let groqKeyIndex = 0;
+
+export function getAvailableGroqKeys(): string[] {
+  const raw = process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || "";
+  return raw.split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+export function resetGroqKeyCooldowns(): void {
+  groqKeyCooldowns.clear();
+  groqKeyIndex = 0;
+}
+
+export function getGroqKeyCooldowns(): Map<string, number> {
+  return new Map(groqKeyCooldowns);
 }
 
 export function getDisabledProviders(): Map<string, number> {
@@ -107,45 +125,99 @@ interface GroqOptions {
 }
 
 async function callGroq(messages: Message[], model: string, timeoutMs = 60000, options: GroqOptions = {}): Promise<LLMResult> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return { offline: true, content: "" };
+  const keys = getAvailableGroqKeys();
+  if (!keys.length) return { offline: true, content: "" };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const now = Date.now();
+  let lastResult: LLMResult | null = null;
+  let shortestCooldownMs: number | undefined;
 
-  try {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        // Groq/Cloudflare can reject requests with no recognizable user agent.
-        "User-Agent": "job-matcher/1.0",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: options.temperature ?? 0.2,
-        response_format: { type: "json_object" },
-        ...(options.maxCompletionTokens
-          ? { max_completion_tokens: options.maxCompletionTokens }
-          : { max_tokens: 4096 }),
-        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
-        ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
-      }),
-    });
-    clearTimeout(timer);
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { offline: true, content: "", status: res.status, retryAfterMs: res.status === 429 ? retryAfterMs(res.headers, body) : undefined, warning: `Groq HTTP ${res.status}: ${body.slice(0, 300)}` };
+  // Try available keys starting from the current rotating index
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const keyIdx = (groqKeyIndex + attempt) % keys.length;
+    const apiKey = keys[keyIdx];
+    const cooledUntil = groqKeyCooldowns.get(apiKey) || 0;
+
+    if (cooledUntil > now) {
+      const remaining = cooledUntil - now;
+      if (shortestCooldownMs === undefined || remaining < shortestCooldownMs) {
+        shortestCooldownMs = remaining;
+      }
+      continue;
     }
-    const data = await res.json();
-    return { offline: false, content: data.choices[0].message.content };
-  } catch {
-    clearTimeout(timer);
-    return { offline: true, content: "", warning: "Groq request failed or timed out" };
+
+    // Found an active key
+    groqKeyIndex = (keyIdx + 1) % keys.length;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          // Groq/Cloudflare can reject requests with no recognizable user agent.
+          "User-Agent": "job-matcher/1.0",
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: options.temperature ?? 0.2,
+          response_format: { type: "json_object" },
+          ...(options.maxCompletionTokens
+            ? { max_completion_tokens: options.maxCompletionTokens }
+            : { max_tokens: 4096 }),
+          ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+          ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+        }),
+      });
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        const retryAfter = res.status === 429 ? retryAfterMs(res.headers, body) : undefined;
+        if (res.status === 429) {
+          const cooldown = retryAfter ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+          groqKeyCooldowns.set(apiKey, Date.now() + cooldown);
+          console.warn(`[ai] Groq key (${apiKey.slice(0, 8)}...) hit rate limit; cooling down for ${Math.round(cooldown / 1000)}s`);
+        }
+        lastResult = {
+          offline: true,
+          content: "",
+          status: res.status,
+          retryAfterMs: retryAfter,
+          warning: `Groq HTTP ${res.status}: ${body.slice(0, 300)}`,
+        };
+        // If it was 429 and we have other keys, try the next key!
+        if (res.status === 429 && keys.length > 1) {
+          continue;
+        }
+        return lastResult;
+      }
+
+      const data = await res.json();
+      return { offline: false, content: data.choices[0].message.content };
+    } catch {
+      clearTimeout(timer);
+      lastResult = { offline: true, content: "", warning: "Groq request failed or timed out" };
+      if (keys.length > 1) continue;
+      return lastResult;
+    }
   }
+
+  // All keys are either cooling down or failed
+  return (
+    lastResult || {
+      offline: true,
+      content: "",
+      status: 429,
+      retryAfterMs: shortestCooldownMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+      warning: "All Groq API keys are currently rate-limited",
+    }
+  );
 }
 
 async function callGemini(systemPrompt: string, userPrompt: string, timeoutMs = 60000): Promise<LLMResult> {

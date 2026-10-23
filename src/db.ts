@@ -824,6 +824,54 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
   }
 }
 
+/**
+ * Instantly seeds pending candidate matches for a user from the shared central pool of indexed postings
+ * (jm_job_postings). Allows sub-second onboarding matches without blocking on external live web scrapers.
+ */
+export async function seedCandidateMatchesFromPool(
+  userId: string,
+  targetDesignation: string,
+  locationPatternsRegexes?: RegExp[] | null,
+  limit = 50
+): Promise<number> {
+  const result = await client.execute({
+    sql: `SELECT id, title, location
+          FROM jm_job_postings
+          WHERE id NOT IN (SELECT job_posting_id FROM jm_user_job_matches WHERE user_id = ?)
+          ORDER BY COALESCE(posted_at, scraped_at) DESC
+          LIMIT 300`,
+    args: [userId],
+  });
+
+  const target = (targetDesignation || "").toLowerCase().trim();
+  const titleKeywords = ["product manager", "pm ", "apm", "product owner", target].filter(Boolean);
+
+  const matchedPostings = (result.rows as Array<{ id: string; title: string; location: string | null }>).filter((row) => {
+    const title = String(row.title || "").toLowerCase();
+    const titleMatches = title.includes(target) || titleKeywords.some((k) => title.includes(k));
+    if (!titleMatches) return false;
+
+    if (locationPatternsRegexes && locationPatternsRegexes.length > 0) {
+      const loc = String(row.location || "");
+      if (!loc) return true; // remote or unspecified location included
+      return locationPatternsRegexes.some((re) => re.test(loc));
+    }
+    return true;
+  }).slice(0, limit);
+
+  if (matchedPostings.length === 0) return 0;
+
+  const batch = matchedPostings.map((p) => ({
+    sql: `INSERT INTO jm_user_job_matches (id, user_id, job_posting_id, fit_score, comp_fit_label, reasoning_text, status)
+          VALUES (?, ?, ?, -1, 'unknown', 'Pending evaluation', 'pending')
+          ON CONFLICT(user_id, job_posting_id) DO NOTHING`,
+    args: [randomUUID(), userId, p.id],
+  }));
+
+  await client.batch(batch, "write");
+  return matchedPostings.length;
+}
+
 export type MatchFeedFilter = "new" | "saved" | "applied" | "dismissed" | "all";
 export type MatchFeedSort = "best" | "newest";
 export interface MatchFeedOptions {

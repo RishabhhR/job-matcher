@@ -130,3 +130,39 @@ test("daily visitor tracking aggregates unique visitors, hits, and top paths acc
   assert.equal(jobsPath.views, 1);
 });
 
+test("seedCandidateMatchesFromPool matches existing postings by title/location and ignores duplicates", async () => {
+  const seedUser = await db.upsertUser("seedtest@example.com", "Seed User", "user_seed_99");
+  
+  await db.upsertJobPosting({
+    source: "greenhouse",
+    sourceJobId: "pm-bengaluru",
+    company: "Meta",
+    title: "Senior Product Manager",
+    location: "Bengaluru, India",
+    applyUrl: "https://jobs.example.com/pm1",
+    descriptionText: "PM role in Bengaluru",
+    dedupHash: "seed-test/pm1",
+  });
+  await db.upsertJobPosting({
+    source: "greenhouse",
+    sourceJobId: "designer-london",
+    company: "Figma",
+    title: "Lead Product Designer",
+    location: "London, UK",
+    applyUrl: "https://jobs.example.com/pd1",
+    descriptionText: "Designer role in London",
+    dedupHash: "seed-test/pd1",
+  });
+
+  const seededCount = await db.seedCandidateMatchesFromPool(seedUser, "Product Manager", [/bengaluru/i]);
+  assert.ok(seededCount >= 1, "Should seed at least 1 match");
+
+  const matches = await db.getPaginatedMatchesForUser(seedUser, 0, 10);
+  const found = matches.find((m: any) => m.title === "Senior Product Manager");
+  assert.ok(found, "Expected Senior Product Manager to be seeded");
+  assert.equal(found.status, "pending");
+
+  const seededAgain = await db.seedCandidateMatchesFromPool(seedUser, "Product Manager", [/bengaluru/i]);
+  assert.equal(seededAgain, 0, "Should not re-seed existing candidate matches");
+});
+

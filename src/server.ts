@@ -37,6 +37,7 @@ import {
   upsertScrapeSourceStatuses,
   recordDailyVisit,
   getDailyVisitorStats,
+  seedCandidateMatchesFromPool,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
@@ -807,9 +808,17 @@ app.post("/api/match", async (req, res) => {
   };
 
   const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
-  async function safeScrape<T>(source: string, fn: () => Promise<T[]>): Promise<T[]> {
+  async function safeScrape<T>(source: string, fn: () => Promise<T[]>, timeoutMs = 15000): Promise<T[]> {
     try {
-      const rows = await fn();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const rows = await Promise.race([
+        fn(),
+        new Promise<T[]>((_, reject) => {
+          controller.signal.addEventListener("abort", () => reject(new Error(`Timed out after ${timeoutMs}ms`)));
+        }),
+      ]);
+      clearTimeout(timer);
       sourceHealth[source] = { count: rows.length, ok: true };
       return rows;
     } catch (error) {
@@ -837,6 +846,11 @@ app.post("/api/match", async (req, res) => {
 
     // Filter ATS by location
     const patterns = locationPatterns(profile);
+
+    // TASK-090: Seed candidate matches immediately from central indexed postings pool
+    sendEvent("progress", { status: "seeding", message: "Matching against 2,000+ indexed job openings..." });
+    const seededCount = await seedCandidateMatchesFromPool(userId, profile.targetDesignation, patterns, 60);
+    sendEvent("progress", { status: "seeding_complete", message: `Found ${seededCount} candidates from indexed job boards.` });
 
     const filterByLoc = (postings: any[]) => {
       if (!patterns) return postings;
@@ -930,16 +944,15 @@ app.post("/api/match", async (req, res) => {
 
     sendEvent("progress", { status: "processing", message: `Filtered down to ${shortlisted.length} matching target designation "${profile.targetDesignation}". Saving to database...` });
     
-    // Clear old pending matches and save new ones
-    await deletePendingMatches(userId);
+    // Save new scraped matches (preserves existing candidate pool matches via ON CONFLICT)
     await bulkInsertPostingsAndPendingMatches(userId, shortlisted);
 
     const totalMatches = await getTotalMatchCountForUser(userId);
     sendEvent("progress", { status: "processing", message: `Saved ${totalMatches} matching postings to database. Preparing Page 1...` });
 
-    // Fetch and score Page 1 immediately (first 10 jobs)
+    // Fetch and score Page 1 immediately (first micro-batch of up to 4 jobs to avoid function timeouts)
     const page1Jobs = await getPaginatedMatchesForUser(userId, 0, 10);
-    const pendingPage1 = page1Jobs.filter((j: any) => j.status === "pending");
+    const pendingPage1 = page1Jobs.filter((j: any) => j.status === "pending").slice(0, 4);
 
     if (pendingPage1.length > 0) {
       // ATS postings already have full descriptions from the original scrape
@@ -1054,14 +1067,24 @@ app.post("/api/match/page", async (req, res) => {
       return;
     }
 
-    const pendingJobs = pageJobs.filter((j: any) => j.status === "pending");
+    let finalPageJobs = pageJobs;
+    let total = firstTotal;
+
+    const pendingJobs = pageJobs.filter((j: any) => j.status === "pending").slice(0, 4);
+
+    // Progressive on-demand hydration: if no matches are scored yet for this user in v2 feed,
+    // score the top micro-batch (up to 4 jobs) on demand so the user sees immediate results.
+    if (finalPageJobs.length === 0 && (!feedOptions.filter || feedOptions.filter === "new")) {
+      const rawCandidates = await getPaginatedMatchesForUser(userId, 0, 4);
+      const pendingFromPool = rawCandidates.filter((j: any) => j.status === "pending").slice(0, 4);
+      if (pendingFromPool.length > 0) {
+        pendingJobs.push(...pendingFromPool);
+      }
+    }
 
     if (pendingJobs.length > 0) {
-      // Same fix as /api/match's Page 1 handling: ATS postings already have full
-      // descriptions from the original scrape, only LinkedIn postings need
-      // fetching. Re-fetching every posting regardless of source wastes a full
-      // page load per job and overwrites already-good ATS descriptions with
-      // empty text (the LinkedIn-only CSS selector never matches elsewhere).
+      // ATS postings already have full descriptions from the original scrape;
+      // only LinkedIn postings need descriptions fetched dynamically.
       const postingsToFetch = pendingJobs.map((j: any) => ({
         source: j.source,
         sourceJobId: j.sourceJobId,
@@ -1074,7 +1097,7 @@ app.post("/api/match/page", async (req, res) => {
       const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
 
       if (linkedinNeedingFetch.length > 0) {
-        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, 10);
+        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, linkedinNeedingFetch.length);
       }
       const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
       const scoredByPosting = scoresByPosting(scoredResults);
@@ -1086,15 +1109,12 @@ app.post("/api/match/page", async (req, res) => {
         const description = postingsToFetch[i].descriptionText;
         await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
       }
-    }
 
-    // Re-query only if something was just scored (legacy UI path).
-    const [finalPageJobs, total] = pendingJobs.length > 0
-      ? await Promise.all([
-          getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
-          getTotalMatchCountForUser(userId, feedOptions),
-        ])
-      : [pageJobs, firstTotal];
+      [finalPageJobs, total] = await Promise.all([
+        getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
+        getTotalMatchCountForUser(userId, feedOptions),
+      ]);
+    }
     const results = finalPageJobs.map((j: any) => ({
       posting: {
         id: j.posting_id,

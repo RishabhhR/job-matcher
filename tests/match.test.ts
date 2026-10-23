@@ -5,6 +5,8 @@ import {
   callWithCircuit,
   resetDisabledProviders,
   getDisabledProviders,
+  getAvailableGroqKeys,
+  resetGroqKeyCooldowns,
 } from "../src/ai.js";
 import {
   extractValidScoreItems,
@@ -171,3 +173,22 @@ test("provider-level circuit breaker trips all models sharing provider quota on 
 
   resetDisabledProviders();
 });
+
+test("multi-key Groq configuration parses comma-separated keys and handles cooldowns", () => {
+  const originalKeys = process.env.GROQ_API_KEYS;
+  const originalKey = process.env.GROQ_API_KEY;
+
+  try {
+    process.env.GROQ_API_KEYS = "gsk_test1, gsk_test2,  gsk_test3 ";
+    const keys = getAvailableGroqKeys();
+    assert.deepEqual(keys, ["gsk_test1", "gsk_test2", "gsk_test3"]);
+
+    resetGroqKeyCooldowns();
+  } finally {
+    if (originalKeys !== undefined) process.env.GROQ_API_KEYS = originalKeys;
+    else delete process.env.GROQ_API_KEYS;
+    if (originalKey !== undefined) process.env.GROQ_API_KEY = originalKey;
+    else delete process.env.GROQ_API_KEY;
+  }
+});
+

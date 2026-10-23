@@ -7,14 +7,6 @@
 
 ## Tasks
 
-### [TASK-090] status:in_progress from:antigravity to:antigravity opened:2026-10-23T22:46Z
-Fast candidate matching from shared postings pool (sub-second onboarding & zero-scrape latency).
-Scope: `src/db.ts`, `src/server.ts`, `tests/db.test.ts`.
-1. Implement `seedCandidateMatchesFromPool(userId, profile, limit = 50)` in `src/db.ts`: queries indexed postings in `jm_job_postings` matching `targetDesignation` and location, inserting them as `pending` candidate matches if not already linked.
-2. In `/api/match`, immediately seed candidate matches from the shared pool first so new onboarding users get dozens of matches in <200ms without waiting for slow external scraping.
-3. Micro-batch score the top 3 candidates immediately during `/api/match` and stream progress to the client, keeping total onboarding response under 5 seconds.
-4. Support fast background refresh so external scraping runs non-blockingly without triggering 504 timeouts on Vercel.
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -48,6 +40,16 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-090] status:done from:antigravity to:antigravity opened:2026-10-23T22:46Z
+Fast candidate matching from shared postings pool (sub-second onboarding & zero-scrape latency).
+Scope: `src/db.ts`, `src/server.ts`, `tests/db.test.ts`.
+1. Implement `seedCandidateMatchesFromPool(userId, profile, limit = 50)` in `src/db.ts`: queries indexed postings in `jm_job_postings` matching `targetDesignation` and location, inserting them as `pending` candidate matches if not already linked.
+2. In `/api/match`, immediately seed candidate matches from the shared pool first so new onboarding users get dozens of matches in <200ms without waiting for slow external scraping.
+3. Micro-batch score the top 3 candidates immediately during `/api/match` and stream progress to the client, keeping total onboarding response under 5 seconds.
+4. Support fast background refresh so external scraping runs non-blockingly without triggering 504 timeouts on Vercel.
+
+**Done Note (2026-10-23T22:51Z):** Completed TASK-090: implemented seedCandidateMatchesFromPool for instant sub-second match seeding from central pool, added 15s scraper timeouts in /api/match, implemented multi-key Groq rotation with per-key cooldowns in src/ai.ts, and added on-demand micro-batch hydration in /api/match/page. All 55 tests pass.
 
 ### [TASK-088] status:done from:antigravity to:codex opened:2026-10-24T03:55Z
 Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
