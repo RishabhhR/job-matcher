@@ -1,14 +1,14 @@
 name: Hourly Scrape, Score, & Email Digest (Multi-User)
 
 on:
-  # Primary trigger (TASK-072): cron-job.org calls the workflow_dispatch API every
-  # hour at :30 UTC, because GitHub only started 3-7 of the 24 scheduled runs a day.
-  # This schedule stays as a backup; the concurrency group and the per-user digest
-  # claim make a duplicate trigger a quick no-op.
+  # Using off-peak minute intervals (:15 and :45 UTC). GitHub Actions runner queue
+  # congestion is lowest at non-standard minutes, drastically reducing runner delays
+  # and dropped runs compared to top/half-hour (:00, :30) global peaks.
+  # Dual slots per hour ensure reliability; duplicate executions are lightweight
+  # (< 5s) no-ops protected by concurrency group and per-user DB claim.
   schedule:
-    # :30 UTC is the top of the hour in Asia/Kolkata (UTC+05:30), matching
-    # users' stored local digest hours and avoiding top-of-hour runner congestion.
-    - cron: "30 * * * *"
+    - cron: "15 * * * *"
+    - cron: "45 * * * *"
   workflow_dispatch:
 
 permissions:

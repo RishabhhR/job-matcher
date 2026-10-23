@@ -3,8 +3,8 @@ name: Send Service Restoration Update
 on:
   workflow_dispatch:
     inputs:
-      target_email:
-        description: "Specific user email to send update to (leave empty for all users)"
+      user_id:
+        description: "jm_users.id or unique prefix (8+ chars), leave empty for all users"
         required: false
         default: ""
 
@@ -32,5 +32,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
-          TARGET_EMAIL: ${{ inputs.target_email }}
+          TARGET_USER_ID: ${{ inputs.user_id }}
         run: npm run send-service-update

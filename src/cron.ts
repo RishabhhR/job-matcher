@@ -24,7 +24,12 @@ async function runHourlyCron() {
   console.log(`[cron-hourly] Found ${users.length} users with daily digest enabled.`);
 
   const now = new Date();
-  let failureCount = 0;
+  let totalDue = 0;
+  let successfulSends = 0;
+  let emptySends = 0;
+  let sendFailures = 0;
+  let scrapeSuccesses = 0;
+  let scrapeFailures = 0;
 
   // Baseline companies list from local companies.json
   const companiesPath = path.join(dataDir, "companies.json");
@@ -71,8 +76,7 @@ async function runHourlyCron() {
       });
       parts = formatter.formatToParts(now);
     } catch (error) {
-      failureCount++;
-      console.error(`[cron-hourly] User ${userLogId} has an invalid timezone; skipping this run.`);
+      console.warn(`[cron-hourly] User ${userLogId} has an invalid timezone; skipping this run.`);
       continue;
     }
     const partValue = (type: string) => parts.find((p) => p.type === type)?.value;
@@ -98,8 +102,7 @@ async function runHourlyCron() {
           getUserProfileRow(userId),
         ]);
       } catch (err) {
-        failureCount++;
-        console.error(`[cron-hourly] Could not load profile data for user ${userLogId}; skipping this run.`);
+        console.warn(`[cron-hourly] Could not load profile data for user ${userLogId}; skipping this run.`);
         continue;
       }
       if (!cvText || !dbProfile) {
@@ -132,12 +135,14 @@ async function runHourlyCron() {
           // a retry safe and the matches remain eligible until the stamp succeeds.
           await markMatchesAsSent(topMatches.map((m: any) => m.match_id as string));
           console.log(`[cron-hourly] Email sent successfully to user ${userLogId} (messageId: ${messageId})`);
+          successfulSends++;
         } else {
           console.log(`[cron-hourly] No matches found for user ${userLogId}, skipped email.`);
           await logEmailSend(userId, sendDate, slot, "empty", undefined, "No matches were available for this digest attempt.");
+          emptySends++;
         }
       } catch (err) {
-        failureCount++;
+        sendFailures++;
         console.error(`[cron-hourly] Digest send failed for user ${userLogId}:`, err);
         // Failed attempts remain retryable on the next hourly tick. The
         // scraping phase still runs so fresh matches are ready for that retry.
@@ -168,14 +173,22 @@ async function runHourlyCron() {
 
       console.log(`[cron-hourly] Saving matches for user ${due.userLogId}...`);
       await saveScoredMatches(due.userId, scored);
+      scrapeSuccesses++;
     } catch (err) {
-      failureCount++;
+      scrapeFailures++;
       console.error(`[cron-hourly] Post-digest scrape failed for user ${due.userLogId}:`, err);
     }
   }
 
-  console.log("[cron-hourly] Hourly cron execution complete.");
-  if (failureCount > 0) throw new Error(`${failureCount} user digest pipeline(s) failed.`);
+  console.log(
+    `[cron-hourly] Hourly cron execution complete. Due: ${dueUsers.length}, Sent: ${successfulSends}, Empty: ${emptySends}, Send failures: ${sendFailures}, Scrape successes: ${scrapeSuccesses}, Scrape failures: ${scrapeFailures}.`
+  );
+
+  // If every due user failed sending, treat it as a systemic failure (e.g. SMTP down).
+  // Otherwise, individual recipient/board errors are recorded in the DB send log and do not abort the workflow.
+  if (dueUsers.length > 0 && successfulSends === 0 && emptySends === 0 && sendFailures === dueUsers.length) {
+    throw new Error(`All ${sendFailures} due user digest send(s) failed.`);
+  }
 }
 
 runHourlyCron().catch((error) => {

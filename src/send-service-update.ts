@@ -6,16 +6,26 @@ async function main() {
   console.log("[send-service-update] Initializing service restoration broadcast...");
   await ensureMigrated();
 
-  // Find registered users with clerk_id (filter by TARGET_EMAIL if set)
+  // Find registered users with clerk_id (filter by TARGET_USER_ID or TARGET_EMAIL if set)
+  const targetUserId = process.env.TARGET_USER_ID?.trim();
   const targetEmail = process.env.TARGET_EMAIL?.trim().toLowerCase();
-  const usersRes = targetEmail
-    ? await client.execute({
-        sql: "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL AND lower(email) = ?",
-        args: [targetEmail],
-      })
-    : await client.execute(
-        "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL"
-      );
+
+  let usersRes;
+  if (targetUserId) {
+    usersRes = await client.execute({
+      sql: "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL AND (id = ? OR id LIKE ?)",
+      args: [targetUserId, `${targetUserId}%`],
+    });
+  } else if (targetEmail) {
+    usersRes = await client.execute({
+      sql: "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL AND lower(email) = ?",
+      args: [targetEmail],
+    });
+  } else {
+    usersRes = await client.execute(
+      "SELECT id, email, name, timezone FROM jm_users WHERE clerk_id IS NOT NULL"
+    );
+  }
   const users = usersRes.rows;
   console.log(`[send-service-update] Found ${users.length} target registered user(s).`);
 
@@ -26,8 +36,9 @@ async function main() {
     const userId = user.id as string;
     const email = user.email as string;
     const name = (user.name as string) || "there";
+    const userLogId = userId.slice(-8);
 
-    console.log(`\n[send-service-update] Processing user ${name} <${email}> (${userId.slice(-8)})...`);
+    console.log(`\n[send-service-update] Processing user ${name} (${userLogId})...`);
     try {
       const cvText = await getActiveCvText(userId);
       const profile = await getUserProfileRow(userId);
@@ -56,11 +67,11 @@ async function main() {
 
       console.log(`[send-service-update] Sending email (hasProfile: ${hasProfile}, matches: ${matches.length})...`);
       const messageId = await sendServiceUpdateEmail(email, name, matches, hasProfile);
-      console.log(`[send-service-update] ✅ Email sent to ${email} (Message ID: ${messageId})`);
+      console.log(`[send-service-update] ✅ Email sent to user (${userLogId}) (Message ID: ${messageId})`);
       successCount++;
     } catch (err) {
       errorCount++;
-      console.error(`[send-service-update] ❌ Failed to send email to ${email}:`, err);
+      console.error(`[send-service-update] ❌ Failed to send email to user (${userLogId}):`, err);
     }
   }
 

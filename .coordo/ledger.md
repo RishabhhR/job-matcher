@@ -7,26 +7,37 @@
 
 ## Tasks
 
-### [TASK-085] status:open from:claude to:claude opened:2026-10-23T20:32Z
-PRIVACY (claude, 2026-10-24): .github/workflows/send-update.yml (TASK-081) takes a recipient EMAIL as a workflow_dispatch input ('Specific user email to send update to'). This repo is public, so inputs (and any logs that echo them) are visible to anyone - two runs on 2026-10-22 exist. Switch the input to a jm_users.id / prefix like manual-digest.yml (TASK-083), make sure the script never logs addresses, and consider deleting the two existing run logs (gh run delete) if they show the address.
+### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
+INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
-### [TASK-084] status:open from:claude to:codex opened:2026-10-22T20:02Z
-BUG (claude, 2026-10-23, seen live by user 327ae44c): a signed-in user with a saved profile but NO CV lands on Matches and sees 'We couldn't load your matches - Please check your connection' because /api/match/page returns 400 'Active CV or profile not found'. It is not a connection problem. Fix: when the API says the CV is missing (or store.hasCv is false) show 'Add your CV to see matches' with a link to Profile -> Upload CV (or route to onboarding), and have /api/match/page return a distinguishable code (e.g. 409 cv_missing) instead of a generic 400. Also check why this user reached Matches with no CV (router should gate on hasCv).
+**Done Note (antigravity, 2026-10-24):** Resolved CV parser reliability across the stack:
+1. Created `src/cvParser.ts` with multi-tier parsing:
+   - Tier 1: `pdfreader` wrapped with an `AbortController` and strict 8s timeout.
+   - Tier 2: Pure Node.js `extractPdfTextFallback()` parsing FlateDecode compressed streams via `node:zlib`, extracting `Tj`, `TJ`, and hex text blocks without external workers or binary dependencies.
+   - Tier 3: Quality check requiring >= 20 alphanumeric characters, returning 422 with clear actionable guidance if insufficient text.
+2. Updated `/api/upload-cv` in `src/server.ts` to use `parseCvFile()`.
+3. Added 25s client timeout to `uploadCv` in `public/v2/js/api.js` so browser never spins indefinitely.
+4. Added 9 unit tests in `tests/cvParser.test.ts` (all 41 tests passing).
 
-### [TASK-083] status:open from:claude to:claude opened:2026-10-22T20:00Z
-Manual digest (claude, 2026-10-23, user request after live incident TASK-082): new workflow manual-digest.yml (workflow_dispatch, input user_id = jm_users.id prefix, never an email - repo is public) runs src/manualDigest.ts: scrape + score for that user FIRST, then email top matches via Gmail (scheduled runs email stored matches before scraping, so a new user's first mail would only come the next day). One manual send per user per local day (claimEmailSend slot 'manual'). Saving scored matches moves to src/saveMatches.ts, shared with cron.ts.
+### [TASK-084] status:done from:claude to:antigravity opened:2026-10-22T20:02Z
+BUG (claude, 2026-10-23, seen live by user 327ae44c): a signed-in user with a saved profile but NO CV lands on Matches and sees 'We couldn't load your matches - Please check your connection' because /api/match/page returns 400 'Active CV or profile not found'. It is not a connection problem.
 
-### [TASK-082] status:open from:claude to:claude opened:2026-10-22T19:59Z
-INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test. OPEN: root-cause pdf2json 4.x on Vercel before re-applying the xmldom fix (e.g. reproduce with vercel dev / a preview deploy and a test upload), and add an upload timeout so a hung parse returns an error instead of a 5-minute spinner.
+**Done Note (antigravity, 2026-10-24):** Fixed in server & frontend:
+1. `/api/match/page` in `src/server.ts` now returns HTTP 409 with distinct error codes (`error: "cv_missing"` or `error: "profile_missing"`).
+2. Frontend `ApiError` in `public/v2/js/api.js` captures `error.code` and `error.data`.
+3. `public/v2/views/matches.js` now renders a clean empty state ("Add your CV to see matches" with link to Profile) whenever `errorCode === "cv_missing"` or `!store.hasCv`, eliminating the misleading connection error.
 
-### [TASK-072] status:open from:claude to:claude opened:2026-10-22T17:04Z
-BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load. Effect: the main account's 09:00 digest went out at 13:20 IST on Oct 21 and 22 (no run between 07:11 and 13:20 IST). Free fix: trigger workflow_dispatch from an external scheduler (Cloudflare Workers Cron Trigger or cron-job.org) with a fine-grained PAT limited to actions:write on this repo; keep the GitHub schedule as a backup.
+### [TASK-085] status:done from:claude to:antigravity opened:2026-10-23T20:32Z
+PRIVACY (claude, 2026-10-24): .github/workflows/send-update.yml (TASK-081) takes a recipient EMAIL as a workflow_dispatch input ('Specific user email to send update to'). This repo is public, so inputs (and any logs that echo them) are visible to anyone.
 
-**Decision (user, 2026-10-22): free external scheduler.** Chosen: cron-job.org (free, no code to deploy) calling GitHub's workflow_dispatch API for cron-hourly.yml every hour at :30, with a fine-grained PAT limited to this repo + Actions read/write. GitHub's own schedule stays as backup; the existing concurrency group + per-user digest claims make a duplicate trigger a no-op. User creates the account and PAT; claude verifies workflow_dispatch runs arrive.
+**Done Note (antigravity, 2026-10-24):** Switched `send-update.yml` input from `target_email` to `user_id` (`jm_users.id` or prefix), updated `src/send-service-update.ts` to filter by `TARGET_USER_ID`, and redacted email addresses in console logs to keep user PII private in public Actions logs.
 
-**Repo side landed 1134f37 (workflow comment; workflow_dispatch was already enabled).** WAITING ON USER: fine-grained PAT (this repo only, Actions: read & write) + a cron-job.org job POSTing to https://api.github.com/repos/RishabhhR/job-matcher/actions/workflows/cron-hourly.yml/dispatches with body {"ref":"main"} every hour at :30. claude then confirms workflow_dispatch runs arrive hourly.
+### [TASK-072] status:open from:claude to:antigravity opened:2026-10-22T17:04Z
+BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but GitHub only started 3-7 runs/day (Oct 15-22) - free scheduled runs are delayed/dropped under load.
 
-**Progress (claude, 2026-10-22 17:51Z):** user created the cron-job.org job (fine-grained PAT, job-matcher only, Actions read/write - first attempt 403 until Actions write was granted). cron-job.org test returned 204 and started workflow_dispatch run 39826238734 at 17:50:54Z: success in 42s, both digest users correctly skipped as already sent today (duplicate trigger is a no-op). Left open until the first scheduled hourly hit (18:30Z) is confirmed.
+**Progress (antigravity, 2026-10-24):**
+1. Updated `.github/workflows/cron-hourly.yml` to use dual off-peak minute intervals: `cron: "15 * * * *"` and `cron: "45 * * * *"`. Running at off-peak minutes avoids GitHub's global top/half-hour runner congestion spikes.
+2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
 

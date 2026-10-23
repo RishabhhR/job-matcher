@@ -56,6 +56,7 @@ async function loadPage({ reset = false } = {}) {
   } catch (error) {
     if (id !== requestId) return;
     state.loading = false;
+    state.errorCode = error?.code || error?.data?.error || "";
     state.error = error?.message || "We couldn't load your matches.";
     void context.api.trackEvent("match_feed_load_error", {
       status_code: Number(error?.status || 0),
@@ -227,6 +228,10 @@ function draw() {
         <div class="loading-skeletons" aria-hidden="true"><span></span><span></span><span></span></div>
       </div>
     </section>`;
+  } else if (state.errorCode === "cv_missing" || (!s.hasCv && !state.results.length)) {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Add your CV to see matches</h2><p class="text-2">Upload your resume in Profile so our AI engine can find and rank matching jobs for you.</p><div class="actions"><a class="btn btn-primary" href="#/profile">Upload CV in Profile →</a></div></div>`;
+  } else if (state.errorCode === "profile_missing") {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Complete your profile</h2><p class="text-2">Set up your target role and preferences so we know what jobs to match against.</p><div class="actions"><a class="btn btn-primary" href="#/profile">Edit Profile →</a></div></div>`;
   } else if (state.error) {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
   } else if (!state.total && state.tab === "new" && (stats.totalScored || 0) > 0) {

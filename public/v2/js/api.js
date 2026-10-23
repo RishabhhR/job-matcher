@@ -3,9 +3,11 @@
 import { getToken } from "./auth.js";
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, data = null) {
     super(message);
     this.status = status;
+    this.data = data;
+    this.code = (data && data.error) || "";
   }
 }
 
@@ -35,7 +37,10 @@ async function authFetch(url, options = {}) {
 async function json(res) {
   let body = null;
   try { body = await res.json(); } catch { /* empty or non-JSON body */ }
-  if (!res.ok) throw new ApiError((body && body.error) || `Request failed (${res.status})`, res.status);
+  if (!res.ok) {
+    const message = (body && (body.message || body.error)) || `Request failed (${res.status})`;
+    throw new ApiError(message, res.status, body);
+  }
   return body;
 }
 
@@ -88,7 +93,7 @@ export function uploadCv(file) {
     reader.onerror = () => reject(new Error("Couldn't read that file."));
     reader.onload = () => {
       const base64 = String(reader.result).split(",")[1];
-      post("/api/upload-cv", { fileName: file.name, fileType: file.type, fileData: base64 }).then(resolve, reject);
+      post("/api/upload-cv", { fileName: file.name, fileType: file.type, fileData: base64 }, { timeoutMs: 25000 }).then(resolve, reject);
     };
     reader.readAsDataURL(file);
   });

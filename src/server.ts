@@ -41,6 +41,7 @@ import { keywordPrefilter, scoreAll, type ScoredMatch } from "./match.js";
 import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
+import { parseCvFile } from "./cvParser.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -390,75 +391,32 @@ app.post("/api/upload-cv", async (req, res) => {
     const lowerFileName = fileName.toLowerCase();
 
     const buffer = Buffer.from(fileData, "base64");
-    let text = "";
-
-    if (fileType === "application/pdf" || lowerFileName.endsWith(".pdf")) {
-      const pdfreaderModule = await import("pdfreader");
-      const PdfReader = pdfreaderModule.PdfReader || (pdfreaderModule as any).default?.PdfReader;
-      if (!PdfReader) {
-        throw new Error("Failed to load PdfReader from pdfreader module.");
-      }
-
-      text = await new Promise<string>((resolve, reject) => {
-        const items: Array<{ page: number; x: number; y: number; w: number; sw: number; text: string }> = [];
-        const reader = new PdfReader();
-        reader.parseBuffer(buffer, (err: any, item: any) => {
-          if (err) {
-            reject(new Error("pdf_parse_failed"));
-          } else if (!item) {
-            items.sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
-            const lines: Array<{ page: number; y: number; items: typeof items }> = [];
-            for (const fragment of items) {
-              let line = lines[lines.length - 1];
-              if (!line || line.page !== fragment.page || Math.abs(line.y - fragment.y) > 0.35) {
-                line = { page: fragment.page, y: fragment.y, items: [] };
-                lines.push(line);
-              }
-              line.items.push(fragment);
-            }
-            const content = lines.map((line) => {
-              let previous: typeof items[number] | undefined;
-              return line.items.map((fragment) => {
-                const gap = previous ? fragment.x - (previous.x + previous.w) : 0;
-                const needsSpace = previous && gap > Math.max(0.25, previous.sw * 0.45);
-                previous = fragment;
-                return `${needsSpace ? " " : ""}${fragment.text}`;
-              }).join("");
-            }).join("\n");
-            resolve(content);
-          } else if (item.text) {
-            items.push({ page: Number(item.page || 1), x: Number(item.x || 0), y: Number(item.y || 0), w: Number(item.w || 0), sw: Number(item.sw || 0.25), text: String(item.text) });
-          }
-        });
+    try {
+      const { text, sourceType, method } = await parseCvFile(fileName, fileType || "", buffer);
+      void captureTelemetryEvent("cv_parse_completed", {
+        file_type: sourceType,
+        parse_method: method,
+        text_length: text.length,
       });
-    } else if (
-      fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      lowerFileName.endsWith(".docx")
-    ) {
-      const mammothModule = await import("mammoth");
-      const mammoth = mammothModule.default || mammothModule;
-      const result = await mammoth.extractRawText({ buffer });
-      text = result.value || "";
-    } else if (fileType === "text/plain" || lowerFileName.endsWith(".txt")) {
-      text = buffer.toString("utf-8");
-    } else {
-      res.status(400).json({ error: "Unsupported file type. Please upload a PDF, DOCX, or TXT file." });
-      return;
+      res.json({ text });
+    } catch (parseError: any) {
+      if (parseError.message === "unsupported_file_type") {
+        res.status(400).json({ error: "Unsupported file type. Please upload a PDF, DOCX, or TXT file." });
+        return;
+      }
+      if (parseError.message === "insufficient_extracted_text") {
+        await captureTelemetryError("cv_parse_quality", parseError, {
+          file_type: lowerFileName.endsWith(".pdf") ? "pdf" : lowerFileName.endsWith(".docx") ? "docx" : "txt"
+        });
+        res.status(422).json({ error: "We couldn't read enough text from this file. Try a text-based PDF, DOCX, or paste your resume text." });
+        return;
+      }
+      throw parseError;
     }
-
-    const normalizedText = text.replace(/[\t\u00a0]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    if (normalizedText.replace(/[^\p{L}\p{N}]/gu, "").length < 20) {
-      await captureTelemetryError("cv_parse_quality", new Error("insufficient_extracted_text"), { file_type: fileType === "application/pdf" || lowerFileName.endsWith(".pdf") ? "pdf" : lowerFileName.endsWith(".docx") ? "docx" : "txt" });
-      res.status(422).json({ error: "We couldn't read enough text from this file. Try a text-based PDF, DOCX, or paste your resume text." });
-      return;
-    }
-    void captureTelemetryEvent("cv_parse_completed", {
-      file_type: fileType === "application/pdf" || lowerFileName.endsWith(".pdf") ? "pdf" : lowerFileName.endsWith(".docx") ? "docx" : "txt",
-      text_length: normalizedText.length,
-    });
-    res.json({ text: normalizedText });
   } catch (error) {
-    await captureTelemetryError("cv_parse", error, { file_type: typeof req.body?.fileName === "string" && req.body.fileName.toLowerCase().endsWith(".pdf") ? "pdf" : "other" });
+    await captureTelemetryError("cv_parse", error, {
+      file_type: typeof req.body?.fileName === "string" && req.body.fileName.toLowerCase().endsWith(".pdf") ? "pdf" : "other"
+    });
     res.status(500).json({ error: "We couldn't parse that file. Try a text-based PDF, DOCX, or paste your resume text." });
   }
 });
@@ -904,8 +862,12 @@ app.post("/api/match/page", async (req, res) => {
       getTotalMatchCountForUser(userId, feedOptions),
     ]);
 
-    if (!cvText || !profile) {
-      res.status(400).json({ error: "Active CV or profile not found for this user." });
+    if (!cvText) {
+      res.status(409).json({ error: "cv_missing", message: "Active CV not found for this user." });
+      return;
+    }
+    if (!profile) {
+      res.status(409).json({ error: "profile_missing", message: "Active profile not found for this user." });
       return;
     }
 
