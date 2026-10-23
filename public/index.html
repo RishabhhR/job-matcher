@@ -563,5 +563,15 @@
 
   <!-- JavaScript -->
   <script src="app.js"></script>
+  <!-- Vercel Speed Insights (TASK-091): plain-HTML setup, no npm package needed. Query
+       strings (invite codes, filters) are stripped before metrics are sent. -->
+  <script>
+    window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+    window.speedInsightsBeforeSend = function (data) {
+      try { var u = new URL(data.url); u.search = ""; data.url = u.toString(); } catch (e) {}
+      return data;
+    };
+  </script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
 </body>
 </html>

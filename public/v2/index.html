@@ -188,5 +188,15 @@
   <!-- Polite live region for route changes, scan progress and action results. -->
   <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <div id="toasts" class="toasts"></div>
+  <!-- Vercel Speed Insights (TASK-091): plain-HTML setup, no npm package needed. Query
+       strings (invite codes, filters) are stripped before metrics are sent. -->
+  <script>
+    window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+    window.speedInsightsBeforeSend = function (data) {
+      try { var u = new URL(data.url); u.search = ""; data.url = u.toString(); } catch (e) {}
+      return data;
+    };
+  </script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
 </body>
 </html>
