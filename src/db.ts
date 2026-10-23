@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { captureTelemetryEvent } from "./telemetry.js";
 
 let _client: any;
@@ -99,6 +99,13 @@ const SCHEMA = [
     last_error_code TEXT,
     PRIMARY KEY (user_id, source)
   )`,
+  // Referrals (TASK-089): one row per referred account; reward logic is decided later.
+  `CREATE TABLE IF NOT EXISTS jm_user_referrals (
+    referred_user_id TEXT PRIMARY KEY REFERENCES jm_users(id),
+    referrer_user_id TEXT NOT NULL REFERENCES jm_users(id),
+    code TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   // Small key/value store for operational state, e.g. the cron heartbeat (TASK-086).
   `CREATE TABLE IF NOT EXISTS jm_app_status (
     key TEXT PRIMARY KEY,
@@ -159,10 +166,13 @@ export async function migrate() {
     "ALTER TABLE jm_users ADD COLUMN clerk_id TEXT",
     "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
     "ALTER TABLE jm_user_profiles ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE jm_users ADD COLUMN referral_code TEXT",
   ];
   const finalStatements = [
     "CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)",
     "CREATE INDEX IF NOT EXISTS jm_daily_visitors_date_idx ON jm_daily_visitors(visit_date)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS jm_users_referral_code_idx ON jm_users(referral_code)",
+    "CREATE INDEX IF NOT EXISTS jm_user_referrals_referrer_idx ON jm_user_referrals(referrer_user_id)",
   ];
 
   for (let attempt = 0; ; attempt++) {
@@ -711,6 +721,68 @@ export async function getCronHeartbeat(): Promise<{ lastSuccessAt: string; summa
   let summary: Record<string, number> = {};
   try { summary = JSON.parse(String(row.value ?? "{}")); } catch { /* keep empty */ }
   return { lastSuccessAt: `${String(row.updated_at).replace(" ", "T")}Z`, summary };
+}
+
+// ---- Referrals (TASK-089) -------------------------------------------------
+// Codes are random (not derived from the user id) so a shared link reveals nothing
+// about the account. Reward logic is intentionally absent until it is decided.
+const REFERRAL_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"; // no 0/o/1/l/i
+export const REFERRAL_ATTRIBUTION_WINDOW_DAYS = 7;
+
+function newReferralCode(): string {
+  const bytes = randomBytes(8);
+  return Array.from(bytes, (b) => REFERRAL_ALPHABET[b % REFERRAL_ALPHABET.length]).join("");
+}
+
+/** The user's referral code, created on first use. */
+export async function getOrCreateReferralCode(userId: string): Promise<string> {
+  const existing = await client.execute({ sql: "SELECT referral_code FROM jm_users WHERE id = ?", args: [userId] });
+  if (existing.rows.length === 0) throw new Error("User not found.");
+  const current = existing.rows[0].referral_code;
+  if (current) return String(current);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      // Only set it while still empty, so concurrent first requests agree on one code.
+      await client.execute({ sql: "UPDATE jm_users SET referral_code = ? WHERE id = ? AND referral_code IS NULL", args: [newReferralCode(), userId] });
+      const row = await client.execute({ sql: "SELECT referral_code FROM jm_users WHERE id = ?", args: [userId] });
+      return String(row.rows[0].referral_code);
+    } catch (err) {
+      if (!/unique|constraint/i.test((err as Error).message)) throw err; // code collision: try another
+    }
+  }
+  throw new Error("Could not allocate a referral code.");
+}
+
+export type ReferralClaimResult = "recorded" | "already_referred" | "invalid_code" | "self_referral" | "too_old";
+
+/**
+ * Attribute a new account to the owner of `code`. Only accounts created within the
+ * attribution window can be claimed, an account is referred at most once, never by itself.
+ */
+export async function claimReferral(referredUserId: string, code: string): Promise<ReferralClaimResult> {
+  const normalized = code.trim().toLowerCase();
+  if (!/^[a-z0-9]{6,16}$/.test(normalized)) return "invalid_code";
+  const owner = await client.execute({ sql: "SELECT id FROM jm_users WHERE referral_code = ?", args: [normalized] });
+  if (owner.rows.length === 0) return "invalid_code";
+  const referrerId = String(owner.rows[0].id);
+  if (referrerId === referredUserId) return "self_referral";
+  const referred = await client.execute({
+    sql: "SELECT created_at >= datetime('now', ?) AS recent FROM jm_users WHERE id = ?",
+    args: [`-${REFERRAL_ATTRIBUTION_WINDOW_DAYS} days`, referredUserId],
+  });
+  if (referred.rows.length === 0 || Number(referred.rows[0].recent) !== 1) return "too_old";
+  const inserted = await client.execute({
+    sql: "INSERT INTO jm_user_referrals (referred_user_id, referrer_user_id, code) VALUES (?, ?, ?) ON CONFLICT(referred_user_id) DO NOTHING",
+    args: [referredUserId, referrerId, normalized],
+  });
+  return inserted.rowsAffected > 0 ? "recorded" : "already_referred";
+}
+
+/** Code plus how many accounts it brought in. */
+export async function getReferralSummary(userId: string): Promise<{ code: string; referredCount: number }> {
+  const code = await getOrCreateReferralCode(userId);
+  const count = await client.execute({ sql: "SELECT COUNT(*) AS n FROM jm_user_referrals WHERE referrer_user_id = ?", args: [userId] });
+  return { code, referredCount: Number(count.rows[0]?.n ?? 0) };
 }
 
 export async function deletePendingMatches(userId: string): Promise<void> {

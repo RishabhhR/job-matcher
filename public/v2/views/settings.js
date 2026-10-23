@@ -19,6 +19,10 @@ export async function render(root, { store, api, ui }) {
     : []);
   let companies = state.companies || { greenhouse: [], lever: [], ashby: [] };
 
+  // Referral link (TASK-089): loaded after the first paint; rewards are not decided yet.
+  let referral = null;
+  let referralError = false;
+
   let showCompanyModal = false;
   let isSavingDigest = false;
   let isSavingCompanies = false;
@@ -86,6 +90,22 @@ export async function render(root, { store, api, ui }) {
             </div>
             <button type="button" class="link-btn" id="settings-edit-companies-btn">Edit companies</button>
           </div>
+        </section>
+
+        <!-- Invite friends (TASK-089) -->
+        <section class="card settings-section" aria-labelledby="settings-invite-heading">
+          <h2 id="settings-invite-heading">Invite friends</h2>
+          <p class="muted">Share your link with friends who are job hunting. People who sign up through it are counted here.</p>
+          ${referral ? ui.html`
+            <div class="settings-row">
+              <label for="settings-referral-link" class="sr-only">Your invite link</label>
+              <input id="settings-referral-link" class="input" readonly value="${`${window.location.origin}/join?ref=${referral.code}`}">
+              <button type="button" class="btn btn-ghost" id="settings-referral-copy">Copy link</button>
+            </div>
+            <p class="muted" id="settings-referral-count">${referral.referredCount === 1 ? "1 person has joined through your link." : `${referral.referredCount} people have joined through your link.`}</p>
+          ` : referralError
+            ? ui.html`<p class="muted">Your invite link could not be loaded. Reload the page to try again.</p>`
+            : ui.html`<p class="muted">Loading your invite link…</p>`}
         </section>
 
         <!-- Section 3: Account -->
@@ -262,6 +282,23 @@ export async function render(root, { store, api, ui }) {
       });
     }
 
+    // Wire referral copy
+    const copyBtn = root.querySelector("#settings-referral-copy");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        const input = root.querySelector("#settings-referral-link");
+        try {
+          await navigator.clipboard.writeText(input.value);
+        } catch {
+          input.select(); // clipboard blocked: leave it selected for a manual copy
+          ui.toast({ message: "Press Cmd/Ctrl+C to copy your link." });
+          return;
+        }
+        ui.toast({ message: "Invite link copied." });
+        ui.announce("Invite link copied.");
+      });
+    }
+
     // Wire Sign Out
     const signoutBtn = root.querySelector("#settings-signout-btn");
     if (signoutBtn) {
@@ -270,4 +307,11 @@ export async function render(root, { store, api, ui }) {
   }
 
   renderView();
+
+  if (userId) {
+    api.getReferral(userId)
+      .then((r) => { referral = { code: r.code, referredCount: Number(r.referredCount) || 0 }; })
+      .catch(() => { referralError = true; })
+      .finally(() => { if (root.isConnected) renderView(); });
+  }
 }

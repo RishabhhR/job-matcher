@@ -3,6 +3,7 @@ import { initAuth, mountSignIn, signOut } from "./js/auth.js";
 import * as store from "./js/store.js";
 import { startRouter } from "./js/router.js";
 import { initials, maskEmail, emptyState } from "./js/ui.js";
+import { captureReferralFromUrl, claimPendingReferral } from "./js/referral.js";
 
 const boot = document.getElementById("boot");
 const bootMessage = document.getElementById("boot-message");
@@ -62,6 +63,7 @@ function renderAccount() {
 }
 
 async function main() {
+  captureReferralFromUrl();
   let clerkUser;
   try {
     clerkUser = await initAuth();
@@ -109,6 +111,7 @@ async function main() {
   wireAccountMenu();
   // Stats/status load in the background; views subscribe and update when they arrive.
   store.refresh();
+  claimPendingReferral(store.get().userId);
   await startRouter();
 }
 

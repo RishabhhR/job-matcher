@@ -30,6 +30,8 @@ import {
   setMatchUserAction,
   getUserStatus,
   getCronHeartbeat,
+  getReferralSummary,
+  claimReferral,
   saveUserProfileData,
   upsertScrapeSourceStatuses,
   recordDailyVisit,
@@ -327,6 +329,45 @@ app.get("/api/health/cron", async (_req, res) => {
   } catch (error) {
     console.error("Error in /api/health/cron:", error);
     res.status(503).json({ ok: false, error: "Health check could not read the database." });
+  }
+});
+
+// Referrals (TASK-089). The link carries a random code, never an account id; the
+// frontend builds it as <origin>/join?ref=<code>. Rewards are not implemented yet.
+app.get("/api/referral", async (req, res) => {
+  const userId = typeof req.query.userId === "string" ? req.query.userId : "";
+  if (!userId) {
+    res.status(400).json({ error: "Missing userId" });
+    return;
+  }
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+  try {
+    res.json({ success: true, ...(await getReferralSummary(userId)) });
+  } catch (error) {
+    console.error("Error in /api/referral:", error);
+    res.status(500).json({ error: "Could not load your referral link." });
+  }
+});
+
+// Called once after sign-in when the visitor arrived through /join?ref=<code>.
+app.post("/api/referral/claim", async (req, res) => {
+  const { userId, code } = req.body ?? {};
+  if (!userId || typeof code !== "string") {
+    res.status(400).json({ error: "Missing userId or code" });
+    return;
+  }
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+  try {
+    res.json({ success: true, result: await claimReferral(userId, code) });
+  } catch (error) {
+    console.error("Error in /api/referral/claim:", error);
+    res.status(500).json({ error: "Could not record the referral." });
   }
 });
 

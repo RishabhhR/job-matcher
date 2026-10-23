@@ -83,6 +83,12 @@ export const saveDigestSettings = (userId, { enabled, hour }) =>
  * "" or null clears an optional field. Resolves to { profile, companies, hasCv } as saved.
  * Use this for Profile and Settings; onboarding uses runScan so the first scan starts.
  */
+/** Referral code and count for Settings (TASK-089): { code, referredCount }. */
+export const getReferral = (userId) => get(`/api/referral?userId=${encodeURIComponent(userId)}`);
+
+/** Claim a referral code for a newly created account; resolves to { result }. */
+export const claimReferral = (userId, code) => post("/api/referral/claim", { userId, code });
+
 export const saveProfile = (userId, { cvText, profile, companies } = {}) =>
   post("/api/user/profile", { userId, cvText, profile, companies });
 

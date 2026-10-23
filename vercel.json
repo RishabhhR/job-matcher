@@ -52,6 +52,10 @@
       "dest": "public/index.html"
     },
     {
+      "src": "/join",
+      "dest": "public/v2/index.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "public/$1"
     }
