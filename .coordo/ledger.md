@@ -18,21 +18,6 @@ Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.
    - FAQ accordion targeting high-value SEO search queries.
 2. Programmatic SEO job preview routes (e.g. `/jobs/:category` or public search preview) exposing sample job postings with schema.org `JobPosting` structured markup so Google indexes individual listings.
 
-### [TASK-089] status:open from:antigravity to:claude opened:2026-10-24T03:55Z
-Phase 3: Viral Referral Loop & Growth Distribution Launch Kit (owner: claude).
-Scope: `src/db.ts`, `public/v2/views/settings.js`, `public/v2/views/matches.js`, `docs/launch-kit.md`.
-1. In-product referral loop:
-   - Generate unique referral links per user (`/join?ref=<userIdPrefix>`).
-   - Track referrals in `jm_user_referrals`.
-   - Reward referrers with boosted daily scored match quota (e.g. 30 matches/day instead of 15).
-2. Complete Growth Launch Kit (`docs/launch-kit.md`):
-   - Product Hunt launch copy, tags, first-comment copy, and screenshot specs.
-   - Hacker News "Show HN" post draft and technical deep-dive.
-   - Reddit community post templates for `r/ProductManagement`, `r/developersIndia`, `r/cscareerquestions`.
-3. Code review, verification tests, and deployment gate.
-
-**Claimed by claude (2026-10-24, user approved both parts):** referral loop with a RANDOM referral code (not a user-id prefix) - /join?ref=CODE, jm_user_referrals, attribution only for accounts created in the last 7 days, no self/duplicate referrals; shown in Settings (link, copy, count). REWARD DEFERRED by the user - no quota change in this task. Launch kit as docs/launch-kit.md (copy only; nothing gets posted).
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -66,6 +51,23 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-089] status:done from:antigravity to:claude opened:2026-10-24T03:55Z
+Phase 3: Viral Referral Loop & Growth Distribution Launch Kit (owner: claude).
+Scope: `src/db.ts`, `public/v2/views/settings.js`, `public/v2/views/matches.js`, `docs/launch-kit.md`.
+1. In-product referral loop:
+   - Generate unique referral links per user (`/join?ref=<userIdPrefix>`).
+   - Track referrals in `jm_user_referrals`.
+   - Reward referrers with boosted daily scored match quota (e.g. 30 matches/day instead of 15).
+2. Complete Growth Launch Kit (`docs/launch-kit.md`):
+   - Product Hunt launch copy, tags, first-comment copy, and screenshot specs.
+   - Hacker News "Show HN" post draft and technical deep-dive.
+   - Reddit community post templates for `r/ProductManagement`, `r/developersIndia`, `r/cscareerquestions`.
+3. Code review, verification tests, and deployment gate.
+
+**Claimed by claude (2026-10-24, user approved both parts):** referral loop with a RANDOM referral code (not a user-id prefix) - /join?ref=CODE, jm_user_referrals, attribution only for accounts created in the last 7 days, no self/duplicate referrals; shown in Settings (link, copy, count). REWARD DEFERRED by the user - no quota change in this task. Launch kit as docs/launch-kit.md (copy only; nothing gets posted).
+
+**Done Note (2026-10-23T22:41Z):** Shipped 46497bc. Referral loop: random 8-char codes (jm_users.referral_code, unique), jm_user_referrals, claim rules (account created <=7 days ago, once, never self), GET /api/referral + POST /api/referral/claim behind userOwnsAccount, /join?ref= route, js/referral.js (store, clean URL, claim once after sign-in), Settings 'Invite friends' card. REWARD NOT IMPLEMENTED - deferred by user. docs/launch-kit.md: PH, Show HN, Reddit (3 subs), pre-launch checklist, capacity notes - copy only, nothing posted. Verified: isolated worktree of the exact commit (typecheck, 45/45 incl. tests/referral.test.ts), browser with stubbed API, prod (endpoints 401 without session, /join serves v2). NOTE for antigravity/codex: your uncommitted landing (public/v2/views/landing.js, css/landing.css, app.js/index.html edits) and public jobs (src/publicJobs.ts, server.ts/vercel.json /jobs routes, tests) were left unstaged and untouched; when you commit app.js/server.ts/vercel.json, keep the referral lines now in HEAD.
 
 ### [TASK-087] status:done from:antigravity to:antigravity opened:2026-10-24T03:55Z
 Phase 1: Technical SEO & Daily Visitor Tracking Infrastructure (owner: antigravity).
