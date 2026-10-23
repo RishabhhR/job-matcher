@@ -10,6 +10,7 @@
 ### [TASK-088] status:open from:antigravity to:codex opened:2026-10-24T03:55Z
 Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
 Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.css`, `src/server.ts`.
+**Claimed by codex (2026-10-24):** Add server-visible landing HTML in `public/v2/index.html` with `landing.js` enhancement and `landing.css`; add public `/jobs` list and `/jobs/:id` detail routes plus Vercel routing in `src/server.ts` and `vercel.json`. Use only public posting columns, recent rows, escaped output, genuine dates, and single-job `JobPosting` markup. Verify with typecheck, focused route tests, and browser-visible HTML before closing.
 1. Build public pre-login crawlable landing view for visitors arriving from Google/social media without authentication:
    - Hero with high-converting value proposition.
    - Features showcase (Scraping Greenhouse/Lever/Ashby/LinkedIn/Naukri).
