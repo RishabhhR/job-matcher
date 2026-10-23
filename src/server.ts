@@ -52,7 +52,7 @@ import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
-import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, type PublicPosting } from "./publicJobs.js";
+import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -234,6 +234,20 @@ app.get("/api/public/jobs/summary", async (_req, res) => {
     console.error("Public job summary failed:", error);
     res.status(503).json({ error: "Recent job count is temporarily unavailable." });
   }
+});
+
+// Dynamic sitemap (TASK-094): landing, /jobs and every preview /jobs/:id currently
+// serves (same PUBLIC_JOB_FILTER), replacing the static file that listed only / and /v2/.
+app.get("/sitemap.xml", async (_req, res) => {
+  let jobs: Array<{ id: string; scrapedAt: string }> = [];
+  try {
+    const rows = await client.execute(`SELECT id, scraped_at FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER} ORDER BY scraped_at DESC, id ASC LIMIT 1000`);
+    jobs = rows.rows.map((r: any) => ({ id: String(r.id), scrapedAt: String(r.scraped_at) }));
+  } catch (error) {
+    console.error("Error building sitemap.xml; serving core pages only:", error);
+  }
+  res.set("Cache-Control", "public, max-age=600, s-maxage=3600");
+  res.type("application/xml").send(renderSitemap(jobs));
 });
 
 app.get("/jobs", async (_req, res) => {

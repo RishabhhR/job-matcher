@@ -54,9 +54,27 @@ function sourceName(source: string): string {
   return ({ greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", linkedin: "LinkedIn", naukri: "Naukri" } as Record<string, string>)[source] || "Job board";
 }
 
+const OG_IMAGE = `${SITE}/og-image.png`;
+
+/** Keep page titles near the ~60 characters search results show (TASK-094). */
+export function clipTitle(text: string, max = 52): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max - 1);
+  const atSpace = cut.lastIndexOf(" ");
+  return `${(atSpace > max * 0.6 ? cut.slice(0, atSpace) : cut).replace(/[\s,;:–—-]+$/, "")}…`;
+}
+
+function socialMeta(title: string, description: string, canonical: string): string {
+  const t = escapeHtml(`${title} · JobMatcher`);
+  const d = escapeHtml(description);
+  const u = escapeHtml(canonical);
+  return `<meta property="og:type" content="website"><meta property="og:site_name" content="JobMatcher"><meta property="og:title" content="${t}"><meta property="og:description" content="${d}"><meta property="og:url" content="${u}"><meta property="og:image" content="${OG_IMAGE}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${t}"><meta name="twitter:description" content="${d}"><meta name="twitter:image" content="${OG_IMAGE}"><link rel="apple-touch-icon" href="/apple-touch-icon.png">`;
+}
+
 function documentHtml(title: string, description: string, canonical: string, body: string, jsonLd?: object): string {
   const ld = jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · JobMatcher</title><meta name="description" content="${escapeHtml(description)}"><link rel="canonical" href="${escapeHtml(canonical)}"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/v2/css/tokens.css"><link rel="stylesheet" href="/v2/css/base.css"><link rel="stylesheet" href="/v2/css/landing.css"><script src="/analytics.js"></script><script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments);};</script><script defer src="/_vercel/insights/script.js"></script><script>window.si=window.si||function(){(window.siq=window.siq||[]).push(arguments);};window.speedInsightsBeforeSend=function(d){try{var u=new URL(d.url);u.search="";d.url=u.toString();}catch(e){}return d;};</script><script defer src="/_vercel/speed-insights/script.js"></script>${ld}</head><body><a class="skip-link" href="#public-content">Skip to content</a><main id="public-content" class="public-jobs"><header class="public-jobs-head"><a class="landing-brand" href="/"><span class="landing-brand-mark" aria-hidden="true">✦</span>JobMatcher</a><nav aria-label="Public job navigation"><a href="/jobs">Browse jobs</a><a href="/">How JobMatcher works</a></nav></header>${body}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · JobMatcher</title><meta name="description" content="${escapeHtml(description)}"><link rel="canonical" href="${escapeHtml(canonical)}">${socialMeta(title, description, canonical)}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/v2/css/tokens.css"><link rel="stylesheet" href="/v2/css/base.css"><link rel="stylesheet" href="/v2/css/landing.css"><script src="/analytics.js"></script><script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments);};</script><script defer src="/_vercel/insights/script.js"></script><script>window.si=window.si||function(){(window.siq=window.siq||[]).push(arguments);};window.speedInsightsBeforeSend=function(d){try{var u=new URL(d.url);u.search="";d.url=u.toString();}catch(e){}return d;};</script><script defer src="/_vercel/speed-insights/script.js"></script>${ld}</head><body><a class="skip-link" href="#public-content">Skip to content</a><main id="public-content" class="public-jobs"><header class="public-jobs-head"><a class="landing-brand" href="/"><span class="landing-brand-mark" aria-hidden="true">✦</span>JobMatcher</a><nav aria-label="Public job navigation"><a href="/jobs">Browse jobs</a><a href="/">How JobMatcher works</a></nav></header>${body}</main></body></html>`;
 }
 
 function locationAddress(location: string): { city: string; country: string } | null {
@@ -85,7 +103,28 @@ export function jobPostingSchema(job: PublicPosting): object | null {
     hiringOrganization: { "@type": "Organization", name: job.company },
     jobLocation: { "@type": "Place", address: { "@type": "PostalAddress", addressLocality: address.city, addressCountry: address.country } },
     url: `${SITE}/jobs/${encodeURIComponent(job.id)}`,
+    // Applications happen on the original listing, not on this page (TASK-094).
+    directApply: false,
   };
+}
+
+/**
+ * sitemap.xml (TASK-094): the landing page, the job index and every job preview the
+ * public routes currently serve (same freshness filter), so crawlers find /jobs/:id.
+ */
+export function renderSitemap(jobs: Array<{ id: string; scrapedAt: string }>, now = new Date()): string {
+  const day = (iso: string | undefined) => {
+    const t = iso ? Date.parse(iso.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? "" : "Z")) : NaN;
+    return (Number.isNaN(t) ? now : new Date(t)).toISOString().slice(0, 10);
+  };
+  const newest = jobs[0]?.scrapedAt;
+  const entry = (loc: string, lastmod: string) => `<url><loc>${escapeHtml(loc)}</loc><lastmod>${lastmod}</lastmod></url>`;
+  const urls = [
+    entry(`${SITE}/`, day(undefined)),
+    entry(`${SITE}/jobs`, day(newest)),
+    ...jobs.map((job) => entry(`${SITE}/jobs/${encodeURIComponent(job.id)}`, day(job.scrapedAt))),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join("")}</urlset>\n`;
 }
 
 export function renderJobsIndex(jobs: PublicPosting[]): string {
@@ -100,7 +139,7 @@ export function renderJobDetail(job: PublicPosting): string {
   const date = job.postedAt && !Number.isNaN(Date.parse(job.postedAt)) ? new Date(job.postedAt).toISOString().slice(0, 10) : null;
   const dateLabel = job.source === "greenhouse" ? "Updated" : SCHEMA_DATE_SOURCES.has(job.source) ? "Posted" : "Listed";
   const body = `<article class="public-job-detail"><p class="landing-kicker">${escapeHtml(sourceName(job.source))} listing</p><h1>${escapeHtml(job.title)}</h1><p class="public-job-meta">${escapeHtml(job.company)}${job.location ? ` · ${escapeHtml(job.location)}` : ""}${date ? ` · ${dateLabel} ${escapeHtml(date)}` : ""}</p><div class="public-job-description"><h2>About this role</h2><p>${escapeHtml(description)}</p></div><div class="public-job-actions">${safeUrl ? `<a class="btn btn-primary" href="${escapeHtml(safeUrl)}" rel="noopener noreferrer">Open original listing <span aria-hidden="true">↗</span></a>` : ""}<a class="btn btn-ghost" href="/jobs">More recent jobs</a></div><p class="public-job-note">This preview was last seen ${escapeHtml(job.scrapedAt.slice(0, 10))}. The original publisher controls availability and applications.</p></article>`;
-  return documentHtml(`${job.title} at ${job.company}`, `${job.title} at ${job.company}${job.location ? ` in ${job.location}` : ""}. View the original listing to apply.`, `${SITE}/jobs/${encodeURIComponent(job.id)}`, body, jobPostingSchema(job) || undefined);
+  return documentHtml(clipTitle(`${job.title} at ${job.company}`), `${job.title} at ${job.company}${job.location ? ` in ${job.location}` : ""}. View the original listing to apply.`, `${SITE}/jobs/${encodeURIComponent(job.id)}`, body, jobPostingSchema(job) || undefined);
 }
 
 export function renderJobNotFound(): string {

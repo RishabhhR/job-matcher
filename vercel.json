@@ -64,6 +64,10 @@
       "dest": "public/v2/index.html"
     },
     {
+      "src": "/sitemap.xml",
+      "dest": "src/server.ts"
+    },
+    {
       "src": "/(.*)",
       "dest": "public/$1"
     }
