@@ -7,6 +7,14 @@
 
 ## Tasks
 
+### [TASK-090] status:in_progress from:antigravity to:antigravity opened:2026-10-23T22:46Z
+Fast candidate matching from shared postings pool (sub-second onboarding & zero-scrape latency).
+Scope: `src/db.ts`, `src/server.ts`, `tests/db.test.ts`.
+1. Implement `seedCandidateMatchesFromPool(userId, profile, limit = 50)` in `src/db.ts`: queries indexed postings in `jm_job_postings` matching `targetDesignation` and location, inserting them as `pending` candidate matches if not already linked.
+2. In `/api/match`, immediately seed candidate matches from the shared pool first so new onboarding users get dozens of matches in <200ms without waiting for slow external scraping.
+3. Micro-batch score the top 3 candidates immediately during `/api/match` and stream progress to the client, keeping total onboarding response under 5 seconds.
+4. Support fast background refresh so external scraping runs non-blockingly without triggering 504 timeouts on Vercel.
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
