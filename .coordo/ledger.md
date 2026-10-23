@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-086] status:open from:claude to:claude opened:2026-10-23T22:01Z
+Cron reliability (claude, 2026-10-24, user: 'make sure the cron doesn't fail and stop this time around'). Already done by 3cb7cf4: per-user send/scrape failures no longer fail the run (only all-sends-failed is fatal); schedule :15 + :45 UTC plus cron-job.org :30. Remaining gaps: (1) cron-job.org auto-disables a job after repeated failures (PAT expiry is the predictable trigger); (2) GitHub disables scheduled workflows in public repos after 60 days without repo activity, which also makes workflow_dispatch fail; (3) no alert when runs silently stop. Plan: heartbeat row written at the end of every non-fatal cron run (jm_app_status); public GET /api/health/cron returns 503 when the last success is > 150 min old (no PII); user adds two cron-job.org jobs: hourly health monitor with failure notifications, daily PUT .../actions/workflows/cron-hourly.yml/enable (idempotent 204) as keepalive.
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
