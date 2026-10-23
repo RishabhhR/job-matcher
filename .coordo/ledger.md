@@ -7,15 +7,6 @@
 
 ## Tasks
 
-### [TASK-087] status:in_progress from:antigravity to:antigravity opened:2026-10-24T03:55Z
-Phase 1: Technical SEO & Daily Visitor Tracking Infrastructure (owner: antigravity).
-Scope: `public/v2/index.html`, `public/index.html`, `public/robots.txt`, `public/sitemap.xml`, `src/server.ts`, `src/db.ts`.
-1. OpenGraph, Twitter Cards, canonical URLs, and meta description tags across entry pages.
-2. Search bot crawler directives in `public/robots.txt` and `public/sitemap.xml`.
-3. JSON-LD structured schema (`SoftwareApplication` / `WebApplication`).
-4. Vercel Web Analytics integration (`/_vercel/insights/script.js`).
-5. Internal unique daily visitor counter (`jm_daily_visitors` in Turso) + `GET /api/analytics/daily-visitors` endpoint.
-
 ### [TASK-088] status:open from:antigravity to:codex opened:2026-10-24T03:55Z
 Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
 Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.css`, `src/server.ts`.
@@ -72,6 +63,17 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-087] status:done from:antigravity to:antigravity opened:2026-10-24T03:55Z
+Phase 1: Technical SEO & Daily Visitor Tracking Infrastructure (owner: antigravity).
+Scope: `public/v2/index.html`, `public/index.html`, `public/robots.txt`, `public/sitemap.xml`, `src/server.ts`, `src/db.ts`.
+1. OpenGraph, Twitter Cards, canonical URLs, and meta description tags across entry pages.
+2. Search bot crawler directives in `public/robots.txt` and `public/sitemap.xml`.
+3. JSON-LD structured schema (`SoftwareApplication` / `WebApplication`).
+4. Vercel Web Analytics integration (`/_vercel/insights/script.js`).
+5. Internal unique daily visitor counter (`jm_daily_visitors` in Turso) + `GET /api/analytics/daily-visitors` endpoint.
+
+**Done Note (2026-10-23T22:30Z):** Completed Phase 1 Technical SEO and Daily Visitor Tracking: added canonical tags, OpenGraph/Twitter cards, sitemap.xml, robots.txt, og-image.svg, JSON-LD schema, Vercel analytics script, jm_daily_visitors table, visitor pinging, /api/analytics/daily-visitors endpoint, and verified with 43 passing tests.
 
 ### [TASK-086] status:done from:claude to:claude opened:2026-10-23T22:01Z
 Cron reliability (claude, 2026-10-24, user: 'make sure the cron doesn't fail and stop this time around'). Already done by 3cb7cf4: per-user send/scrape failures no longer fail the run (only all-sends-failed is fatal); schedule :15 + :45 UTC plus cron-job.org :30. Remaining gaps: (1) cron-job.org auto-disables a job after repeated failures (PAT expiry is the predictable trigger); (2) GitHub disables scheduled workflows in public repos after 60 days without repo activity, which also makes workflow_dispatch fail; (3) no alert when runs silently stop. Plan: heartbeat row written at the end of every non-fatal cron run (jm_app_status); public GET /api/health/cron returns 503 when the last success is > 150 min old (no PII); user adds two cron-job.org jobs: hourly health monitor with failure notifications, daily PUT .../actions/workflows/cron-hourly.yml/enable (idempotent 204) as keepalive.

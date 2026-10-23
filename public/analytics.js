@@ -54,6 +54,31 @@
     capture("$pageleave", properties, unload);
   }
 
+  function recordVisitPing(customPath) {
+    try {
+      const path = typeof customPath === "string" ? customPath : location.pathname + (location.hash || "");
+      let ref = null;
+      if (document.referrer) {
+        try {
+          const refUrl = new URL(document.referrer);
+          ref = refUrl.origin;
+        } catch (_) {}
+      }
+      const payload = JSON.stringify({ path, referrer: ref });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/analytics/visit", new Blob([payload], { type: "application/json" }));
+      } else {
+        fetch("/api/analytics/visit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          credentials: "omit",
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
   function trackPage(name) {
     if (!allowedRoutes.has(name) || (page === name && !pageClosed)) return;
     leavePage();
@@ -67,6 +92,7 @@
     capture("$pageview", properties);
     capture("page_load", properties);
     scheduleSections();
+    recordVisitPing(pageUrl(name));
   }
 
   function controlName(element) {
@@ -182,7 +208,8 @@
     scheduleSections();
   });
 
-  window.JobMatcherAnalytics = { trackPage, capture: (event, properties = {}) => capture(event, properties) };
+  window.JobMatcherAnalytics = { trackPage, capture: (event, properties = {}) => capture(event, properties), recordVisit: recordVisitPing };
+  recordVisitPing();
   fetch("/api/analytics-config", { credentials: "omit" })
     .then((response) => response.ok ? response.json() : null)
     .then((config) => {

@@ -123,6 +123,16 @@ const SCHEMA = [
     ashby_json TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS jm_daily_visitors (
+    visit_date TEXT NOT NULL,
+    visitor_hash TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT '/',
+    referrer TEXT,
+    hits INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (visit_date, visitor_hash, path)
+  )`,
 ];
 
 export async function migrate() {
@@ -150,7 +160,10 @@ export async function migrate() {
     "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
     "ALTER TABLE jm_user_profiles ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'",
   ];
-  const finalStatements = ["CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)"];
+  const finalStatements = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)",
+    "CREATE INDEX IF NOT EXISTS jm_daily_visitors_date_idx ON jm_daily_visitors(visit_date)",
+  ];
 
   for (let attempt = 0; ; attempt++) {
     const parsed = addColumns.map((sql) => {
@@ -1022,3 +1035,91 @@ export async function getUserStatus(userId: string): Promise<UserStatus> {
     }),
   };
 }
+
+export async function recordDailyVisit(
+  visitDate: string,
+  visitorHash: string,
+  path: string = "/",
+  referrer?: string | null
+): Promise<void> {
+  const safePath = (path || "/").slice(0, 100);
+  const safeReferrer = referrer ? referrer.slice(0, 200) : null;
+  await client.execute({
+    sql: `INSERT INTO jm_daily_visitors (visit_date, visitor_hash, path, referrer, hits, first_seen_at, last_seen_at)
+          VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+          ON CONFLICT(visit_date, visitor_hash, path) DO UPDATE SET
+            hits = jm_daily_visitors.hits + 1,
+            last_seen_at = datetime('now'),
+            referrer = coalesce(excluded.referrer, jm_daily_visitors.referrer)`,
+    args: [visitDate, visitorHash, safePath, safeReferrer],
+  });
+}
+
+export async function getDailyVisitorStats(days: number = 30): Promise<{
+  summary: {
+    today_visitors: number;
+    yesterday_visitors: number;
+    total_period_visitors: number;
+    total_period_views: number;
+  };
+  daily: Array<{ visit_date: string; unique_visitors: number; total_views: number }>;
+  top_paths: Array<{ path: string; views: number }>;
+}> {
+  const cutoffDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  const [dailyResult, pathsResult, uniqueVisitorSetResult] = await client.batch([
+    {
+      sql: `SELECT visit_date, COUNT(DISTINCT visitor_hash) AS unique_visitors, SUM(hits) AS total_views
+            FROM jm_daily_visitors
+            WHERE visit_date >= ?
+            GROUP BY visit_date
+            ORDER BY visit_date DESC`,
+      args: [cutoffDate],
+    },
+    {
+      sql: `SELECT path, SUM(hits) AS views
+            FROM jm_daily_visitors
+            WHERE visit_date >= ?
+            GROUP BY path
+            ORDER BY views DESC
+            LIMIT 10`,
+      args: [cutoffDate],
+    },
+    {
+      sql: `SELECT COUNT(DISTINCT visitor_hash) AS total_unique, SUM(hits) AS total_views
+            FROM jm_daily_visitors
+            WHERE visit_date >= ?`,
+      args: [cutoffDate],
+    },
+  ], "read");
+
+  const daily = (dailyResult.rows as Array<{ visit_date: string; unique_visitors: number; total_views: number }>).map((r) => ({
+    visit_date: String(r.visit_date),
+    unique_visitors: Number(r.unique_visitors || 0),
+    total_views: Number(r.total_views || 0),
+  }));
+
+  const top_paths = (pathsResult.rows as Array<{ path: string; views: number }>).map((r) => ({
+    path: String(r.path),
+    views: Number(r.views || 0),
+  }));
+
+  const todayRow = daily.find((d) => d.visit_date === today);
+  const yesterdayRow = daily.find((d) => d.visit_date === yesterday);
+  const totalPeriodVisitors = Number(uniqueVisitorSetResult.rows[0]?.total_unique || 0);
+  const totalPeriodViews = Number(uniqueVisitorSetResult.rows[0]?.total_views || 0);
+
+  return {
+    summary: {
+      today_visitors: todayRow?.unique_visitors || 0,
+      yesterday_visitors: yesterdayRow?.unique_visitors || 0,
+      total_period_visitors: totalPeriodVisitors,
+      total_period_views: totalPeriodViews,
+    },
+    daily,
+    top_paths,
+  };
+}
+

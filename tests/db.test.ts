@@ -98,3 +98,35 @@ test("verified identities cannot take over an email already linked elsewhere", a
     /already linked to another account/
   );
 });
+
+test("daily visitor tracking aggregates unique visitors, hits, and top paths accurately", async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const hash1 = "visitor_hash_1";
+  const hash2 = "visitor_hash_2";
+
+  // Hash 1 visits '/' twice and '/jobs' once
+  await db.recordDailyVisit(today, hash1, "/", "https://google.com");
+  await db.recordDailyVisit(today, hash1, "/", "https://google.com");
+  await db.recordDailyVisit(today, hash1, "/jobs", null);
+
+  // Hash 2 visits '/' once
+  await db.recordDailyVisit(today, hash2, "/", "https://twitter.com");
+
+  const stats = await db.getDailyVisitorStats(7);
+  assert.equal(stats.summary.today_visitors, 2, "Expected 2 unique visitors today");
+  assert.equal(stats.summary.total_period_views, 4, "Expected 4 total views across 2 visitors");
+
+  const todayRecord = stats.daily.find((d) => d.visit_date === today);
+  assert.ok(todayRecord);
+  assert.equal(todayRecord.unique_visitors, 2);
+  assert.equal(todayRecord.total_views, 4);
+
+  const homePath = stats.top_paths.find((p) => p.path === "/");
+  assert.ok(homePath);
+  assert.equal(homePath.views, 3);
+
+  const jobsPath = stats.top_paths.find((p) => p.path === "/jobs");
+  assert.ok(jobsPath);
+  assert.equal(jobsPath.views, 1);
+});
+

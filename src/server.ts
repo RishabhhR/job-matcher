@@ -4,6 +4,7 @@ import cors from "cors";
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import * as cheerio from "cheerio";
 import { runJobMatcher } from "./runner.js";
 import { runDigest } from "./digest.js";
@@ -31,6 +32,8 @@ import {
   getCronHeartbeat,
   saveUserProfileData,
   upsertScrapeSourceStatuses,
+  recordDailyVisit,
+  getDailyVisitorStats,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
@@ -150,6 +153,46 @@ app.use("/api", async (_req, res, next) => {
   } catch (error) {
     console.error("Database schema initialization failed:", error);
     res.status(503).json({ error: "Database is temporarily unavailable." });
+  }
+});
+
+// Daily visitor tracking and analytics (TASK-087)
+app.post("/api/analytics/visit", async (req, res) => {
+  try {
+    const rawPath = typeof req.body?.path === "string" ? req.body.path : "/";
+    const cleanPath = rawPath.replace(/[^\w\-\/\#\.\?=&]/g, "").slice(0, 100) || "/";
+    const rawReferrer = typeof req.body?.referrer === "string" ? req.body.referrer : null;
+    const cleanReferrer = rawReferrer ? rawReferrer.slice(0, 200) : null;
+
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = (typeof forwarded === "string" ? forwarded.split(",")[0] : req.socket.remoteAddress) || "127.0.0.1";
+    const userAgent = req.headers["user-agent"] || "";
+
+    // Privacy-preserving visitor hash (never stores IP address or raw User-Agent)
+    const salt = process.env.COOKIE_SECRET || process.env.JWT_SECRET || "jm-visitor-salt";
+    const visitorHash = createHash("sha256")
+      .update(`${ip.trim()}:${userAgent.trim()}:${salt}`)
+      .digest("hex")
+      .slice(0, 32);
+
+    const today = new Date().toISOString().slice(0, 10);
+    await recordDailyVisit(today, visitorHash, cleanPath, cleanReferrer);
+    res.status(204).end();
+  } catch {
+    // Visitor pings must never throw or disrupt page loads
+    res.status(204).end();
+  }
+});
+
+app.get("/api/analytics/daily-visitors", async (req, res) => {
+  try {
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+    const stats = await getDailyVisitorStats(days);
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.json({ ok: true, ...stats });
+  } catch (error) {
+    console.error("Failed to query visitor stats:", error);
+    res.status(500).json({ error: "Failed to load visitor statistics." });
   }
 });
 

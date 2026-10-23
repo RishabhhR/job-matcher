@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /classic/
+
+Sitemap: https://job-matcher-ecru.vercel.app/sitemap.xml
