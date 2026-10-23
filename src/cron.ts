@@ -2,7 +2,7 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, repairSeniorityCaps, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, recordCronHeartbeat, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { saveScoredMatches } from "./saveMatches.js";
 import { sendDigestEmail } from "./mailer.js";
@@ -189,6 +189,10 @@ async function runHourlyCron() {
   if (dueUsers.length > 0 && successfulSends === 0 && emptySends === 0 && sendFailures === dueUsers.length) {
     throw new Error(`All ${sendFailures} due user digest send(s) failed.`);
   }
+
+  // Heartbeat for GET /api/health/cron (TASK-086): an external monitor alerts when this
+  // goes stale, whatever stopped the runs (scheduler disabled, token expired, crash).
+  await recordCronHeartbeat({ due: dueUsers.length, sent: successfulSends, empty: emptySends, sendFailures, scrapeSuccesses, scrapeFailures });
 }
 
 runHourlyCron().catch((error) => {

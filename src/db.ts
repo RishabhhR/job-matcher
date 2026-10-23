@@ -99,6 +99,12 @@ const SCHEMA = [
     last_error_code TEXT,
     PRIMARY KEY (user_id, source)
   )`,
+  // Small key/value store for operational state, e.g. the cron heartbeat (TASK-086).
+  `CREATE TABLE IF NOT EXISTS jm_app_status (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS jm_email_send_log (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES jm_users(id),
@@ -673,6 +679,25 @@ export async function getRecentlyScoredPostingHashes(userId: string, maxAgeDays 
     args: [userId, `-${Math.max(1, Math.floor(maxAgeDays))} days`, userId, userId],
   });
   return new Set(result.rows.map((row: any) => String(row.h)));
+}
+
+/** Heartbeat written at the end of every non-fatal cron run (TASK-086). */
+export async function recordCronHeartbeat(summary: Record<string, number>): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO jm_app_status (key, value, updated_at) VALUES ('cron_last_success', ?, datetime('now'))
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    args: [JSON.stringify(summary)],
+  });
+}
+
+/** Last successful cron run, or null if none has been recorded yet. */
+export async function getCronHeartbeat(): Promise<{ lastSuccessAt: string; summary: Record<string, number> } | null> {
+  const result = await client.execute("SELECT value, updated_at FROM jm_app_status WHERE key = 'cron_last_success'");
+  const row: any = result.rows[0];
+  if (!row) return null;
+  let summary: Record<string, number> = {};
+  try { summary = JSON.parse(String(row.value ?? "{}")); } catch { /* keep empty */ }
+  return { lastSuccessAt: `${String(row.updated_at).replace(" ", "T")}Z`, summary };
 }
 
 export async function deletePendingMatches(userId: string): Promise<void> {

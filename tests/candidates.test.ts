@@ -72,3 +72,13 @@ test("recently scored postings are remembered until the CV/profile changes", asy
   await db.saveUserProfileData(userId, { profile: { preferredCity: "Pune" } });
   assert.equal((await db.getRecentlyScoredPostingHashes(userId)).size, 0);
 });
+
+test("cron heartbeat round-trips for the /api/health/cron watchdog (TASK-086)", async () => {
+  assert.equal(await db.getCronHeartbeat(), null);
+  await db.recordCronHeartbeat({ due: 2, sent: 2, empty: 0, sendFailures: 0, scrapeSuccesses: 2, scrapeFailures: 0 });
+  const beat = await db.getCronHeartbeat();
+  assert.ok(beat);
+  assert.equal(beat!.summary.sent, 2);
+  const ageMs = Date.now() - Date.parse(beat!.lastSuccessAt);
+  assert.ok(ageMs >= 0 && ageMs < 60_000, `heartbeat should be fresh, age ${ageMs}ms`);
+});

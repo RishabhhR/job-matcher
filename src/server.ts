@@ -28,6 +28,7 @@ import {
   upsertUserCompanies,
   setMatchUserAction,
   getUserStatus,
+  getCronHeartbeat,
   saveUserProfileData,
   upsertScrapeSourceStatuses,
   type MatchFeedOptions,
@@ -269,6 +270,23 @@ app.post("/api/matches/:matchId/action", async (req, res) => {
 // Data for the Matches header and rail: last scan, per-source health with a
 // readable reason, last digest and the next scheduled one. Deliberately no progress
 // percentage - the backend has no live progress to report (DEC-007).
+// Public cron watchdog (TASK-086), polled by an external monitor: 503 when the last
+// successful cron run is older than CRON_STALE_MINUTES (default 150; runs are scheduled
+// three times an hour). Exposes only timestamps and counts - no user data.
+app.get("/api/health/cron", async (_req, res) => {
+  try {
+    const staleMinutes = Number(process.env.CRON_STALE_MINUTES) || 150;
+    const beat = await getCronHeartbeat();
+    const ageMinutes = beat ? Math.round((Date.now() - Date.parse(beat.lastSuccessAt)) / 60000) : null;
+    const ok = ageMinutes !== null && ageMinutes <= staleMinutes;
+    res.set("Cache-Control", "no-store");
+    res.status(ok ? 200 : 503).json({ ok, lastSuccessAt: beat?.lastSuccessAt ?? null, ageMinutes, staleAfterMinutes: staleMinutes, lastRun: beat?.summary ?? null });
+  } catch (error) {
+    console.error("Error in /api/health/cron:", error);
+    res.status(503).json({ ok: false, error: "Health check could not read the database." });
+  }
+});
+
 app.get("/api/status", async (req, res) => {
   const userId = req.query.userId as string;
   if (!userId) {
