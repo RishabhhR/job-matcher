@@ -970,6 +970,12 @@ app.use((error: unknown, req: express.Request, res: express.Response, next: expr
   res.status(500).json({ error: "The request could not be completed. Please try again." });
 });
 
+// Unknown API paths are 404s, never the HTML page: a monitor polling a renamed or
+// removed endpoint (e.g. /api/health/cron, TASK-086) must not read "200 OK".
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
 // Catch-all route to serve the frontend
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
