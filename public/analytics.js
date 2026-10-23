@@ -3,12 +3,12 @@
 (function () {
   "use strict";
 
-  const surface = location.pathname.startsWith("/v2") ? "v2" : "legacy";
+  const surface = location.pathname.startsWith("/classic") ? "legacy" : "v2";
   const environment = location.hostname === "job-matcher-ecru.vercel.app"
     ? "production"
     : /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "development" : "preview";
   const allowedRoutes = new Set([
-    "sign_in", "auth_error", "account_error", "matches", "profile", "settings",
+    "landing", "sign_in", "auth_error", "account_error", "matches", "profile", "settings",
     "onboarding", "legacy_wizard", "legacy_settings",
   ]);
   const safeName = (value) => typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/i.test(value) ? value : null;
@@ -23,7 +23,7 @@
   const observed = new WeakSet();
 
   function pageUrl(name) {
-    const path = surface === "v2" ? "/v2/" : "/";
+    const path = surface === "v2" ? (name === "landing" ? "/" : location.pathname.startsWith("/v2") ? "/v2/" : "/") : "/classic";
     return `${location.origin}${path}${surface === "v2" && ["matches", "profile", "settings", "onboarding"].includes(name) ? `#/${name}` : ""}`;
   }
 

@@ -63,6 +63,7 @@
   <link rel="stylesheet" href="/v2/css/onboarding.css"> <!-- TASK-057 (antigravity) -->
   <link rel="stylesheet" href="/v2/css/profile.css">    <!-- TASK-057 (antigravity) -->
   <link rel="stylesheet" href="/v2/css/settings.css">   <!-- TASK-058 (antigravity) -->
+  <link rel="stylesheet" href="/v2/css/landing.css">    <!-- TASK-088 (codex) -->
   <!-- Clerk: publishable key is public by design; the secret key never reaches the browser. -->
   <script>window.__clerk_publishable_key = "pk_test_c2tpbGxlZC1vcmNhLTc4LmNsZXJrLmFjY291bnRzLmRldiQ";</script>
   <script async crossorigin="anonymous" src="https://skilled-orca-78.clerk.accounts.dev/npm/@clerk/clerk-js@4/dist/clerk.browser.js"></script>
@@ -71,7 +72,7 @@
 <body>
   <a class="skip-link" href="#view-root">Skip to content</a>
 
-  <div id="boot" class="boot" role="status" aria-live="polite" aria-busy="true">
+  <div id="boot" class="boot" role="status" aria-live="polite" aria-busy="true" hidden>
     <div class="boot-visual" aria-hidden="true">
       <span class="boot-orbit boot-orbit-one"></span><span class="boot-orbit boot-orbit-two"></span>
       <svg viewBox="0 0 32 32" focusable="false"><circle cx="14" cy="14" r="8"/><path d="m20 20 6 6M14 10v8m-4-4h8"/></svg>
@@ -81,7 +82,6 @@
       <button id="boot-retry" class="btn btn-primary" type="button" hidden>Try again</button>
     </div>
   </div>
-  <div id="auth-root" class="auth-root" hidden></div>
 
   <header class="topnav" id="topnav" hidden>
     <div class="topnav-in">
@@ -111,7 +111,72 @@
     </div>
   </header>
 
-  <main id="view-root" tabindex="-1"></main>
+  <main id="view-root" tabindex="-1">
+    <!-- Real HTML in the initial response keeps the public page readable by crawlers and without JavaScript. -->
+    <div id="landing-root" class="landing">
+      <header class="landing-nav">
+        <a class="landing-brand" href="/" aria-label="JobMatcher home"><span class="landing-brand-mark" aria-hidden="true">✦</span>JobMatcher</a>
+        <nav aria-label="Public navigation"><a href="#how-it-works">How it works</a><a href="/jobs">Browse jobs</a><a href="#questions">FAQs</a></nav>
+        <button class="btn btn-ghost" type="button" data-landing-signin data-analytics-id="landing_nav_signin">Sign in</button>
+      </header>
+
+      <section class="landing-hero" aria-labelledby="landing-title">
+        <div class="landing-hero-copy">
+          <p class="landing-kicker">A calmer way to find your next role</p>
+          <h1 id="landing-title">Jobs that fit your experience, gathered in one place.</h1>
+          <p class="landing-lede">JobMatcher checks public openings across five sources, compares them with your CV and preferences, and helps you focus on roles worth a closer look.</p>
+          <div class="landing-actions"><button class="btn btn-primary" type="button" data-landing-signin data-analytics-id="landing_hero_start">Get started free <span aria-hidden="true">→</span></button><a class="btn btn-ghost" href="/jobs" data-analytics-id="landing_hero_jobs">Explore recent jobs</a></div>
+          <p id="landing-auth-status" class="landing-status" role="status" hidden></p>
+          <p class="landing-small">No automatic applications. You decide where to apply.</p>
+        </div>
+        <div class="landing-preview" aria-label="How JobMatcher organizes your search">
+          <div class="landing-preview-top"><span class="landing-preview-dot"></span><span>Your search, organized</span><span class="landing-preview-tag">Daily</span></div>
+          <div class="landing-preview-row"><span class="landing-preview-icon">01</span><div><strong>Find new openings</strong><small>Across job boards and company ATS pages</small></div></div>
+          <div class="landing-preview-row"><span class="landing-preview-icon">02</span><div><strong>Compare with your profile</strong><small>See estimated fit and the reasons behind it</small></div></div>
+          <div class="landing-preview-row"><span class="landing-preview-icon">03</span><div><strong>Choose your next move</strong><small>Save, dismiss, or open the original listing</small></div></div>
+          <div class="landing-preview-foot">Your CV stays in your account · You control your matches</div>
+        </div>
+      </section>
+
+      <section class="landing-proof" aria-label="Current job coverage">
+        <div><strong id="landing-job-count" aria-live="polite">—</strong><span>recent indexed openings</span></div>
+        <div><strong>5</strong><span>connected job sources</span></div>
+        <div><strong>Daily</strong><span>email digest option</span></div>
+      </section>
+
+      <section class="landing-section" id="how-it-works" aria-labelledby="landing-how-title">
+        <div class="landing-section-head"><p class="landing-kicker">Your search, simplified</p><h2 id="landing-how-title">A useful shortlist, without five open tabs.</h2><p>Each source runs independently, so one board being unavailable does not stop the others.</p></div>
+        <div class="landing-feature-grid">
+          <article><span class="landing-feature-number">01 / Collect</span><h3>One view of the market</h3><p>See roles from Greenhouse, Lever, Ashby, LinkedIn, and Naukri in a single feed.</p></article>
+          <article><span class="landing-feature-number">02 / Compare</span><h3>Know why a role fits</h3><p>Use your CV and target role to estimate fit, with a short explanation for each scored match.</p></article>
+          <article><span class="landing-feature-number">03 / Decide</span><h3>Keep your momentum</h3><p>Save promising jobs, mark applications, and choose when your daily digest arrives.</p></article>
+        </div>
+      </section>
+
+      <section class="landing-section landing-sources" aria-labelledby="landing-sources-title">
+        <div><p class="landing-kicker">Multiple sources, one search</p><h2 id="landing-sources-title">Go beyond a single job board.</h2><p>Coverage depends on what each source publishes and what is currently available. Open any job on its original site before applying.</p></div>
+        <ul aria-label="Supported job sources"><li>Greenhouse</li><li>Lever</li><li>Ashby</li><li>LinkedIn</li><li>Naukri</li></ul>
+      </section>
+
+      <section class="landing-section landing-faq" id="questions" aria-labelledby="landing-faq-title">
+        <div class="landing-section-head"><p class="landing-kicker">Questions, answered</p><h2 id="landing-faq-title">Know what happens before you start.</h2></div>
+        <div class="landing-faq-list">
+          <details><summary>How does JobMatcher find jobs?</summary><p>It checks public job listings from Greenhouse, Lever, Ashby, LinkedIn, and Naukri, then brings available openings into one feed. Individual sources may sometimes return fewer results.</p></details>
+          <details><summary>How are jobs matched to my CV?</summary><p>JobMatcher compares your saved CV and preferences with job details and estimates fit. Scores help prioritize your review; they are not a hiring probability.</p></details>
+          <details><summary>Does JobMatcher apply to jobs for me?</summary><p>No. You review each role and choose whether to open the original listing and apply.</p></details>
+          <details><summary>Can I choose when to receive emails?</summary><p>Yes. After setting up your profile, you can choose a daily digest hour in your local timezone. Delivery may vary when a source or email provider is delayed.</p></details>
+        </div>
+      </section>
+
+      <section class="landing-final" aria-labelledby="landing-final-title"><p class="landing-kicker">Ready when you are</p><h2 id="landing-final-title">Make your next search more focused.</h2><p>Bring your CV. We’ll help you see the roles worth reviewing.</p><button class="btn btn-primary" type="button" data-landing-signin data-analytics-id="landing_final_start">Start matching <span aria-hidden="true">→</span></button></section>
+      <footer class="landing-footer"><span>© JobMatcher</span><span>Job listings belong to their respective publishers and employers.</span><a href="/jobs">Recent jobs</a></footer>
+    </div>
+  </main>
+
+  <section id="sign-in" class="landing-signin" aria-label="Sign in to JobMatcher" hidden>
+    <button id="landing-signin-close" class="btn btn-text" type="button">← Back to JobMatcher</button>
+    <div id="auth-root" class="auth-root"></div>
+  </section>
 
   <nav class="bottomnav" id="bottomnav" aria-label="Primary" hidden>
     <a href="#/matches" data-route="matches">Matches</a>

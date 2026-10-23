@@ -3,25 +3,15 @@ import { initAuth, mountSignIn, signOut } from "./js/auth.js";
 import * as store from "./js/store.js";
 import { startRouter } from "./js/router.js";
 import { initials, maskEmail, emptyState } from "./js/ui.js";
+import { initLanding, showLandingStatus, hideLanding } from "./views/landing.js";
 import { captureReferralFromUrl, claimPendingReferral } from "./js/referral.js";
 
 const boot = document.getElementById("boot");
 const bootMessage = document.getElementById("boot-message");
 const bootRetry = document.getElementById("boot-retry");
-const bootSlowTimer = setTimeout(() => boot.classList.add("is-slow"), 4000);
+let bootSlowTimer = null;
 
 bootRetry.addEventListener("click", () => location.reload());
-
-function showBootFailure(message) {
-  window.JobMatcherAnalytics?.trackPage("auth_error");
-  clearTimeout(bootSlowTimer);
-  boot.classList.remove("is-slow");
-  boot.classList.add("boot-failed");
-  boot.setAttribute("aria-busy", "false");
-  document.getElementById("boot-slow").hidden = true;
-  bootMessage.textContent = message;
-  bootRetry.hidden = false;
-}
 
 function wireThemeToggle() {
   const button = document.getElementById("theme-toggle");
@@ -64,25 +54,40 @@ function renderAccount() {
 
 async function main() {
   captureReferralFromUrl();
+  const authPromise = initAuth();
+  initLanding({
+    onSignIn: async () => {
+      showLandingStatus("Connecting to sign-in…");
+      try {
+        const user = await authPromise;
+        if (user) return;
+        showLandingStatus("");
+        const section = document.getElementById("sign-in");
+        section.hidden = false;
+        mountSignIn(document.getElementById("auth-root"));
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch {
+        showLandingStatus("Sign-in is temporarily unavailable. Reload the page to try again.");
+      }
+    },
+  });
+  window.JobMatcherAnalytics?.trackPage("landing");
+
   let clerkUser;
   try {
-    clerkUser = await initAuth();
+    clerkUser = await authPromise;
   } catch (err) {
-    showBootFailure(err.message || "The sign-in service couldn't load. Check your connection and try again.");
+    showLandingStatus("Sign-in is temporarily unavailable. Reload the page to try again.");
     return;
   }
 
   if (!clerkUser) {
-    window.JobMatcherAnalytics?.trackPage("sign_in");
-    clearTimeout(bootSlowTimer);
-    boot.setAttribute("aria-busy", "false");
-    boot.hidden = true;
-    const authRoot = document.getElementById("auth-root");
-    authRoot.hidden = false;
-    mountSignIn(authRoot);
     return;
   }
 
+  hideLanding();
+  boot.hidden = false;
+  bootSlowTimer = setTimeout(() => boot.classList.add("is-slow"), 4000);
   bootMessage.textContent = "Loading your saved profile and preferences…";
   try {
     await store.loadAccount(clerkUser);

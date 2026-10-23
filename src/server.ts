@@ -11,6 +11,7 @@ import { runDigest } from "./digest.js";
 import { getVerifiedClerkIdentity } from "./clerkAuth.js";
 import {
   ensureMigrated,
+  client,
   upsertUser,
   upsertUserProfile,
   upsertCv,
@@ -48,6 +49,7 @@ import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
+import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, type PublicPosting } from "./publicJobs.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -195,6 +197,85 @@ app.get("/api/analytics/daily-visitors", async (req, res) => {
   } catch (error) {
     console.error("Failed to query visitor stats:", error);
     res.status(500).json({ error: "Failed to load visitor statistics." });
+  }
+});
+
+// Public job previews (TASK-088): only shared posting fields, never user matches.
+// A short freshness window removes old previews even when a source stops updating.
+const PUBLIC_JOB_FILTER = `scraped_at >= datetime('now', '-3 days')
+  AND source IN ('greenhouse', 'lever', 'ashby', 'linkedin', 'naukri')
+  AND length(trim(coalesce(title, ''))) > 0
+  AND length(trim(coalesce(company_name, ''))) > 0
+  AND length(trim(coalesce(description_text, ''))) >= 120
+  AND apply_url LIKE 'https://%'`;
+
+function publicPosting(row: any): PublicPosting {
+  return {
+    id: String(row.id), source: String(row.source), company: String(row.company_name),
+    title: String(row.title), location: String(row.location || ""),
+    description: String(row.description_text || ""), applyUrl: String(row.apply_url),
+    postedAt: row.posted_at ? String(row.posted_at) : null,
+    scrapedAt: String(row.scraped_at),
+  };
+}
+
+app.get("/api/public/jobs/summary", async (_req, res) => {
+  try {
+    const result = await client.execute({
+      sql: `SELECT count(*) AS recent_count FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}`,
+      args: [],
+    });
+    res.set("Cache-Control", "public, max-age=60, s-maxage=300");
+    res.json({ recentCount: Number(result.rows[0]?.recent_count || 0) });
+  } catch (error) {
+    console.error("Public job summary failed:", error);
+    res.status(503).json({ error: "Recent job count is temporarily unavailable." });
+  }
+});
+
+app.get("/jobs", async (_req, res) => {
+  try {
+    await ensureMigrated();
+    const result = await client.execute({
+      sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
+            FROM (
+              SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at,
+                     row_number() OVER (PARTITION BY source ORDER BY scraped_at DESC, id ASC) AS source_rank
+              FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}
+            ) WHERE source_rank <= 6
+            ORDER BY scraped_at DESC, id ASC LIMIT 30`,
+      args: [],
+    });
+    res.set("Cache-Control", "public, max-age=60, s-maxage=300");
+    res.type("html").send(renderJobsIndex(result.rows.map(publicPosting)));
+  } catch (error) {
+    console.error("Public job index failed:", error);
+    res.status(503).type("html").send(renderJobsUnavailable());
+  }
+});
+
+app.get("/jobs/:id", async (req, res) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+    res.status(404).type("html").send(renderJobNotFound());
+    return;
+  }
+  try {
+    await ensureMigrated();
+    const result = await client.execute({
+      sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
+            FROM jm_job_postings WHERE id = ? AND ${PUBLIC_JOB_FILTER} LIMIT 1`,
+      args: [req.params.id],
+    });
+    const row = result.rows[0];
+    if (!row) {
+      res.status(404).type("html").send(renderJobNotFound());
+      return;
+    }
+    res.set("Cache-Control", "public, max-age=60, s-maxage=300");
+    res.type("html").send(renderJobDetail(publicPosting(row)));
+  } catch (error) {
+    console.error("Public job detail failed:", error);
+    res.status(503).type("html").send(renderJobsUnavailable());
   }
 });
 
