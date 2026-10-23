@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-094] status:open from:claude to:claude opened:2026-10-23T23:27Z
-SEO gaps (claude, 2026-10-24, user asked for an audit of TASK-087/088/089/091 + fixes). Audit of prod found: (1) sitemap.xml is static with only / and /v2/ (a duplicate of /) - no /jobs or /jobs/:id; (2) robots.txt disallows /classic/ but the old UI is /classic, and /classic serves the same title/canonical with no noindex; (3) og:image/twitter:image is an SVG (og-image.png 404) - LinkedIn/X/Facebook do not render SVG previews; the OG artwork also claims 'thousands of unlisted' openings (they are public listings); (4) /jobs and /jobs/:id have no OG/Twitter tags; (5) job detail titles run to ~95 chars; (6) JobPosting lacks directApply:false; (7) no apple-touch-icon. Plan: server-generated /sitemap.xml (/, /jobs, fresh public job URLs with lastmod) replacing the static file; /classic noindex + robots fix; 1200x630 PNG OG image with accurate copy; OG/Twitter tags in publicJobs documentHtml; ~60-char job titles; directApply:false; apple-touch-icon. Not changed without a user decision: public pages republish LinkedIn/Naukri descriptions verbatim (ToS/copyright risk). User actions: Google Search Console verification + sitemap submit, custom domain.
-
 ### [TASK-093] status:open from:codex to:codex opened:2026-10-23T23:26Z
 Close TASK-092 release gaps: wire background feed hydration to the UI, make pending-score claims concurrency-safe with stale-claim recovery, propagate scrape cancellation to Naukri, add regression coverage, verify and deploy
 
@@ -46,6 +43,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-094] status:done from:claude to:claude opened:2026-10-23T23:27Z
+SEO gaps (claude, 2026-10-24, user asked for an audit of TASK-087/088/089/091 + fixes). Audit of prod found: (1) sitemap.xml is static with only / and /v2/ (a duplicate of /) - no /jobs or /jobs/:id; (2) robots.txt disallows /classic/ but the old UI is /classic, and /classic serves the same title/canonical with no noindex; (3) og:image/twitter:image is an SVG (og-image.png 404) - LinkedIn/X/Facebook do not render SVG previews; the OG artwork also claims 'thousands of unlisted' openings (they are public listings); (4) /jobs and /jobs/:id have no OG/Twitter tags; (5) job detail titles run to ~95 chars; (6) JobPosting lacks directApply:false; (7) no apple-touch-icon. Plan: server-generated /sitemap.xml (/, /jobs, fresh public job URLs with lastmod) replacing the static file; /classic noindex + robots fix; 1200x630 PNG OG image with accurate copy; OG/Twitter tags in publicJobs documentHtml; ~60-char job titles; directApply:false; apple-touch-icon. Not changed without a user decision: public pages republish LinkedIn/Naukri descriptions verbatim (ToS/copyright risk). User actions: Google Search Console verification + sitemap submit, custom domain.
+
+**Done Note (2026-10-23T23:32Z):** Shipped 0fc5eed, verified on prod: /sitemap.xml dynamic (148 URLs: /, /jobs, live /jobs/:id; no /v2/); og-image.png 1200x630 200 (OG/Twitter on /, /v2/, /classic, /jobs, /jobs/:id); /classic noindex + robots.txt fixed; job titles clipped (e.g. 'Technical Product Manager - Platform and Risk… · JobMatcher'); JobPosting on Lever/Ashby pages has directApply:false; apple-touch-icon 200. Isolated-worktree check of the commit: typecheck clean, 61/61 tests. OPEN FOR USER: (a) public /jobs pages republish LinkedIn/Naukri descriptions verbatim - ToS/copyright decision; (b) Google Search Console verification + sitemap submission; (c) custom domain (SITE constant + canonicals are hard-coded to job-matcher-ecru.vercel.app).
 
 ### [TASK-092] status:done from:antigravity to:antigravity opened:2026-10-23T23:20Z
 Address 5 code review gaps: decouple /api/match from inline scrapes, propagate AbortSignal with finally cleanup, enforce 30d freshness & domain role matching, progressive pending queue hydration, multi-key Groq rotation
