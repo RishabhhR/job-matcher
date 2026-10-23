@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-091] status:open from:claude to:claude opened:2026-10-23T23:01Z
+Vercel Speed Insights (claude, 2026-10-24, user request). App is plain HTML/vanilla JS (no Next.js, no bundler), so per Vercel's HTML quickstart no npm package is needed: add the window.si queue stub + <script defer src="/_vercel/speed-insights/script.js"> to every HTML entry point - public/v2/index.html (/, /v2/, /join), public/index.html (/classic), and the server-rendered /jobs pages (src/publicJobs.ts). Project already has speedInsights enabled (id present, no data yet); the script path returns 200 on prod. Strip query strings in speedInsightsBeforeSend (invite codes, filters).
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
