@@ -532,9 +532,14 @@ function handleSSEEvent(event, data) {
     totalMatchesCount = data.totalMatches;
     currentPage = 1;
 
-    renderResults(data.results);
-    updatePaginationControls();
-    collapseSearchCard();
+    if (data.results && data.results.length > 0) {
+      renderResults(data.results);
+      updatePaginationControls();
+      collapseSearchCard();
+    } else {
+      collapseSearchCard();
+      goToPage(1);
+    }
   } else if (event === "error") {
     addLogLine("error", "Error during execution: " + data.message);
     statusBadge.className = "status-badge error";

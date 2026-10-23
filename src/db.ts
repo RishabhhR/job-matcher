@@ -824,9 +824,59 @@ export async function bulkInsertPostingsAndPendingMatches(userId: string, postin
   }
 }
 
+export function isRoleTitleMatch(title: string, targetDesignation: string): boolean {
+  const normTitle = (title || "").toLowerCase();
+  const normTarget = (targetDesignation || "").toLowerCase().trim();
+  if (!normTarget || !normTitle) return false;
+
+  // Direct substring match
+  if (normTitle.includes(normTarget)) return true;
+
+  // Check if target is a Product Management role
+  const isPmTarget = /(product\s*manager|\bapm\b|\bpm\b|product\s*owner)/i.test(normTarget);
+  if (isPmTarget) {
+    const pmPatterns = [
+      /\bproduct\s*manager\b/i,
+      /\bapm\b/i,
+      /\bassociate\s*product\s*manager\b/i,
+      /\btechnical\s*product\s*manager\b/i,
+      /\bproduct\s*owner\b/i,
+      /\bgroup\s*product\s*manager\b/i,
+      /\bprincipal\s*product\s*manager\b/i,
+      /\blead\s*product\s*manager\b/i,
+      /\bsr\.?\s*product\s*manager\b/i,
+      /\bsenior\s*product\s*manager\b/i,
+    ];
+    return pmPatterns.some((re) => re.test(normTitle));
+  }
+
+  // General token extraction (excluding seniority and stop words)
+  const stopWords = new Set(["senior", "lead", "staff", "junior", "principal", "intern", "associate", "the", "in", "at", "and", "of", "level", "ii", "iii", "iv", "sr", "jr"]);
+  const targetTokens = normTarget
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !stopWords.has(w));
+
+  if (targetTokens.length === 0) return false;
+
+  const synonyms: Record<string, string[]> = {
+    engineer: ["developer", "programmer", "swe", "sde"],
+    developer: ["engineer", "programmer", "swe", "sde"],
+    backend: ["back-end", "server"],
+    frontend: ["front-end", "ui", "web"],
+    fullstack: ["full-stack", "full stack"],
+  };
+
+  return targetTokens.every((token) => {
+    if (normTitle.includes(token)) return true;
+    const syns = synonyms[token];
+    return syns && syns.some((syn) => normTitle.includes(syn));
+  });
+}
+
 /**
- * Instantly seeds pending candidate matches for a user from the shared central pool of indexed postings
- * (jm_job_postings). Allows sub-second onboarding matches without blocking on external live web scrapers.
+ * Instantly seeds fresh pending candidate matches for a user from the shared central pool of indexed postings
+ * (jm_job_postings). Enforces role relevance (no unrelated jobs) and a 30-day freshness window.
  */
 export async function seedCandidateMatchesFromPool(
   userId: string,
@@ -838,18 +888,15 @@ export async function seedCandidateMatchesFromPool(
     sql: `SELECT id, title, location
           FROM jm_job_postings
           WHERE id NOT IN (SELECT job_posting_id FROM jm_user_job_matches WHERE user_id = ?)
+            AND (posted_at >= datetime('now', '-30 days') OR scraped_at >= datetime('now', '-14 days'))
           ORDER BY COALESCE(posted_at, scraped_at) DESC
-          LIMIT 300`,
+          LIMIT 1000`,
     args: [userId],
   });
 
-  const target = (targetDesignation || "").toLowerCase().trim();
-  const titleKeywords = ["product manager", "pm ", "apm", "product owner", target].filter(Boolean);
-
   const matchedPostings = (result.rows as Array<{ id: string; title: string; location: string | null }>).filter((row) => {
-    const title = String(row.title || "").toLowerCase();
-    const titleMatches = title.includes(target) || titleKeywords.some((k) => title.includes(k));
-    if (!titleMatches) return false;
+    const title = String(row.title || "");
+    if (!isRoleTitleMatch(title, targetDesignation)) return false;
 
     if (locationPatternsRegexes && locationPatternsRegexes.length > 0) {
       const loc = String(row.location || "");
@@ -870,6 +917,31 @@ export async function seedCandidateMatchesFromPool(
 
   await client.batch(batch, "write");
   return matchedPostings.length;
+}
+
+export async function getPendingMatchesForUser(userId: string, limit = 4) {
+  const result = await client.execute({
+    sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company,
+                 jp.title, jp.location, jp.description_text as descriptionText, jp.source_metadata as sourceMetadata,
+                 jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
+                 m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText, m.status,
+                 m.user_action as userAction, m.matched_at as matchedAt
+          FROM jm_user_job_matches m
+          JOIN jm_job_postings jp ON jp.id = m.job_posting_id
+          WHERE m.user_id = ? AND m.status = 'pending'
+          ORDER BY COALESCE(jp.posted_at, jp.scraped_at) DESC
+          LIMIT ?`,
+    args: [userId, limit],
+  });
+  return result.rows as any[];
+}
+
+export async function getPendingMatchCountForUser(userId: string): Promise<number> {
+  const result = await client.execute({
+    sql: "SELECT COUNT(*) as count FROM jm_user_job_matches WHERE user_id = ? AND status = 'pending'",
+    args: [userId],
+  });
+  return Number(result.rows[0]?.count || 0);
 }
 
 export type MatchFeedFilter = "new" | "saved" | "applied" | "dismissed" | "all";

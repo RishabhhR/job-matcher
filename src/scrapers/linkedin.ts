@@ -13,10 +13,10 @@ function extractJobId(url: string): string {
   return match ? match[1] : url;
 }
 
-async function fetchSearchPage(keywords: string, location: string, start: number): Promise<string | null> {
+async function fetchSearchPage(keywords: string, location: string, start: number, signal?: AbortSignal): Promise<string | null> {
   const url = `${SEARCH_URL}?keywords=${encodeURIComponent(keywords)}&location=${encodeURIComponent(location)}&start=${start}`;
   try {
-    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal });
     if (!res.ok) return null;
     return await res.text();
   } catch {
@@ -24,9 +24,9 @@ async function fetchSearchPage(keywords: string, location: string, start: number
   }
 }
 
-async function fetchDescription(jobUrl: string): Promise<string> {
+async function fetchDescription(jobUrl: string, signal?: AbortSignal): Promise<string> {
   try {
-    const res = await fetch(jobUrl, { headers: { "User-Agent": USER_AGENT } });
+    const res = await fetch(jobUrl, { headers: { "User-Agent": USER_AGENT }, signal });
     if (!res.ok) return "";
     const html = await res.text();
     const $ = cheerio.load(html);
@@ -42,21 +42,23 @@ interface LinkedInSearchOptions {
   maxResults?: number;
   fetchDescriptions?: boolean;
   requestDelayMs?: number;
+  signal?: AbortSignal;
 }
 
 export async function fetchLinkedInPublic(options: LinkedInSearchOptions): Promise<RawPosting[]> {
-  const { keywords, location = "India", maxResults = 100, fetchDescriptions = true, requestDelayMs = 1500 } = options;
+  const { keywords, location = "India", maxResults = 100, fetchDescriptions = true, requestDelayMs = 1500, signal } = options;
 
   const postings: RawPosting[] = [];
   let start = 0;
   const pageBatchSize = 5;
 
   while (postings.length < maxResults) {
+    if (signal?.aborted) break;
     const promises = [];
     for (let b = 0; b < pageBatchSize; b++) {
       const pageStart = start + b * 10;
       if (pageStart >= maxResults) break;
-      promises.push(fetchSearchPage(keywords, location, pageStart));
+      promises.push(fetchSearchPage(keywords, location, pageStart, signal));
     }
 
     const htmls = await Promise.all(promises);

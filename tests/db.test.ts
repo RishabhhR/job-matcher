@@ -166,3 +166,79 @@ test("seedCandidateMatchesFromPool matches existing postings by title/location a
   assert.equal(seededAgain, 0, "Should not re-seed existing candidate matches");
 });
 
+test("isRoleTitleMatch accurately matches roles and does not cross PM with Engineer", () => {
+  // PM target
+  assert.equal(db.isRoleTitleMatch("Senior Product Manager", "Product Manager"), true);
+  assert.equal(db.isRoleTitleMatch("Associate Product Manager", "Product Manager"), true);
+  assert.equal(db.isRoleTitleMatch("Technical Product Manager", "Product Manager"), true);
+  assert.equal(db.isRoleTitleMatch("Group Product Manager", "APM"), true);
+  assert.equal(db.isRoleTitleMatch("Software Engineer", "Product Manager"), false);
+  assert.equal(db.isRoleTitleMatch("Frontend Developer", "Product Manager"), false);
+  assert.equal(db.isRoleTitleMatch("Data Scientist", "Product Manager"), false);
+
+  // Engineer target
+  assert.equal(db.isRoleTitleMatch("Senior Software Engineer", "Software Engineer"), true);
+  assert.equal(db.isRoleTitleMatch("Staff Backend Developer", "Backend Engineer"), true);
+  assert.equal(db.isRoleTitleMatch("Senior Product Manager", "Software Engineer"), false);
+  assert.equal(db.isRoleTitleMatch("Product Marketing Manager", "Software Engineer"), false);
+});
+
+test("getPendingMatchesForUser and getPendingMatchCountForUser manage pending queue progressively", async () => {
+  const pendingUser = await db.upsertUser("pendingtest@example.com", "Pending User", "user_pending_1");
+  const p1 = await db.upsertJobPosting({
+    source: "greenhouse",
+    sourceJobId: "pend-1",
+    company: "Company A",
+    title: "Product Manager 1",
+    location: "Bengaluru",
+    applyUrl: "https://example.com/p1",
+    descriptionText: "desc 1",
+    dedupHash: "pend/1",
+  });
+  const p2 = await db.upsertJobPosting({
+    source: "greenhouse",
+    sourceJobId: "pend-2",
+    company: "Company B",
+    title: "Product Manager 2",
+    location: "Bengaluru",
+    applyUrl: "https://example.com/p2",
+    descriptionText: "desc 2",
+    dedupHash: "pend/2",
+  });
+
+  await db.upsertUserMatch(pendingUser, p1, -1, "pending", "Waiting for score");
+  await db.upsertUserMatch(pendingUser, p2, -1, "pending", "Waiting for score");
+  await db.client.execute({
+    sql: "UPDATE jm_user_job_matches SET status = 'pending' WHERE user_id = ?",
+    args: [pendingUser],
+  });
+
+  const countBefore = await db.getPendingMatchCountForUser(pendingUser);
+  assert.equal(countBefore, 2);
+
+  const batch1 = await db.getPendingMatchesForUser(pendingUser, 1);
+  assert.equal(batch1.length, 1);
+  assert.equal(batch1[0].status, "pending");
+
+  // Score the first match
+  await db.updateMatchScore(pendingUser, batch1[0].posting_id, 85, "upgrade", "Strong fit");
+
+  const countAfter1 = await db.getPendingMatchCountForUser(pendingUser);
+  assert.equal(countAfter1, 1);
+
+  // Next batch should return the remaining unscored match
+  const batch2 = await db.getPendingMatchesForUser(pendingUser, 1);
+  assert.equal(batch2.length, 1);
+  assert.notEqual(batch2[0].posting_id, batch1[0].posting_id);
+
+  // Score the second match
+  await db.updateMatchScore(pendingUser, batch2[0].posting_id, 75, "lateral", "Good fit");
+
+  const countAfter2 = await db.getPendingMatchCountForUser(pendingUser);
+  assert.equal(countAfter2, 0);
+
+  const batch3 = await db.getPendingMatchesForUser(pendingUser, 1);
+  assert.equal(batch3.length, 0);
+});
+
+

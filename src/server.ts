@@ -38,6 +38,8 @@ import {
   recordDailyVisit,
   getDailyVisitorStats,
   seedCandidateMatchesFromPool,
+  getPendingMatchesForUser,
+  getPendingMatchCountForUser,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
@@ -808,17 +810,16 @@ app.post("/api/match", async (req, res) => {
   };
 
   const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
-  async function safeScrape<T>(source: string, fn: () => Promise<T[]>, timeoutMs = 15000): Promise<T[]> {
+  async function safeScrape<T>(source: string, fn: (signal: AbortSignal) => Promise<T[]>, timeoutMs = 15000): Promise<T[]> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const rows = await Promise.race([
-        fn(),
+        fn(controller.signal),
         new Promise<T[]>((_, reject) => {
           controller.signal.addEventListener("abort", () => reject(new Error(`Timed out after ${timeoutMs}ms`)));
         }),
       ]);
-      clearTimeout(timer);
       sourceHealth[source] = { count: rows.length, ok: true };
       return rows;
     } catch (error) {
@@ -826,6 +827,8 @@ app.post("/api/match", async (req, res) => {
       sourceHealth[source] = { count: 0, ok: false, error: message };
       sendEvent("source_error", { source, message: `Source failed and was skipped: ${message}` });
       return [];
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -850,172 +853,12 @@ app.post("/api/match", async (req, res) => {
     // TASK-090: Seed candidate matches immediately from central indexed postings pool
     sendEvent("progress", { status: "seeding", message: "Matching against 2,000+ indexed job openings..." });
     const seededCount = await seedCandidateMatchesFromPool(userId, profile.targetDesignation, patterns, 60);
-    sendEvent("progress", { status: "seeding_complete", message: `Found ${seededCount} candidates from indexed job boards.` });
-
-    const filterByLoc = (postings: any[]) => {
-      if (!patterns) return postings;
-      return postings.filter(p => {
-        const loc = p.location || "";
-        if (!loc) return true;
-        return patterns.some(re => re.test(loc));
-      });
-    };
-
-    const boardSources = [
-      { source: "greenhouse", companies: companies.greenhouse, fetch: fetchGreenhouse },
-      { source: "lever", companies: companies.lever, fetch: fetchLever },
-      { source: "ashby", companies: companies.ashby, fetch: fetchAshby },
-    ] as const;
-    const atsPostings = (await Promise.all(boardSources.map(async ({ source, companies: boards, fetch }) => {
-      sendEvent("progress", { status: `scraping_${source}`, message: `Scraping ${source} boards for ${boards.length} companies...` });
-      const rows = await safeScrape(source, async () => {
-        const settled = await Promise.allSettled(boards.map((company) => fetch(company)));
-        const failed = settled.filter((result) => result.status === "rejected").length;
-        if (failed > 0) sendEvent("source_warning", { source, message: `${failed}/${boards.length} company boards failed; successful boards are retained.` });
-        if (boards.length > 0 && failed === boards.length) {
-          throw new Error(`All ${source} company boards failed (${failed}/${boards.length}).`);
-        }
-        return settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
-      });
-      const filtered = filterByLoc(rows);
-      sendEvent("progress", { status: `scraping_${source}_complete`, message: `Fetched ${rows.length} ${source} postings, ${filtered.length} matched location filter.` });
-      return filtered;
-    }))).flat();
-
-    const linkedinKeywords = profile.targetDesignation;
-    const defaultLinkedinLocation = [primaryPlace({ preferredCity: profile.preferredCity }), splitPlaces(profile.preferredCountry)[0]].filter(Boolean).join(", ") || "worldwide";
-    const linkedinLocation = linkedin?.location || defaultLinkedinLocation;
-    // Clamped to 100: this handler still runs the LinkedIn search/scrape step
-    // synchronously (only per-job scoring got paginated), and Vercel's function
-    // has a 60s hard cap (vercel.json) - a 1000-result search alone can exceed
-    // that just from its own pagination delays, before any scoring even starts.
-    const linkedinMaxResults = Math.min(linkedin?.maxResults || 100, 100);
-
-    sendEvent("progress", { status: "scraping_linkedin", message: `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...` });
-    const linkedinPostingsRaw = await safeScrape("linkedin", () => fetchLinkedInPublic({
-      keywords: linkedinKeywords,
-      location: linkedinLocation,
-      maxResults: linkedinMaxResults,
-      fetchDescriptions: false,
-    }));
-    
-    const linkedinPostings = filterByLoc(linkedinPostingsRaw);
-    sendEvent("progress", { status: "scraping_linkedin_complete", message: `Fetched ${linkedinPostingsRaw.length} LinkedIn postings, ${linkedinPostings.length} matched location filter.` });
-
-    const naukriInput = naukri && typeof naukri === "object" && !Array.isArray(naukri) ? naukri : {
-      keyword: profile.targetDesignation,
-      location: primaryPlace(profile) || "India",
-      maxResultsPerQuery: 15,
-    };
-    sendEvent("progress", { status: "scraping_naukri", message: `Scraping Naukri for "${naukriInput.keyword}" (max ${naukriInput.maxResultsPerQuery} results)...` });
-    const naukriRaw = await safeScrape("naukri", () => fetchNaukri(naukriInput));
-    const naukriPostings = filterByLoc(naukriRaw);
-    sendEvent("progress", { status: "scraping_naukri_complete", message: `Fetched ${naukriRaw.length} Naukri postings, ${naukriPostings.length} matched location filter.` });
-
-    try {
-    try {
-      await upsertScrapeSourceStatuses(userId, Object.entries(sourceHealth).map(([source, health]) => ({
-        source,
-        count: health.count,
-        ok: health.ok,
-        errorCode: health.ok ? undefined : "SCRAPE_FAILED",
-      })));
-    } catch (error) {
-      void captureTelemetryError("persist_scrape_health", error);
-    }
-    } catch (error) {
-      void captureTelemetryError("persist_scrape_health", error);
-      sendEvent("progress", { status: "source_warning", message: "Scrape health could not be saved; continuing with matching." });
-    }
-    for (const [source, health] of Object.entries(sourceHealth)) {
-      void captureTelemetryEvent("scrape_source_result", { source, posting_count: health.count, success: health.ok });
-    }
-    void captureTelemetryEvent("scrape_completed", {
-      source_count: Object.keys(sourceHealth).length,
-      failed_source_count: Object.values(sourceHealth).filter((health) => !health.ok).length,
-      raw_posting_count: atsPostings.length + linkedinPostings.length + naukriPostings.length,
-    });
-    sendEvent("progress", { status: "scrape_health", message: Object.entries(sourceHealth).map(([source, health]) => `${source}=${health.ok ? health.count : `ERR(${health.error?.slice(0, 60)})`}`).join(", ") });
-    const rawPostings = [...atsPostings, ...linkedinPostings, ...naukriPostings];
-    sendEvent("progress", { status: "processing", message: `Total raw postings collected: ${rawPostings.length}. Running deduplication...` });
-    const deduped = dedupePostings(rawPostings);
-    sendEvent("progress", { status: "processing", message: `Deduplication complete. Retained ${deduped.length} unique postings.` });
-    const shortlisted = keywordPrefilter(deduped, profile.targetDesignation);
-
-    sendEvent("progress", { status: "processing", message: `Filtered down to ${shortlisted.length} matching target designation "${profile.targetDesignation}". Saving to database...` });
-    
-    // Save new scraped matches (preserves existing candidate pool matches via ON CONFLICT)
-    await bulkInsertPostingsAndPendingMatches(userId, shortlisted);
-
     const totalMatches = await getTotalMatchCountForUser(userId);
-    sendEvent("progress", { status: "processing", message: `Saved ${totalMatches} matching postings to database. Preparing Page 1...` });
+    sendEvent("progress", { status: "complete", message: `Match pool ready with ${totalMatches} postings.` });
 
-    // Fetch and score Page 1 immediately (first micro-batch of up to 4 jobs to avoid function timeouts)
-    const page1Jobs = await getPaginatedMatchesForUser(userId, 0, 10);
-    const pendingPage1 = page1Jobs.filter((j: any) => j.status === "pending").slice(0, 4);
-
-    if (pendingPage1.length > 0) {
-      // ATS postings already have full descriptions from the original scrape
-      // (bulkInsertPostingsAndPendingMatches persisted them) - only LinkedIn
-      // postings genuinely need fetching here, since fetchLinkedInPublic was
-      // called with fetchDescriptions: false during the initial search. Blindly
-      // re-fetching every posting (regardless of source) via a LinkedIn-only
-      // HTML scraper wastes a full page load per job AND overwrites already-good
-      // ATS descriptions with empty text (the CSS selector never matches on a
-      // non-LinkedIn page).
-      const postingsToFetch = pendingPage1.map((j: any) => ({
-        source: j.source,
-        sourceJobId: j.sourceJobId,
-        company: j.company,
-        title: j.title,
-        location: j.location,
-        applyUrl: j.applyUrl,
-        descriptionText: j.descriptionText || "",
-      }));
-      const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
-
-      if (linkedinNeedingFetch.length > 0) {
-        sendEvent("progress", { status: "scraping_linkedin_descriptions", message: `Fetching descriptions for ${linkedinNeedingFetch.length} LinkedIn jobs on Page 1...` });
-        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, 10);
-      }
-
-      sendEvent("progress", { status: "scoring", message: `Scoring ${pendingPage1.length} new jobs on Page 1 against CV via AI fallback chain...` });
-      const { results: scoredResults } = await scoreAll(cvText, profile, postingsToFetch, postingsToFetch.length);
-      const scoredByPosting = scoresByPosting(scoredResults);
-
-      for (let i = 0; i < pendingPage1.length; i++) {
-        const job = pendingPage1[i];
-        const scored = scoredByPosting.get(postingsToFetch[i]);
-        if (!scored) continue; // batch failed: stays pending, rescored on next load
-        const description = postingsToFetch[i].descriptionText;
-        await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
-      }
-    }
-
-    // Query fully updated page 1 scored matches
-    const finalPage1 = await getPaginatedMatchesForUser(userId, 0, 10);
-    
-    // Transform rows to ScoredMatch format
-    const results = finalPage1.map((j: any) => ({
-      posting: {
-        id: j.posting_id,
-        source: j.source,
-        sourceJobId: j.sourceJobId,
-        company: j.company,
-        title: j.title,
-        location: j.location,
-        postedAt: j.postedAt,
-        scrapedAt: j.scrapedAt,
-        descriptionText: j.descriptionText || "",
-        sourceMetadata: j.sourceMetadata,
-        applyUrl: j.applyUrl,
-      },
-      fitScore: j.fitScore,
-      compFitLabel: j.compFitLabel,
-      reasoningText: j.reasoningText,
-    }));
-
-    sendEvent("done", { userId, totalMatches, results });
+    // Instantly return without synchronous scraping or blocking scoring!
+    // Matches are progressively hydrated on-demand via /api/match/page or /api/match/hydrate.
+    sendEvent("done", { userId, totalMatches, results: [] });
   } catch (error) {
     console.error("Match error:", error);
     await captureTelemetryError("initial_match_scan", error);
@@ -1072,13 +915,13 @@ app.post("/api/match/page", async (req, res) => {
 
     const pendingJobs = pageJobs.filter((j: any) => j.status === "pending").slice(0, 4);
 
-    // Progressive on-demand hydration: if no matches are scored yet for this user in v2 feed,
-    // score the top micro-batch (up to 4 jobs) on demand so the user sees immediate results.
-    if (finalPageJobs.length === 0 && (!feedOptions.filter || feedOptions.filter === "new")) {
-      const rawCandidates = await getPaginatedMatchesForUser(userId, 0, 4);
-      const pendingFromPool = rawCandidates.filter((j: any) => j.status === "pending").slice(0, 4);
-      if (pendingFromPool.length > 0) {
-        pendingJobs.push(...pendingFromPool);
+    // Progressive on-demand hydration: if the feed has capacity for more matches in this page/tab,
+    // fetch unscored candidate matches from the pool and score a micro-batch (up to 4 jobs) on demand.
+    if (pendingJobs.length === 0 && finalPageJobs.length < limit && (!feedOptions.filter || feedOptions.filter === "new")) {
+      const neededCount = Math.min(4, limit - finalPageJobs.length);
+      const pendingCandidates = await getPendingMatchesForUser(userId, neededCount);
+      if (pendingCandidates.length > 0) {
+        pendingJobs.push(...pendingCandidates);
       }
     }
 
@@ -1144,6 +987,70 @@ app.post("/api/match/page", async (req, res) => {
     console.error("Match page error:", error);
     await captureTelemetryError("match_feed_load", error, { page: Number.isInteger(page) ? Number(page) : 0 });
     res.status(500).json({ error: "We couldn't load your matches. Please try again." });
+  }
+});
+
+// Micro-batch progressive hydration endpoint: scores unscored pool candidates in the background
+app.post("/api/match/hydrate", async (req, res) => {
+  const { userId, limit = 4 } = req.body;
+  if (!userId) {
+    res.status(400).json({ error: "Missing required field: userId" });
+    return;
+  }
+  if (!(await userOwnsAccount(req, userId))) {
+    res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
+    return;
+  }
+  try {
+    const [cvText, profile] = await Promise.all([
+      getActiveCvText(userId),
+      getUserProfileRow(userId),
+    ]);
+    if (!cvText || !profile) {
+      res.status(409).json({ error: "missing_cv_or_profile", message: "Active CV or profile not found." });
+      return;
+    }
+
+    const batchLimit = Math.min(Math.max(1, Number(limit) || 4), 10);
+    const pending = await getPendingMatchesForUser(userId, batchLimit);
+    if (pending.length === 0) {
+      const remainingPending = await getPendingMatchCountForUser(userId);
+      res.json({ ok: true, scoredCount: 0, remainingPending });
+      return;
+    }
+
+    const postingsToFetch = pending.map((j: any) => ({
+      source: j.source,
+      sourceJobId: j.sourceJobId,
+      company: j.company,
+      title: j.title,
+      location: j.location,
+      applyUrl: j.applyUrl,
+      descriptionText: j.descriptionText || "",
+    }));
+    const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
+    if (linkedinNeedingFetch.length > 0) {
+      await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, linkedinNeedingFetch.length);
+    }
+
+    const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
+    const scoredByPosting = scoresByPosting(scoredResults);
+
+    let scoredCount = 0;
+    for (let i = 0; i < pending.length; i++) {
+      const job = pending[i];
+      const scored = scoredByPosting.get(postingsToFetch[i]);
+      if (!scored) continue;
+      const description = postingsToFetch[i].descriptionText;
+      await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
+      scoredCount++;
+    }
+
+    const remainingPending = await getPendingMatchCountForUser(userId);
+    res.json({ ok: true, scoredCount, remainingPending });
+  } catch (error) {
+    console.error("Hydration error:", error);
+    res.status(500).json({ error: "Failed to hydrate pending matches" });
   }
 });
 

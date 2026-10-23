@@ -61,7 +61,7 @@ export function resetDisabledProviders(): void {
 }
 
 const groqKeyCooldowns = new Map<string, number>();
-let groqKeyIndex = 0;
+let groqKeyIndex = Math.floor(Math.random() * 100);
 
 export function getAvailableGroqKeys(): string[] {
   const raw = process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || "";
@@ -174,7 +174,6 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
           ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
         }),
       });
-      clearTimeout(timer);
 
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -183,6 +182,9 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
           const cooldown = retryAfter ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
           groqKeyCooldowns.set(apiKey, Date.now() + cooldown);
           console.warn(`[ai] Groq key (${apiKey.slice(0, 8)}...) hit rate limit; cooling down for ${Math.round(cooldown / 1000)}s`);
+        } else if (res.status === 401 || res.status === 402 || res.status === 403) {
+          groqKeyCooldowns.set(apiKey, Date.now() + CIRCUIT_COOLDOWN_MS);
+          console.warn(`[ai] Groq key (${apiKey.slice(0, 8)}...) rejected with HTTP ${res.status}; cooling down for 1h`);
         }
         lastResult = {
           offline: true,
@@ -191,8 +193,8 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
           retryAfterMs: retryAfter,
           warning: `Groq HTTP ${res.status}: ${body.slice(0, 300)}`,
         };
-        // If it was 429 and we have other keys, try the next key!
-        if (res.status === 429 && keys.length > 1) {
+        // If there are other keys configured, continue to try them!
+        if (keys.length > 1) {
           continue;
         }
         return lastResult;
@@ -201,10 +203,11 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
       const data = await res.json();
       return { offline: false, content: data.choices[0].message.content };
     } catch {
-      clearTimeout(timer);
       lastResult = { offline: true, content: "", warning: "Groq request failed or timed out" };
       if (keys.length > 1) continue;
       return lastResult;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

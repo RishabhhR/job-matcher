@@ -41,6 +41,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 
 ## Resolved / Log
 
+### [TASK-092] status:done from:antigravity to:antigravity opened:2026-10-23T23:20Z
+Address 5 code review gaps: decouple /api/match from inline scrapes, propagate AbortSignal with finally cleanup, enforce 30d freshness & domain role matching, progressive pending queue hydration, multi-key Groq rotation
+
+**Done Note (2026-10-23T23:21Z):** Resolved all 5 scaling & performance pipeline review gaps: (1) Decoupled /api/match to complete immediately (<100ms) from shared pool; (2) Added AbortSignal propagation and timer cleanup in finally across all scrapers (Greenhouse/Lever/Ashby/LinkedIn); (3) Enforced 30-day freshness SQL cutoff and domain-aware isRoleTitleMatch to prevent unrelated job contamination; (4) Added progressive pending queue hydration in /api/match/page advancing through getPendingMatchesForUser plus dedicated /api/match/hydrate endpoint; (5) Multi-key Groq rotation with random cold-start offset, per-key cooldowns on 401/402/403/429, and timer cleanup in finally. 57/57 tests pass.
+
 ### [TASK-091] status:done from:claude to:claude opened:2026-10-23T23:01Z
 Vercel Speed Insights (claude, 2026-10-24, user request). App is plain HTML/vanilla JS (no Next.js, no bundler), so per Vercel's HTML quickstart no npm package is needed: add the window.si queue stub + <script defer src="/_vercel/speed-insights/script.js"> to every HTML entry point - public/v2/index.html (/, /v2/, /join), public/index.html (/classic), and the server-rendered /jobs pages (src/publicJobs.ts). Project already has speedInsights enabled (id present, no data yet); the script path returns 200 on prod. Strip query strings in speedInsightsBeforeSend (invite codes, filters).
 

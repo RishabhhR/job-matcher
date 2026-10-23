@@ -25,14 +25,14 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-async function fetchJson(url: string): Promise<any | null> {
-  const res = await fetch(url, { headers: { "User-Agent": "job-matcher-phase1/0.1" } });
+async function fetchJson(url: string, signal?: AbortSignal): Promise<any | null> {
+  const res = await fetch(url, { headers: { "User-Agent": "job-matcher-phase1/0.1" }, signal });
   if (!res.ok) throw new Error(`Board returned HTTP ${res.status}`);
   return await res.json();
 }
 
-export async function fetchGreenhouse(company: string): Promise<RawPosting[]> {
-  const data = await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${company}/jobs?content=true`);
+export async function fetchGreenhouse(company: string, signal?: AbortSignal): Promise<RawPosting[]> {
+  const data = await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${company}/jobs?content=true`, signal);
   if (!data?.jobs) return [];
   return data.jobs.map((j: any) => ({
     source: "greenhouse" as const,
@@ -46,8 +46,8 @@ export async function fetchGreenhouse(company: string): Promise<RawPosting[]> {
   }));
 }
 
-export async function fetchLever(company: string): Promise<RawPosting[]> {
-  const data = await fetchJson(`https://api.lever.co/v0/postings/${company}?mode=json`);
+export async function fetchLever(company: string, signal?: AbortSignal): Promise<RawPosting[]> {
+  const data = await fetchJson(`https://api.lever.co/v0/postings/${company}?mode=json`, signal);
   if (!Array.isArray(data)) return [];
   return data.map((j: any) => ({
     source: "lever" as const,
@@ -61,8 +61,8 @@ export async function fetchLever(company: string): Promise<RawPosting[]> {
   }));
 }
 
-export async function fetchAshby(company: string): Promise<RawPosting[]> {
-  const data = await fetchJson(`https://api.ashbyhq.com/posting-api/job-board/${company}`);
+export async function fetchAshby(company: string, signal?: AbortSignal): Promise<RawPosting[]> {
+  const data = await fetchJson(`https://api.ashbyhq.com/posting-api/job-board/${company}`, signal);
   if (!data?.jobs) return [];
   return data.jobs.map((j: any) => ({
     source: "ashby" as const,

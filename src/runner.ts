@@ -61,9 +61,16 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   // `sourceHealth` records raw count per source (0 = returned nothing, e.g. a silent
   // block) or an error, so "no new jobs" can be distinguished from "source is down".
   const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
-  async function safeScrape(source: string, fn: () => Promise<RawPosting[]>): Promise<RawPosting[]> {
+  async function safeScrape(source: string, fn: (signal?: AbortSignal) => Promise<RawPosting[]>, timeoutMs = 15000): Promise<RawPosting[]> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const postings = await fn();
+      const postings = await Promise.race([
+        fn(controller.signal),
+        new Promise<RawPosting[]>((_, reject) => {
+          controller.signal.addEventListener("abort", () => reject(new Error(`Timed out after ${timeoutMs}ms`)));
+        }),
+      ]);
       sourceHealth[source] = { count: postings.length, ok: true };
       return postings;
     } catch (err) {
@@ -72,6 +79,8 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
       void captureTelemetryError("scrape_source", err, { source });
       onProgress("source_error", `Source "${source}" failed and was skipped (other sources continue): ${message}`);
       return [];
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -82,8 +91,8 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   ] as const;
   const boardResults = await Promise.all(boardSources.map(async ({ source, companies: boards, fetch }) => {
     onProgress(`scraping_${source}`, `Scraping ${source} boards for ${boards.length} companies...`);
-    const raw = await safeScrape(source, async () => {
-      const settled = await Promise.allSettled(boards.map((company) => fetch(company)));
+    const raw = await safeScrape(source, async (signal) => {
+      const settled = await Promise.allSettled(boards.map((company) => fetch(company, signal)));
       const failed = settled.filter((result) => result.status === "rejected").length;
       if (failed > 0) onProgress("source_warning", `${source}: ${failed}/${boards.length} company boards failed; successful boards are retained.`);
       if (boards.length > 0 && failed === boards.length) {
@@ -104,11 +113,12 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const linkedinMaxResults = linkedin?.maxResults || 25;
 
   onProgress("scraping_linkedin", `Scraping LinkedIn for "${linkedinKeywords}" in ${linkedinLocation} (max ${linkedinMaxResults} results)...`);
-  const linkedinPostingsRaw = await safeScrape("linkedin", () => fetchLinkedInPublic({
+  const linkedinPostingsRaw = await safeScrape("linkedin", (signal) => fetchLinkedInPublic({
     keywords: linkedinKeywords,
     location: linkedinLocation,
     maxResults: linkedinMaxResults,
     fetchDescriptions: false,
+    signal,
   }));
   // The location string above is only a loose search hint to LinkedIn's own guest
   // endpoint - it doesn't reliably restrict results, so apply the same explicit
