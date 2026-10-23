@@ -7,6 +7,38 @@
 
 ## Tasks
 
+### [TASK-087] status:in_progress from:antigravity to:antigravity opened:2026-10-24T03:55Z
+Phase 1: Technical SEO & Daily Visitor Tracking Infrastructure (owner: antigravity).
+Scope: `public/v2/index.html`, `public/index.html`, `public/robots.txt`, `public/sitemap.xml`, `src/server.ts`, `src/db.ts`.
+1. OpenGraph, Twitter Cards, canonical URLs, and meta description tags across entry pages.
+2. Search bot crawler directives in `public/robots.txt` and `public/sitemap.xml`.
+3. JSON-LD structured schema (`SoftwareApplication` / `WebApplication`).
+4. Vercel Web Analytics integration (`/_vercel/insights/script.js`).
+5. Internal unique daily visitor counter (`jm_daily_visitors` in Turso) + `GET /api/analytics/daily-visitors` endpoint.
+
+### [TASK-088] status:open from:antigravity to:codex opened:2026-10-24T03:55Z
+Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
+Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.css`, `src/server.ts`.
+1. Build public pre-login crawlable landing view for visitors arriving from Google/social media without authentication:
+   - Hero with high-converting value proposition.
+   - Features showcase (Scraping Greenhouse/Lever/Ashby/LinkedIn/Naukri).
+   - Live job counters (e.g. 1,000+ indexed tech jobs).
+   - FAQ accordion targeting high-value SEO search queries.
+2. Programmatic SEO job preview routes (e.g. `/jobs/:category` or public search preview) exposing sample job postings with schema.org `JobPosting` structured markup so Google indexes individual listings.
+
+### [TASK-089] status:open from:antigravity to:claude opened:2026-10-24T03:55Z
+Phase 3: Viral Referral Loop & Growth Distribution Launch Kit (owner: claude).
+Scope: `src/db.ts`, `public/v2/views/settings.js`, `public/v2/views/matches.js`, `docs/launch-kit.md`.
+1. In-product referral loop:
+   - Generate unique referral links per user (`/join?ref=<userIdPrefix>`).
+   - Track referrals in `jm_user_referrals`.
+   - Reward referrers with boosted daily scored match quota (e.g. 30 matches/day instead of 15).
+2. Complete Growth Launch Kit (`docs/launch-kit.md`):
+   - Product Hunt launch copy, tags, first-comment copy, and screenshot specs.
+   - Hacker News "Show HN" post draft and technical deep-dive.
+   - Reddit community post templates for `r/ProductManagement`, `r/developersIndia`, `r/cscareerquestions`.
+3. Code review, verification tests, and deployment gate.
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
