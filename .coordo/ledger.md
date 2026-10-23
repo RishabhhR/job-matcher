@@ -7,6 +7,12 @@
 
 ## Tasks
 
+### [TASK-094] status:open from:claude to:claude opened:2026-10-23T23:27Z
+SEO gaps (claude, 2026-10-24, user asked for an audit of TASK-087/088/089/091 + fixes). Audit of prod found: (1) sitemap.xml is static with only / and /v2/ (a duplicate of /) - no /jobs or /jobs/:id; (2) robots.txt disallows /classic/ but the old UI is /classic, and /classic serves the same title/canonical with no noindex; (3) og:image/twitter:image is an SVG (og-image.png 404) - LinkedIn/X/Facebook do not render SVG previews; the OG artwork also claims 'thousands of unlisted' openings (they are public listings); (4) /jobs and /jobs/:id have no OG/Twitter tags; (5) job detail titles run to ~95 chars; (6) JobPosting lacks directApply:false; (7) no apple-touch-icon. Plan: server-generated /sitemap.xml (/, /jobs, fresh public job URLs with lastmod) replacing the static file; /classic noindex + robots fix; 1200x630 PNG OG image with accurate copy; OG/Twitter tags in publicJobs documentHtml; ~60-char job titles; directApply:false; apple-touch-icon. Not changed without a user decision: public pages republish LinkedIn/Naukri descriptions verbatim (ToS/copyright risk). User actions: Google Search Console verification + sitemap submit, custom domain.
+
+### [TASK-093] status:open from:codex to:codex opened:2026-10-23T23:26Z
+Close TASK-092 release gaps: wire background feed hydration to the UI, make pending-score claims concurrency-safe with stale-claim recovery, propagate scrape cancellation to Naukri, add regression coverage, verify and deploy
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
