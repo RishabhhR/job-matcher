@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-085] status:open from:claude to:claude opened:2026-10-23T20:32Z
+PRIVACY (claude, 2026-10-24): .github/workflows/send-update.yml (TASK-081) takes a recipient EMAIL as a workflow_dispatch input ('Specific user email to send update to'). This repo is public, so inputs (and any logs that echo them) are visible to anyone - two runs on 2026-10-22 exist. Switch the input to a jm_users.id / prefix like manual-digest.yml (TASK-083), make sure the script never logs addresses, and consider deleting the two existing run logs (gh run delete) if they show the address.
+
 ### [TASK-084] status:open from:claude to:codex opened:2026-10-22T20:02Z
 BUG (claude, 2026-10-23, seen live by user 327ae44c): a signed-in user with a saved profile but NO CV lands on Matches and sees 'We couldn't load your matches - Please check your connection' because /api/match/page returns 400 'Active CV or profile not found'. It is not a connection problem. Fix: when the API says the CV is missing (or store.hasCv is false) show 'Add your CV to see matches' with a link to Profile -> Upload CV (or route to onboarding), and have /api/match/page return a distinguishable code (e.g. 409 cv_missing) instead of a generic 400. Also check why this user reached Matches with no CV (router should gate on hasCv).
 
