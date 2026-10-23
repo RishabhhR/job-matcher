@@ -152,7 +152,8 @@ export function extractValidScoreItems(
 export async function scoreBatch(
   cvText: string,
   profile: Profile,
-  postings: RawPosting[]
+  postings: RawPosting[],
+  providerTimeoutMs?: number
 ): Promise<{ results: LLMScoreItem[]; provider: string; warning?: string }> {
   if (postings.length === 0) {
     return { results: [], provider: "none" };
@@ -200,7 +201,7 @@ Respond ONLY with a JSON object: {"results": [{"job_index": number, "fit_score":
     { role: "user", content: user },
   ];
 
-  const { content, provider, warning } = await callLLM(messages);
+  const { content, provider, warning } = await callLLM(messages, { timeoutMs: providerTimeoutMs });
   const parsed = parseJSON<{ results: LLMScoreItem[] }>(content, { results: [] });
   const scoredMap = extractValidScoreItems(parsed.results, postings, yearsOfExperience);
 
@@ -220,15 +221,17 @@ export interface RetryOptions {
   retries?: number;
   baseBackoffMs?: number;
   maxBackoffMs?: number;
+  providerTimeoutMs?: number;
 }
 
-const FAST_RETRY: Required<RetryOptions> = { retries: 3, baseBackoffMs: 5000, maxBackoffMs: 20000 };
+type RetryDefaults = Required<Omit<RetryOptions, "providerTimeoutMs">>;
+const FAST_RETRY: RetryDefaults = { retries: 3, baseBackoffMs: 5000, maxBackoffMs: 20000 };
 // "Patient" mode is for the scheduled scrape-and-score cron, which has a whole hour
 // before the separate email-send cron fires - worth riding out rate limits with long
 // waits instead of giving up fast, since nothing is blocking on this in real time.
 // Hourly cron has multiple provider fallbacks and a per-process circuit breaker.
 // Keep only a small retry window for transient failures after that chain is exhausted.
-export const PATIENT_RETRY: Required<RetryOptions> = { retries: 2, baseBackoffMs: 10000, maxBackoffMs: 60000 };
+export const PATIENT_RETRY: RetryDefaults = { retries: 2, baseBackoffMs: 10000, maxBackoffMs: 60000 };
 
 async function scoreBatchWithRetry(
   cvText: string,
@@ -249,7 +252,7 @@ async function scoreBatchWithRetry(
   for (let attempt = 0; attempt <= retries && remainingIndices.length > 0; attempt++) {
     try {
       const subBatch = remainingIndices.map((i) => batch[i]);
-      const { results, provider, warning } = await scoreBatch(cvText, profile, subBatch);
+      const { results, provider, warning } = await scoreBatch(cvText, profile, subBatch, retryOptions.providerTimeoutMs);
       lastProvider = provider;
       if (warning) lastWarning = warning;
 

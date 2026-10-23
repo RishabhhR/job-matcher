@@ -218,10 +218,10 @@ test("getPendingMatchesForUser and getPendingMatchCountForUser manage pending qu
 
   const batch1 = await db.getPendingMatchesForUser(pendingUser, 1);
   assert.equal(batch1.length, 1);
-  assert.equal(batch1[0].status, "pending");
+  assert.equal(batch1[0].status, "scoring");
 
   // Score the first match
-  await db.updateMatchScore(pendingUser, batch1[0].posting_id, 85, "upgrade", "Strong fit");
+  await db.updateMatchScore(pendingUser, batch1[0].posting_id, 85, "upgrade", "Strong fit", undefined, batch1[0].claimToken);
 
   const countAfter1 = await db.getPendingMatchCountForUser(pendingUser);
   assert.equal(countAfter1, 1);
@@ -232,13 +232,48 @@ test("getPendingMatchesForUser and getPendingMatchCountForUser manage pending qu
   assert.notEqual(batch2[0].posting_id, batch1[0].posting_id);
 
   // Score the second match
-  await db.updateMatchScore(pendingUser, batch2[0].posting_id, 75, "lateral", "Good fit");
+  await db.updateMatchScore(pendingUser, batch2[0].posting_id, 75, "lateral", "Good fit", undefined, batch2[0].claimToken);
 
   const countAfter2 = await db.getPendingMatchCountForUser(pendingUser);
   assert.equal(countAfter2, 0);
 
   const batch3 = await db.getPendingMatchesForUser(pendingUser, 1);
   assert.equal(batch3.length, 0);
+});
+
+test("pending match scoring claims are exclusive and stale owners cannot release a newer lease", async () => {
+  const claimUser = await db.upsertUser("claimtest@example.com", "Claim User", "user_claim_1");
+  const postingId = await db.upsertJobPosting({
+    source: "greenhouse", sourceJobId: "claim-1", company: "Claim Co", title: "Product Manager",
+    location: "Remote", applyUrl: "https://example.com/claim", descriptionText: "desc", dedupHash: "claim/1",
+  });
+  await db.upsertUserMatch(claimUser, postingId, -1, "unknown", "Pending",);
+  await db.client.execute({
+    sql: "UPDATE jm_user_job_matches SET status = 'pending' WHERE user_id = ? AND job_posting_id = ?",
+    args: [claimUser, postingId],
+  });
+
+  const [first, second] = await Promise.all([
+    db.getPendingMatchesForUser(claimUser, 1),
+    db.getPendingMatchesForUser(claimUser, 1),
+  ]);
+  assert.equal(first.length + second.length, 1);
+  const firstClaim = first[0] || second[0];
+  assert.equal(firstClaim.status, "scoring");
+  assert.ok(firstClaim.claimToken);
+
+  await db.client.execute({
+    sql: "UPDATE jm_user_job_matches SET matched_at = datetime('now', '-6 minutes') WHERE id = ?",
+    args: [firstClaim.match_id],
+  });
+  const reclaimed = await db.getPendingMatchesForUser(claimUser, 1);
+  assert.equal(reclaimed.length, 1);
+  assert.notEqual(reclaimed[0].claimToken, firstClaim.claimToken);
+
+  await db.releasePendingMatchClaims(claimUser, [firstClaim.match_id], firstClaim.claimToken);
+  assert.equal((await db.getPendingMatchesForUser(claimUser, 1)).length, 0);
+  await db.releasePendingMatchClaims(claimUser, [reclaimed[0].match_id], reclaimed[0].claimToken);
+  assert.equal((await db.getPendingMatchesForUser(claimUser, 1)).length, 1);
 });
 
 

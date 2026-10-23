@@ -7,6 +7,7 @@ let context = null;
 let state = null;
 let requestId = 0;
 let slowLoadTimer = null;
+let hydrationRun = null;
 const PAGE_SIZE = 10;
 // "new" holds every match without a Save/Applied/Not relevant action, not just the ones
 // since the last digest, so it is labelled "To review" (TASK-059).
@@ -48,6 +49,7 @@ async function loadPage({ reset = false } = {}) {
     if (id !== requestId) return;
     state.results = reset ? (data.results || []) : [...state.results, ...(data.results || [])];
     state.total = Number(data.total || 0);
+    state.pendingCount = Number(data.pendingCount || 0);
     state.loading = false;
     void context.api.trackEvent("match_feed_load_success", {
       result_count: state.results.length,
@@ -69,6 +71,56 @@ async function loadPage({ reset = false } = {}) {
   draw();
   const visibleCount = shownResults().length;
   context.ui.announce(`${visibleCount} ${visibleCount === 1 ? "match" : "matches"} shown`);
+  if (state.pendingCount > 0 && (state.tab === "new" || state.tab === "all")) void hydrateVisiblePage();
+}
+
+async function hydrateVisiblePage() {
+  if (!state || hydrationRun || state.pendingCount < 1 || !["new", "all"].includes(state.tab)) return;
+  const userId = state.userId;
+  const filters = JSON.stringify(activeFilters());
+  const rootAtStart = rootNode;
+  const targetCount = state.page * PAGE_SIZE;
+  hydrationRun = (async () => {
+    state.hydrating = true;
+    state.hydrationError = false;
+    draw();
+    let passes = 0;
+    try {
+      while (passes < 3 && state && rootNode === rootAtStart && state.userId === userId && JSON.stringify(activeFilters()) === filters && state.pendingCount > 0 && state.results.length < targetCount) {
+        const result = await context.api.hydrateMatches(userId, 4);
+        passes += 1;
+        if (!state || rootNode !== rootAtStart || state.userId !== userId || JSON.stringify(activeFilters()) !== filters) return;
+        if (result.inProgress && !result.scoredCount) {
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          continue;
+        }
+        const data = await context.api.getMatches({ userId, page: 1, limit: targetCount, ...activeFilters() });
+        state.results = data.results || [];
+        state.total = Number(data.total || 0);
+        state.pendingCount = Number(data.pendingCount || result.remainingPending || 0);
+        draw();
+        if (!result.scoredCount && state.pendingCount > 0) break;
+      }
+    } catch (error) {
+      if (state && rootNode === rootAtStart && state.userId === userId && JSON.stringify(activeFilters()) === filters) {
+        state.hydrationError = true;
+        void context.api.trackEvent("match_hydration_error", {
+          status_code: Number(error?.status || 0),
+          error_type: error?.name || "Error",
+        });
+      }
+    } finally {
+      if (state && rootNode === rootAtStart && state.userId === userId) {
+        const filtersChanged = JSON.stringify(activeFilters()) !== filters;
+        state.hydrating = false;
+        draw();
+        if (filtersChanged && state.pendingCount > 0 && ["new", "all"].includes(state.tab)) {
+          setTimeout(() => { void hydrateVisiblePage(); }, 0);
+        }
+      }
+      hydrationRun = null;
+    }
+  })();
 }
 
 function shownResults() {
@@ -234,6 +286,8 @@ function draw() {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Complete your profile</h2><p class="text-2">Set up your target role and preferences so we know what jobs to match against.</p><div class="actions"><a class="btn btn-primary" href="#/profile">Edit Profile →</a></div></div>`;
   } else if (state.error) {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
+  } else if (!state.total && state.pendingCount > 0) {
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Preparing your matches</h2><p class="text-2">${state.hydrating ? "We’re scoring the next few jobs in the background." : "Your job pool is ready. Scores are being prepared in small batches."}</p>${state.hydrationError ? context.ui.html`<div class="actions"><button class="btn btn-primary hydrate-action" type="button">Try scoring again</button></div>` : ""}</div>`;
   } else if (!state.total && state.tab === "new" && (stats.totalScored || 0) > 0) {
     feedContent = context.ui.html`<div class="card empty-state caught-up"><h2 class="section-title">You’re all caught up</h2><p class="text-2">No new matches since your last digest. We’ll show new roles here after the next scan.</p></div>`;
   } else if (!state.total && state.tab === "saved") {
@@ -247,7 +301,7 @@ function draw() {
   } else if (!results.length) {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">No matches for this filter</h2><p class="text-2">Try a different title, company, or filter.</p></div>`;
   } else {
-    feedContent = context.ui.html`${results.map(cardMarkup)}${state.results.length < state.total ? context.ui.html`<button class="btn btn-ghost load-more" type="button" ${state.loading ? "disabled" : ""}>${state.loading ? "Loading…" : "Load more matches"}</button>` : ""}${state.loading ? context.ui.html`<div class="card skeleton match-skeleton" aria-label="Loading more matches"></div>` : ""}`;
+    feedContent = context.ui.html`${results.map(cardMarkup)}${state.results.length < state.total ? context.ui.html`<button class="btn btn-ghost load-more" type="button" ${state.loading ? "disabled" : ""}>${state.loading ? "Loading…" : "Load more matches"}</button>` : ""}${state.pendingCount > 0 ? context.ui.html`<div class="card empty-state"><p class="text-2">${state.hydrating ? "Scoring more jobs in the background…" : `${state.pendingCount} more jobs are waiting to be scored.`}</p>${!state.hydrating ? context.ui.html`<button class="btn btn-ghost hydrate-action" type="button">Score more matches</button>` : ""}${state.hydrationError ? context.ui.html`<button class="btn btn-ghost hydrate-action" type="button">Try again</button>` : ""}</div>` : ""}${state.loading ? context.ui.html`<div class="card skeleton match-skeleton" aria-label="Loading more matches"></div>` : ""}`;
   }
   const note = context.ui.html`<p class="score-note">Fit is estimated from your profile and the role; it is not a hiring probability.</p>`;
   rootNode.innerHTML = context.ui.html`<div class="page">${header}<div class="layout-rail matches-layout"><main class="matches-main">${filter}${note}<section class="match-list stack" aria-label="Job matches" data-analytics-section="match_feed">${feedContent}</section></main>${rail}</div></div>`;
@@ -264,6 +318,7 @@ function bindEvents() {
   }
   rootNode.querySelector(".retry-action")?.addEventListener("click", () => loadPage({ reset: true }));
   rootNode.querySelector(".load-more")?.addEventListener("click", () => { state.page += 1; loadPage(); });
+  rootNode.querySelectorAll(".hydrate-action").forEach((button) => button.addEventListener("click", () => { void hydrateVisiblePage(); }));
   rootNode.querySelectorAll(".match-card").forEach((card) => card.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => performAction(card, button));
   }));
@@ -325,7 +380,7 @@ export async function render(root, ctx) {
   rootNode = root;
   context = ctx;
   const initial = ctx.store.get();
-  state = { storeState: initial, userId: initial.userId, tab: "new", sort: "best", minScore: "", source: "", query: "", page: 1, results: [], total: 0, loading: true, slowLoading: false, error: "" };
+  state = { storeState: initial, userId: initial.userId, tab: "new", sort: "best", minScore: "", source: "", query: "", page: 1, results: [], total: 0, pendingCount: 0, hydrating: false, hydrationError: false, loading: true, slowLoading: false, error: "" };
   draw();
   unsubscribe = ctx.store.subscribe((next) => { state.storeState = next; draw(); });
   await loadPage({ reset: true });
@@ -337,6 +392,7 @@ export function unmount() {
   clearTimeout(slowLoadTimer);
   slowLoadTimer = null;
   requestId += 1;
+  hydrationRun = null;
   rootNode = null;
   context = null;
   state = null;

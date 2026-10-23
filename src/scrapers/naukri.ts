@@ -16,6 +16,8 @@ export interface NaukriSearchInput {
   ctcFilter?: string;
   jobTypeFilter?: "P" | "C" | "V" | "T" | "I";
   maxResultsPerQuery?: number;
+  /** Cancels browser work when the containing scrape exceeds its budget. */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_MAX_RESULTS = 15;
@@ -252,6 +254,7 @@ function browserUserAgent(version: string): string {
 }
 
 export async function fetchNaukri(input: NaukriSearchInput): Promise<RawPosting[]> {
+  if (input.signal?.aborted) throw new Error("Naukri scrape was cancelled before browser launch.");
   if (input.startUrls !== undefined && (!Array.isArray(input.startUrls) || input.startUrls.length > MAX_QUERIES)) {
     throw new Error(`Naukri accepts at most ${MAX_QUERIES} search URLs per run.`);
   }
@@ -270,6 +273,9 @@ export async function fetchNaukri(input: NaukriSearchInput): Promise<RawPosting[
   const seen = new Set<string>();
 
   const browser = await launchBrowser();
+  const closeOnAbort = () => { void browser.close().catch(() => undefined); };
+  input.signal?.addEventListener("abort", closeOnAbort, { once: true });
+  if (input.signal?.aborted) closeOnAbort();
   try {
     const context = await browser.newContext({
       locale: "en-IN",
@@ -302,7 +308,8 @@ export async function fetchNaukri(input: NaukriSearchInput): Promise<RawPosting[
     }
     await context.close();
   } finally {
-    await browser.close();
+    input.signal?.removeEventListener("abort", closeOnAbort);
+    await browser.close().catch(() => undefined);
   }
   return results;
 }

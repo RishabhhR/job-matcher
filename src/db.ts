@@ -78,6 +78,7 @@ const SCHEMA = [
     comp_fit_label TEXT NOT NULL,
     reasoning_text TEXT,
     matched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    score_claim_token TEXT,
     status TEXT NOT NULL DEFAULT 'new',
     UNIQUE(user_id, job_posting_id)
   )`,
@@ -163,6 +164,7 @@ export async function migrate() {
     // The user's own action on a match from the UI: 'saved' | 'applied' | 'dismissed'.
     // Separate from `status` for the same reason as emailed_at above.
     "ALTER TABLE jm_user_job_matches ADD COLUMN user_action TEXT",
+    "ALTER TABLE jm_user_job_matches ADD COLUMN score_claim_token TEXT",
     "ALTER TABLE jm_users ADD COLUMN clerk_id TEXT",
     "ALTER TABLE jm_users ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 9",
     "ALTER TABLE jm_user_profiles ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'",
@@ -919,26 +921,64 @@ export async function seedCandidateMatchesFromPool(
   return matchedPostings.length;
 }
 
+const MATCH_SCORE_LEASE_MINUTES = 5;
+
+/** Atomically leases pending rows so concurrent page loads cannot spend twice on the same jobs.
+ * A crashed function's lease becomes claimable again after five minutes. */
 export async function getPendingMatchesForUser(userId: string, limit = 4) {
+  const boundedLimit = Math.max(1, Math.min(10, Math.trunc(limit) || 4));
+  const claimToken = randomUUID();
+  const candidates = await client.execute({
+    sql: `SELECT m.id AS match_id
+          FROM jm_user_job_matches m
+          JOIN jm_job_postings jp ON jp.id = m.job_posting_id
+          WHERE m.user_id = ?
+            AND (m.status = 'pending' OR (m.status = 'scoring' AND m.matched_at < datetime('now', ?)))
+          ORDER BY COALESCE(jp.posted_at, jp.scraped_at) DESC, m.id ASC
+          LIMIT ?`,
+    args: [userId, `-${MATCH_SCORE_LEASE_MINUTES} minutes`, boundedLimit],
+  });
+  const ids: string[] = candidates.rows.map((row: any) => String(row.match_id));
+  if (!ids.length) return [];
+
+  const claimed = await client.batch(ids.map((id) => ({
+    sql: `UPDATE jm_user_job_matches
+          SET status = 'scoring', matched_at = datetime('now'), score_claim_token = ?
+          WHERE id = ? AND user_id = ?
+            AND (status = 'pending' OR (status = 'scoring' AND matched_at < datetime('now', ?)))`,
+    args: [claimToken, id, userId, `-${MATCH_SCORE_LEASE_MINUTES} minutes`],
+  })), "write");
+  const claimedIds = ids.filter((_, index) => claimed[index]?.rowsAffected > 0);
+  if (!claimedIds.length) return [];
+
+  const placeholders = claimedIds.map(() => "?").join(",");
   const result = await client.execute({
     sql: `SELECT jp.id as posting_id, jp.source, jp.source_job_id as sourceJobId, jp.company_name as company,
                  jp.title, jp.location, jp.description_text as descriptionText, jp.source_metadata as sourceMetadata,
                  jp.apply_url as applyUrl, jp.dedup_hash as dedupHash, jp.posted_at as postedAt, jp.scraped_at as scrapedAt,
-                 m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText, m.status,
+                 m.id as match_id, m.score_claim_token as claimToken, m.fit_score as fitScore, m.comp_fit_label as compFitLabel, m.reasoning_text as reasoningText, m.status,
                  m.user_action as userAction, m.matched_at as matchedAt
           FROM jm_user_job_matches m
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
-          WHERE m.user_id = ? AND m.status = 'pending'
-          ORDER BY COALESCE(jp.posted_at, jp.scraped_at) DESC
-          LIMIT ?`,
-    args: [userId, limit],
+          WHERE m.user_id = ? AND m.status = 'scoring' AND m.score_claim_token = ? AND m.id IN (${placeholders})`,
+    args: [userId, claimToken, ...claimedIds],
   });
   return result.rows as any[];
 }
 
+export async function releasePendingMatchClaims(userId: string, matchIds: string[], claimToken: string): Promise<void> {
+  if (!matchIds.length || !claimToken) return;
+  const placeholders = matchIds.map(() => "?").join(",");
+  await client.execute({
+    sql: `UPDATE jm_user_job_matches SET status = 'pending', score_claim_token = NULL
+          WHERE user_id = ? AND status = 'scoring' AND score_claim_token = ? AND id IN (${placeholders})`,
+    args: [userId, claimToken, ...matchIds],
+  });
+}
+
 export async function getPendingMatchCountForUser(userId: string): Promise<number> {
   const result = await client.execute({
-    sql: "SELECT COUNT(*) as count FROM jm_user_job_matches WHERE user_id = ? AND status = 'pending'",
+    sql: "SELECT COUNT(*) as count FROM jm_user_job_matches WHERE user_id = ? AND status IN ('pending', 'scoring')",
     args: [userId],
   });
   return Number(result.rows[0]?.count || 0);
@@ -1052,18 +1092,20 @@ export async function updateMatchScore(
   fitScore: number,
   compFitLabel: string,
   reasoningText: string,
-  descriptionText?: string
+  descriptionText?: string,
+  claimToken?: string
 ): Promise<void> {
+  const result = await client.execute({
+    sql: "UPDATE jm_user_job_matches SET fit_score = ?, comp_fit_label = ?, reasoning_text = ?, status = 'scored', matched_at = datetime('now'), score_claim_token = NULL WHERE user_id = ? AND job_posting_id = ? AND (? IS NULL OR score_claim_token = ?)",
+    args: [fitScore, compFitLabel, reasoningText, userId, postingId, claimToken ?? null, claimToken ?? null],
+  });
+  if (!result.rowsAffected) return;
   if (descriptionText !== undefined) {
     await client.execute({
       sql: "UPDATE jm_job_postings SET description_text = ? WHERE id = ?",
       args: [descriptionText, postingId],
     });
   }
-  await client.execute({
-    sql: "UPDATE jm_user_job_matches SET fit_score = ?, comp_fit_label = ?, reasoning_text = ?, status = 'scored', matched_at = datetime('now') WHERE user_id = ? AND job_posting_id = ?",
-    args: [fitScore, compFitLabel, reasoningText, userId, postingId],
-  });
 }
 
 export interface UserStats {

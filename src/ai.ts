@@ -124,7 +124,7 @@ interface GroqOptions {
   reasoningEffort?: "none" | "default" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
 
-async function callGroq(messages: Message[], model: string, timeoutMs = 60000, options: GroqOptions = {}): Promise<LLMResult> {
+async function callGroq(messages: Message[], model: string, timeoutMs = 60000, options: GroqOptions = {}, deadlineAt?: number): Promise<LLMResult> {
   const keys = getAvailableGroqKeys();
   if (!keys.length) return { offline: true, content: "" };
 
@@ -134,6 +134,8 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
 
   // Try available keys starting from the current rotating index
   for (let attempt = 0; attempt < keys.length; attempt++) {
+    const remainingBudget = deadlineAt === undefined ? timeoutMs : Math.min(timeoutMs, deadlineAt - Date.now());
+    if (remainingBudget <= 0) return { offline: true, content: "", warning: "LLM scoring time budget exhausted" };
     const keyIdx = (groqKeyIndex + attempt) % keys.length;
     const apiKey = keys[keyIdx];
     const cooledUntil = groqKeyCooldowns.get(apiKey) || 0;
@@ -150,7 +152,7 @@ async function callGroq(messages: Message[], model: string, timeoutMs = 60000, o
     groqKeyIndex = (keyIdx + 1) % keys.length;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), remainingBudget);
 
     try {
       const res = await fetch(GROQ_URL, {
@@ -416,11 +418,13 @@ async function callMistral(messages: Message[], model: string, timeoutMs = 60000
   }
 }
 
-export async function callLLM(messages: Message[]): Promise<{ content: string; provider: string; warning?: string }> {
+export async function callLLM(messages: Message[], options: { timeoutMs?: number } = {}): Promise<{ content: string; provider: string; warning?: string }> {
   // Fallback chain: Groq gpt-oss-20b → Groq gpt-oss-120b → Mistral (ministral 14B,
   // then 8B) → Groq qwen → Gemini → OpenRouter → Cerebras. Keep stale model names out of
   // this chain: a decommissioned Groq default silently pushes every batch to Gemini.
   let shortestRetryAfterMs: number | undefined;
+  const deadlineAt = options.timeoutMs ? Date.now() + options.timeoutMs : undefined;
+  const remainingTimeout = () => deadlineAt === undefined ? undefined : Math.max(1, deadlineAt - Date.now());
   const noteRetry = (result: LLMResult) => {
     if (result.retryAfterMs !== undefined && (shortestRetryAfterMs === undefined || result.retryAfterMs < shortestRetryAfterMs)) {
       shortestRetryAfterMs = result.retryAfterMs;
@@ -428,14 +432,14 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
   };
   const primaryModel = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
   const primaryKey = `groq:${primaryModel}`;
-  const groq = await callWithCircuit(primaryKey, () => callGroq(messages, primaryModel));
+  const groq = await callWithCircuit(primaryKey, () => callGroq(messages, primaryModel, remainingTimeout(), {}, deadlineAt));
   if (!groq.offline) return { content: groq.content, provider: "groq" };
   noteRetry(groq);
   if (groq.warning) console.warn(`[ai] groq (${primaryModel}): ${groq.warning}`);
 
   const groqFallbackModel = "openai/gpt-oss-120b";
   if (primaryModel !== groqFallbackModel) {
-    const groqSmall = await callWithCircuit(`groq:${groqFallbackModel}`, () => callGroq(messages, groqFallbackModel));
+    const groqSmall = await callWithCircuit(`groq:${groqFallbackModel}`, () => callGroq(messages, groqFallbackModel, remainingTimeout(), {}, deadlineAt));
     if (!groqSmall.offline) return { content: groqSmall.content, provider: "groq-gpt-oss-120b", warning: "Used Groq GPT-OSS fallback model" };
     noteRetry(groqSmall);
     if (groqSmall.warning) console.warn(`[ai] groq (${groqFallbackModel}): ${groqSmall.warning}`);
@@ -452,33 +456,38 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
     process.env.MISTRAL_FALLBACK_MODEL || "ministral-8b-2512",
   ];
   for (const model of [...new Set(mistralModels)]) {
-    const mistral = await callWithCircuit(`mistral:${model}`, () => callMistral(messages, model));
+    if (deadlineAt !== undefined && deadlineAt <= Date.now()) break;
+    const mistral = await callWithCircuit(`mistral:${model}`, () => callMistral(messages, model, remainingTimeout()));
     if (!mistral.offline) return { content: mistral.content, provider: `mistral-${model}`, warning: "Used Mistral fallback" };
     noteRetry(mistral);
     if (mistral.warning) console.warn(`[ai] mistral (${model}): ${mistral.warning}`);
   }
 
   const qwenModel = "qwen/qwen3.8-27b";
-  const qwen = await callWithCircuit(`groq:${qwenModel}`, () => callGroq(messages, qwenModel, 60000, {
+  const qwen = await callWithCircuit(`groq:${qwenModel}`, () => callGroq(messages, qwenModel, remainingTimeout(), {
     temperature: 0.6,
     maxCompletionTokens: 2048,
     topP: 0.95,
     reasoningEffort: "default",
-  }));
+  }, deadlineAt));
   if (!qwen.offline) return { content: qwen.content, provider: "groq-qwen3.8-27b", warning: "Used Groq Qwen 3.8 27B fallback model" };
   noteRetry(qwen);
   if (qwen.warning) console.warn(`[ai] groq (${qwenModel}): ${qwen.warning}`);
 
   const systemPrompt = messages.find((m) => m.role === "system")?.content || "";
   const userPrompt = messages.find((m) => m.role === "user")?.content || "";
-  const gemini = await callWithCircuit("gemini", () => callGemini(systemPrompt, userPrompt));
+  const gemini = deadlineAt !== undefined && deadlineAt <= Date.now()
+    ? { offline: true, content: "" }
+    : await callWithCircuit("gemini", () => callGemini(systemPrompt, userPrompt, remainingTimeout()));
   if (!gemini.offline) return { content: gemini.content, provider: "gemini", warning: "Used Gemini fallback" };
   noteRetry(gemini);
   if (gemini.warning) console.warn(`[ai] gemini: ${gemini.warning}`);
 
   // GitHub Models via Azure AI (free via GITHUB_TOKEN or GITHUB_MODELS_TOKEN)
   const ghModel = process.env.GITHUB_MODEL || "gpt-4o-mini";
-  const gh = await callWithCircuit(`github:${ghModel}`, () => callGitHubModels(messages, ghModel));
+  const gh = deadlineAt !== undefined && deadlineAt <= Date.now()
+    ? { offline: true, content: "" }
+    : await callWithCircuit(`github:${ghModel}`, () => callGitHubModels(messages, ghModel, remainingTimeout()));
   if (!gh.offline) return { content: gh.content, provider: `github-${ghModel}`, warning: "Used GitHub Models fallback" };
   noteRetry(gh);
   if (gh.warning) console.warn(`[ai] github (${ghModel}): ${gh.warning}`);
@@ -492,14 +501,17 @@ export async function callLLM(messages: Message[]): Promise<{ content: string; p
     "google/gemma-4-26b-a4b-it:free",
   ];
   for (const model of [...new Set(openRouterModels)]) {
-    const or = await callWithCircuit(`openrouter:${model}`, () => callOpenRouter(messages, model));
+    if (deadlineAt !== undefined && deadlineAt <= Date.now()) break;
+    const or = await callWithCircuit(`openrouter:${model}`, () => callOpenRouter(messages, model, remainingTimeout()));
     if (!or.offline) return { content: or.content, provider: `openrouter-${model}`, warning: "Used OpenRouter fallback" };
     noteRetry(or);
     if (or.warning) console.warn(`[ai] openrouter (${model}): ${or.warning}`);
   }
 
   // Cerebras' free tier now needs a card (HTTP 402); kept last so a paid key still works.
-  const cerebras = await callWithCircuit("cerebras", () => callCerebras(messages));
+  const cerebras = deadlineAt !== undefined && deadlineAt <= Date.now()
+    ? { offline: true, content: "" }
+    : await callWithCircuit("cerebras", () => callCerebras(messages, remainingTimeout()));
   if (!cerebras.offline) return { content: cerebras.content, provider: "cerebras", warning: "Used Cerebras fallback" };
   noteRetry(cerebras);
   if (cerebras.warning) console.warn(`[ai] cerebras: ${cerebras.warning}`);

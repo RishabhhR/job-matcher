@@ -16,7 +16,6 @@ import {
   upsertUserProfile,
   upsertCv,
   deletePendingMatches,
-  bulkInsertPostingsAndPendingMatches,
   getPaginatedMatchesForUser,
   getTotalMatchCountForUser,
   updateUserDigestSettings,
@@ -34,22 +33,19 @@ import {
   getReferralSummary,
   claimReferral,
   saveUserProfileData,
-  upsertScrapeSourceStatuses,
   recordDailyVisit,
   getDailyVisitorStats,
   seedCandidateMatchesFromPool,
   getPendingMatchesForUser,
   getPendingMatchCountForUser,
+  releasePendingMatchClaims,
   type MatchFeedOptions,
   type MatchUserAction,
 } from "./db.js";
-import { fetchAshby, fetchGreenhouse, fetchLever } from "./scrapers.js";
-import { fetchLinkedInPublic, fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
-import { fetchNaukri } from "./scrapers/naukri.js";
-import { dedupePostings } from "./normalize.js";
-import { keywordPrefilter, scoreAll, type ScoredMatch } from "./match.js";
+import { fetchLinkedInDescriptions } from "./scrapers/linkedin.js";
+import { scoreAll, type ScoredMatch } from "./match.js";
 import { nextDigestAt } from "./digestSchedule.js";
-import { locationPatterns, primaryPlace, splitPlaces } from "./location.js";
+import { locationPatterns } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
 import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
@@ -823,29 +819,6 @@ app.post("/api/match", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  const sourceHealth: Record<string, { count: number; ok: boolean; error?: string }> = {};
-  async function safeScrape<T>(source: string, fn: (signal: AbortSignal) => Promise<T[]>, timeoutMs = 15000): Promise<T[]> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const rows = await Promise.race([
-        fn(controller.signal),
-        new Promise<T[]>((_, reject) => {
-          controller.signal.addEventListener("abort", () => reject(new Error(`Timed out after ${timeoutMs}ms`)));
-        }),
-      ]);
-      sourceHealth[source] = { count: rows.length, ok: true };
-      return rows;
-    } catch (error) {
-      const message = (error as Error).message || String(error);
-      sourceHealth[source] = { count: 0, ok: false, error: message };
-      sendEvent("source_error", { source, message: `Source failed and was skipped: ${message}` });
-      return [];
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   try {
     const userEmail = identity?.email || "anonymous@jobmatcher.dev";
     const userName = identity?.name || "Anonymous User";
@@ -861,12 +834,10 @@ app.post("/api/match", async (req, res) => {
       await updateUserDigestSettings(userId, digestEnabled, Number(digestHour));
     }
 
-    // Filter ATS by location
-    const patterns = locationPatterns(profile);
-
     // TASK-090: Seed candidate matches immediately from central indexed postings pool
-    sendEvent("progress", { status: "seeding", message: "Matching against 2,000+ indexed job openings..." });
-    const seededCount = await seedCandidateMatchesFromPool(userId, profile.targetDesignation, patterns, 60);
+    sendEvent("progress", { status: "seeding", message: "Matching against recently indexed job openings..." });
+    const seededCount = await seedCandidateMatchesFromPool(userId, profile.targetDesignation, locationPatterns(profile), 60);
+    sendEvent("progress", { status: "seeding_complete", message: `Added ${seededCount} fresh candidates to your match queue.` });
     const totalMatches = await getTotalMatchCountForUser(userId);
     sendEvent("progress", { status: "complete", message: `Match pool ready with ${totalMatches} postings.` });
 
@@ -882,7 +853,8 @@ app.post("/api/match", async (req, res) => {
   }
 });
 
-// Fetch and score a specific page of matches (dynamic/lazy descriptions & scores)
+// Fetch a page of already-scored matches quickly. Pending candidates are hydrated
+// separately so feed rendering does not wait on external boards or an LLM.
 app.post("/api/match/page", async (req, res) => {
   const { userId, page, limit = 10 } = req.body;
   // Optional v2 feed fields (filter/sort/minScore/source); omitted = legacy behaviour.
@@ -906,13 +878,14 @@ app.post("/api/match/page", async (req, res) => {
 
   try {
     const offset = (page - 1) * limit;
-    // Independent reads in one round trip (TASK-066). The v2 feed never returns
-    // pending rows, so for it this is the whole request - no scoring, no re-query.
-    const [cvText, profile, pageJobs, firstTotal] = await Promise.all([
+    // Independent reads in one round trip (TASK-066). Pending rows are counted
+    // separately and never scored in this user-facing read path.
+    const [cvText, profile, pageJobs, firstTotal, pendingCount] = await Promise.all([
       getActiveCvText(userId),
       getUserProfileRow(userId),
       getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
       getTotalMatchCountForUser(userId, feedOptions),
+      getPendingMatchCountForUser(userId),
     ]);
 
     if (!cvText) {
@@ -924,55 +897,7 @@ app.post("/api/match/page", async (req, res) => {
       return;
     }
 
-    let finalPageJobs = pageJobs;
-    let total = firstTotal;
-
-    const pendingJobs = pageJobs.filter((j: any) => j.status === "pending").slice(0, 4);
-
-    // Progressive on-demand hydration: if the feed has capacity for more matches in this page/tab,
-    // fetch unscored candidate matches from the pool and score a micro-batch (up to 4 jobs) on demand.
-    if (pendingJobs.length === 0 && finalPageJobs.length < limit && (!feedOptions.filter || feedOptions.filter === "new")) {
-      const neededCount = Math.min(4, limit - finalPageJobs.length);
-      const pendingCandidates = await getPendingMatchesForUser(userId, neededCount);
-      if (pendingCandidates.length > 0) {
-        pendingJobs.push(...pendingCandidates);
-      }
-    }
-
-    if (pendingJobs.length > 0) {
-      // ATS postings already have full descriptions from the original scrape;
-      // only LinkedIn postings need descriptions fetched dynamically.
-      const postingsToFetch = pendingJobs.map((j: any) => ({
-        source: j.source,
-        sourceJobId: j.sourceJobId,
-        company: j.company,
-        title: j.title,
-        location: j.location,
-        applyUrl: j.applyUrl,
-        descriptionText: j.descriptionText || "",
-      }));
-      const linkedinNeedingFetch = postingsToFetch.filter((p: any) => p.source === "linkedin" && !p.descriptionText);
-
-      if (linkedinNeedingFetch.length > 0) {
-        await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, linkedinNeedingFetch.length);
-      }
-      const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
-      const scoredByPosting = scoresByPosting(scoredResults);
-
-      for (let i = 0; i < pendingJobs.length; i++) {
-        const job = pendingJobs[i];
-        const scored = scoredByPosting.get(postingsToFetch[i]);
-        if (!scored) continue; // batch failed: stays pending, rescored on next load
-        const description = postingsToFetch[i].descriptionText;
-        await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
-      }
-
-      [finalPageJobs, total] = await Promise.all([
-        getPaginatedMatchesForUser(userId, offset, limit, feedOptions),
-        getTotalMatchCountForUser(userId, feedOptions),
-      ]);
-    }
-    const results = finalPageJobs.map((j: any) => ({
+    const results = pageJobs.map((j: any) => ({
       posting: {
         id: j.posting_id,
         source: j.source,
@@ -995,8 +920,8 @@ app.post("/api/match/page", async (req, res) => {
       reasoningText: j.reasoningText,
     }));
 
-    res.json({ success: true, results, total, page, limit });
-    void captureTelemetryEvent("match_feed_loaded", { result_count: results.length, total_count: total });
+    res.json({ success: true, results, total: firstTotal, page, limit, pendingCount });
+    void captureTelemetryEvent("match_feed_loaded", { result_count: results.length, total_count: firstTotal });
   } catch (error) {
     console.error("Match page error:", error);
     await captureTelemetryError("match_feed_load", error, { page: Number.isInteger(page) ? Number(page) : 0 });
@@ -1004,7 +929,7 @@ app.post("/api/match/page", async (req, res) => {
   }
 });
 
-// Micro-batch progressive hydration endpoint: scores unscored pool candidates in the background
+// Micro-batch progressive hydration endpoint. The client calls it without blocking feed rendering.
 app.post("/api/match/hydrate", async (req, res) => {
   const { userId, limit = 4 } = req.body;
   if (!userId) {
@@ -1015,6 +940,8 @@ app.post("/api/match/hydrate", async (req, res) => {
     res.status(401).json({ error: "Unauthorized: session token missing, invalid, or doesn't own this account" });
     return;
   }
+  let claimedIds: string[] = [];
+  let claimToken = "";
   try {
     const [cvText, profile] = await Promise.all([
       getActiveCvText(userId),
@@ -1025,11 +952,13 @@ app.post("/api/match/hydrate", async (req, res) => {
       return;
     }
 
-    const batchLimit = Math.min(Math.max(1, Number(limit) || 4), 10);
+    const batchLimit = Math.min(Math.max(1, Number(limit) || 4), 4);
     const pending = await getPendingMatchesForUser(userId, batchLimit);
+    claimedIds = pending.map((j: any) => String(j.match_id));
+    claimToken = String(pending[0]?.claimToken || "");
     if (pending.length === 0) {
       const remainingPending = await getPendingMatchCountForUser(userId);
-      res.json({ ok: true, scoredCount: 0, remainingPending });
+      res.json({ ok: true, scoredCount: 0, remainingPending, inProgress: remainingPending > 0 });
       return;
     }
 
@@ -1047,7 +976,10 @@ app.post("/api/match/hydrate", async (req, res) => {
       await fetchLinkedInDescriptions(linkedinNeedingFetch, 0, linkedinNeedingFetch.length);
     }
 
-    const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length);
+    const { results: scoredResults } = await scoreAll(cvText, profile as any, postingsToFetch, postingsToFetch.length, {
+      retries: 0,
+      providerTimeoutMs: 8000,
+    });
     const scoredByPosting = scoresByPosting(scoredResults);
 
     let scoredCount = 0;
@@ -1056,15 +988,19 @@ app.post("/api/match/hydrate", async (req, res) => {
       const scored = scoredByPosting.get(postingsToFetch[i]);
       if (!scored) continue;
       const description = postingsToFetch[i].descriptionText;
-      await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description);
+      await updateMatchScore(userId, job.posting_id, scored.fitScore, scored.compFitLabel, scored.reasoningText, description, claimToken);
       scoredCount++;
     }
 
     const remainingPending = await getPendingMatchCountForUser(userId);
-    res.json({ ok: true, scoredCount, remainingPending });
+    res.json({ ok: true, scoredCount, remainingPending, inProgress: false });
   } catch (error) {
     console.error("Hydration error:", error);
     res.status(500).json({ error: "Failed to hydrate pending matches" });
+  } finally {
+    await releasePendingMatchClaims(userId, claimedIds, claimToken).catch((error) => {
+      void captureTelemetryError("release_match_score_claims", error);
+    });
   }
 });
 

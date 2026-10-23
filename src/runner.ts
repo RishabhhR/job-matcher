@@ -132,7 +132,7 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     maxResultsPerQuery: 15,
   };
   onProgress("scraping_naukri", `Scraping Naukri for "${naukriInput.keyword || "search URL"}" (max ${naukriInput.maxResultsPerQuery || 15} results)...`);
-  const naukriRaw = await safeScrape("naukri", () => fetchNaukri(naukriInput));
+  const naukriRaw = await safeScrape("naukri", (signal) => fetchNaukri({ ...naukriInput, signal }));
   const naukriPostings = filterByLocation(naukriRaw, profile);
   onProgress("scraping_naukri_complete", `Fetched ${naukriRaw.length} Naukri postings, ${naukriPostings.length} matched ${locationLabel} location filter.`);
 

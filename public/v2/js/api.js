@@ -64,6 +64,10 @@ export const getStatus = (userId) => get(`/api/status?userId=${encodeURIComponen
 export const getMatches = ({ userId, page = 1, limit = 10, filter = "new", sort = "best", minScore, source }) =>
   post("/api/match/page", { userId, page, limit, filter, sort, minScore, source });
 
+/** Score a small background batch of pending candidates without blocking feed reads. */
+export const hydrateMatches = (userId, limit = 4) =>
+  post("/api/match/hydrate", { userId, limit }, { timeoutMs: 20000 });
+
 /** Send a privacy-filtered product event; telemetry must never affect the user flow. */
 export function trackEvent(event, properties = {}) {
   return post("/api/events", { event, properties }).catch(() => null);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   parseJSON,
+  callLLM,
   callWithCircuit,
   resetDisabledProviders,
   getDisabledProviders,
@@ -189,6 +190,36 @@ test("multi-key Groq configuration parses comma-separated keys and handles coold
     else delete process.env.GROQ_API_KEYS;
     if (originalKey !== undefined) process.env.GROQ_API_KEY = originalKey;
     else delete process.env.GROQ_API_KEY;
+  }
+});
+
+test("interactive LLM timeout is a total budget across Groq keys and provider fallbacks", async () => {
+  const envKeys = ["GROQ_API_KEYS", "GROQ_API_KEY", "GROQ_MODEL", "MISTRAL_API_KEY", "GEMINI_API_KEY", "GITHUB_MODELS_TOKEN", "GITHUB_TOKEN", "OPENROUTER_API_KEY", "CEREBRAS_API_KEY"];
+  const originalEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  process.env.GROQ_API_KEYS = "gsk_timeout1,gsk_timeout2";
+  for (const key of envKeys.filter((key) => key !== "GROQ_API_KEYS")) delete process.env[key];
+  globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
+    calls++;
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (signal?.aborted) reject(new Error("aborted"));
+      else signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(() => callLLM([{ role: "user", content: "score" }], { timeoutMs: 30 }), /All LLM providers/);
+    assert.equal(calls, 1, "the expired request budget must prevent trying another Groq key or fallback provider");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of originalEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetGroqKeyCooldowns();
+    resetDisabledProviders();
   }
 });
 
