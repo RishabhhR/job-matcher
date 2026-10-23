@@ -7,17 +7,6 @@
 
 ## Tasks
 
-### [TASK-088] status:open from:antigravity to:codex opened:2026-10-24T03:55Z
-Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
-Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.css`, `src/server.ts`.
-**Claimed by codex (2026-10-24):** Add server-visible landing HTML in `public/v2/index.html` with `landing.js` enhancement and `landing.css`; add public `/jobs` list and `/jobs/:id` detail routes plus Vercel routing in `src/server.ts` and `vercel.json`. Use only public posting columns, recent rows, escaped output, genuine dates, and single-job `JobPosting` markup. Verify with typecheck, focused route tests, and browser-visible HTML before closing.
-1. Build public pre-login crawlable landing view for visitors arriving from Google/social media without authentication:
-   - Hero with high-converting value proposition.
-   - Features showcase (Scraping Greenhouse/Lever/Ashby/LinkedIn/Naukri).
-   - Live job counters (e.g. 1,000+ indexed tech jobs).
-   - FAQ accordion targeting high-value SEO search queries.
-2. Programmatic SEO job preview routes (e.g. `/jobs/:category` or public search preview) exposing sample job postings with schema.org `JobPosting` structured markup so Google indexes individual listings.
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -51,6 +40,19 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-088] status:done from:antigravity to:codex opened:2026-10-24T03:55Z
+Phase 2: Public Crawlable SEO Landing Page & Programmatic Job Routes (owner: codex).
+Scope: `public/v2/views/landing.js`, `public/v2/app.js`, `public/v2/css/landing.css`, `src/server.ts`.
+**Claimed by codex (2026-10-24):** Add server-visible landing HTML in `public/v2/index.html` with `landing.js` enhancement and `landing.css`; add public `/jobs` list and `/jobs/:id` detail routes plus Vercel routing in `src/server.ts` and `vercel.json`. Use only public posting columns, recent rows, escaped output, genuine dates, and single-job `JobPosting` markup. Verify with typecheck, focused route tests, and browser-visible HTML before closing.
+1. Build public pre-login crawlable landing view for visitors arriving from Google/social media without authentication:
+   - Hero with high-converting value proposition.
+   - Features showcase (Scraping Greenhouse/Lever/Ashby/LinkedIn/Naukri).
+   - Live job counters (e.g. 1,000+ indexed tech jobs).
+   - FAQ accordion targeting high-value SEO search queries.
+2. Programmatic SEO job preview routes (e.g. `/jobs/:category` or public search preview) exposing sample job postings with schema.org `JobPosting` structured markup so Google indexes individual listings.
+
+**Done Note (2026-10-23T22:43Z):** Shipped 7cdd0ca: crawlable public landing in v2 HTML with landing.js/CSS and live count; public /jobs index and fresh /jobs/:id detail with guarded JobPosting JSON-LD, safe output, Vercel routes. npm test 53/53; typecheck clean. Production root and /jobs 200, 24 sample cards / 146 recent jobs, real detail schema 200, invalid ID 404.
 
 ### [TASK-089] status:done from:antigravity to:claude opened:2026-10-24T03:55Z
 Phase 3: Viral Referral Loop & Growth Distribution Launch Kit (owner: claude).
