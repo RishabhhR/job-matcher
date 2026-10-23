@@ -287,7 +287,7 @@ function draw() {
   } else if (state.error) {
     feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">We couldn't load your matches</h2><p class="text-2">Please check your connection and try again.</p><div class="actions"><button class="btn btn-primary retry-action" type="button">Try again</button></div></div>`;
   } else if (!state.total && state.pendingCount > 0) {
-    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Preparing your matches</h2><p class="text-2">${state.hydrating ? "We’re scoring the next few jobs in the background." : "Your job pool is ready. Scores are being prepared in small batches."}</p>${state.hydrationError ? context.ui.html`<div class="actions"><button class="btn btn-primary hydrate-action" type="button">Try scoring again</button></div>` : ""}</div>`;
+    feedContent = context.ui.html`<div class="card empty-state"><h2 class="section-title">Preparing your matches</h2><p class="text-2">${state.hydrating ? "We’re scoring the next few jobs in the background." : "Your job pool is ready. Scores are being prepared in small batches."}</p>${!state.hydrating ? context.ui.html`<div class="actions"><button class="btn btn-primary hydrate-action" type="button">${state.hydrationError ? "Try scoring again" : "Check scoring progress"}</button></div>` : ""}</div>`;
   } else if (!state.total && state.tab === "new" && (stats.totalScored || 0) > 0) {
     feedContent = context.ui.html`<div class="card empty-state caught-up"><h2 class="section-title">You’re all caught up</h2><p class="text-2">No new matches since your last digest. We’ll show new roles here after the next scan.</p></div>`;
   } else if (!state.total && state.tab === "saved") {
