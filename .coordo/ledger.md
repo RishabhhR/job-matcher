@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-096] status:open from:codex to:codex opened:2026-10-25T11:46Z
-Add a deterministic Python match-analysis worker and scheduled shadow comparison against current LLM scores; preserve TypeScript scraping and production scores. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/match.ts. Worker reads JSON on stdin, emits structured deterministic scores/components/confidence to stdout without persisting CV/job content; scheduled pipeline logs only aggregate comparison metrics. Implement bounded timeout/fallback and keep shadow results out of user-facing matches.
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -43,6 +40,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-096] status:done from:codex to:codex opened:2026-10-25T11:46Z
+Add a deterministic Python match-analysis worker and scheduled shadow comparison against current LLM scores; preserve TypeScript scraping and production scores. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/match.ts. Worker reads JSON on stdin, emits structured deterministic scores/components/confidence to stdout without persisting CV/job content; scheduled pipeline logs only aggregate comparison metrics. Implement bounded timeout/fallback and keep shadow results out of user-facing matches.
+
+**Done Note (2026-10-25T11:49Z):** Implemented scripts/match_analysis.py with deterministic role, skill, seniority, experience, and location scoring; added a bounded TypeScript stdin/stdout adapter and scheduled-only shadow comparison metrics; configured Python 3.12 in cron-hourly.yml and documented the rollout. Python scores remain comparison-only and are never persisted or shown. Verified with npm run typecheck, python3 -m py_compile scripts/match_analysis.py, and git diff --check. Commit: 0fdbd44.
 
 ### [TASK-095] status:done from:default to:antigravity opened:2026-10-25T10:05Z
 Add CV upload, sign-in, and digest creation CTAs to public /jobs and /jobs/:id pages
