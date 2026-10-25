@@ -183,6 +183,7 @@ async function runHourlyCron() {
       await saveScoredMatches(due.userId, scored);
       scrapeSuccesses++;
       if (pythonReviewRun) {
+        const pythonCount = scored.filter((match) => match.reasoningText.startsWith("Rule-based match;")).length;
         const reviewMatches = scored.slice(0, 15).map((match) => ({
           title: match.posting.title,
           company_name: match.posting.company,
@@ -193,7 +194,6 @@ async function runHourlyCron() {
           comp_fit_label: match.compFitLabel,
           reasoning_text: match.reasoningText,
         }));
-        const pythonCount = reviewMatches.filter((match) => match.reasoning_text.startsWith("Rule-based match;")).length;
         console.log(`[cron-hourly] Scoring review for user ${due.userLogId}: ${scored.length} total scores, ${pythonCount} Python-only scores, ${scored.length - pythonCount} LLM-reviewed scores.`);
         if (reviewMatches.length === 0) {
           await logEmailSend(due.userId, due.localDate, due.slot, "empty", undefined, "No current scored jobs were available for the Python scoring review.");
