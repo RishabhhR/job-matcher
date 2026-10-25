@@ -27,54 +27,6 @@ function filterByLocation(postings: RawPosting[], profile: Profile): RawPosting[
   });
 }
 
-function averageRanks(values: number[]): number[] {
-  const sorted = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
-  const ranks = Array<number>(values.length);
-  for (let start = 0; start < sorted.length;) {
-    let end = start + 1;
-    while (end < sorted.length && sorted[end].value === sorted[start].value) end++;
-    const averageRank = (start + 1 + end) / 2;
-    for (let i = start; i < end; i++) ranks[sorted[i].index] = averageRank;
-    start = end;
-  }
-  return ranks;
-}
-
-function compareShadowScoresWithCandidates(
-  llmScores: ScoredMatch[],
-  candidates: RawPosting[],
-  pythonScores: PythonMatchAnalysis[],
-): void {
-  const pythonByObject = new Map<RawPosting, number>();
-  for (const result of pythonScores) {
-    const posting = candidates[result.index];
-    if (posting) pythonByObject.set(posting, result.score);
-  }
-  const pairs = llmScores.flatMap((match) => {
-    const pythonScore = pythonByObject.get(match.posting);
-    return pythonScore === undefined ? [] : [{ llm: match.fitScore, python: pythonScore }];
-  });
-  if (pairs.length < 2) {
-    console.info(`[match-shadow] comparison skipped: only ${pairs.length} paired scores`);
-    return;
-  }
-  const llmRanks = averageRanks(pairs.map((pair) => pair.llm));
-  const pythonRanks = averageRanks(pairs.map((pair) => pair.python));
-  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
-  const llmMean = mean(llmRanks);
-  const pythonMean = mean(pythonRanks);
-  const covariance = mean(llmRanks.map((rank, index) => (rank - llmMean) * (pythonRanks[index] - pythonMean)));
-  const llmStd = Math.sqrt(mean(llmRanks.map((rank) => (rank - llmMean) ** 2)));
-  const pythonStd = Math.sqrt(mean(pythonRanks.map((rank) => (rank - pythonMean) ** 2)));
-  const spearman = llmStd && pythonStd ? covariance / (llmStd * pythonStd) : 0;
-  const topCount = Math.min(10, pairs.length);
-  const topLlm = new Set(pairs.map((pair, index) => ({ score: pair.llm, index })).sort((a, b) => b.score - a.score).slice(0, topCount).map((item) => item.index));
-  const topPython = new Set(pairs.map((pair, index) => ({ score: pair.python, index })).sort((a, b) => b.score - a.score).slice(0, topCount).map((item) => item.index));
-  const overlap = [...topLlm].filter((index) => topPython.has(index)).length;
-  const mae = mean(pairs.map((pair) => Math.abs(pair.llm - pair.python)));
-  console.info(`[match-shadow] n=${pairs.length} spearman=${spearman.toFixed(3)} top${topCount}_overlap=${overlap}/${topCount} mean_absolute_score_difference=${mae.toFixed(1)}`);
-}
-
 export interface RunnerOptions {
   userId?: string;
   cvText: string;
@@ -261,54 +213,92 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
     return [];
   }
 
-  // Scheduled runs share provider quotas across every due user, so they score a bounded
-  // slice: reachable titles first, then newest, undated postings counted as just scraped
-  // (candidates.ts). Interactive searches retain the complete shortlist.
-  const scheduledScoreLimit = 30;
+  // Scheduled runs score every new shortlisted posting using Python. The LLM is
+  // reserved for low-coverage cases, so no fixed candidate cap is needed here.
   const selection = patient
     ? selectScheduledCandidates(finalShortlist, {
         yearsOfExperience: computeYearsOfExperience(profile.careerStartDate),
-        limit: scheduledScoreLimit,
+        limit: finalShortlist.length,
       })
     : null;
   const scoreCandidates = selection ? selection.candidates : finalShortlist;
-  if (selection && selection.deferred > 0) {
-    onProgress("scoring_limit", `Scheduled run capped scoring to ${scoreCandidates.length} postings; ${selection.deferred} remain eligible for later runs.`);
-  }
   if (selection) {
     const mix = scoreCandidates.reduce<Record<string, number>>((acc, p) => ((acc[p.source] = (acc[p.source] ?? 0) + 1), acc), {});
     onProgress("scoring_mix", `Scoring by source: ${Object.entries(mix).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
-  onProgress("scoring", `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Mistral -> Gemini -> GitHub Models -> OpenRouter -> Cerebras)...`);
-  
-  // Custom progress for scoring
-  const batchSize = Number(process.env.SCORE_BATCH_SIZE) || 4;
-  const totalPostings = scoreCandidates.length;
-  const totalBatches = Math.ceil(totalPostings / batchSize);
-  const scoredMatches: ScoredMatch[] = [];
-  let failedBatches = 0;
-  let pythonShadowScores: PythonMatchAnalysis[] | null = null;
 
-  // Keep shadow analysis on the scheduled worker only: Vercel request handlers
-  // remain Node-only, and this comparison does not affect the scores users see.
+  const batchSize = Number(process.env.SCORE_BATCH_SIZE) || 4;
+  const scoredMatches: ScoredMatch[] = [];
+  let llmCandidates = scoreCandidates;
+  let pythonCoverage: number[] = [];
+  let pythonFallback = false;
+
   if (patient) {
     try {
-      onProgress("scoring_shadow", "Running deterministic Python match analysis in shadow mode...");
-      pythonShadowScores = await runPythonMatchAnalysis(cvText, profile, scoreCandidates);
+      onProgress("scoring_python", `Scoring ${scoreCandidates.length} new postings for this profile with Python analysis...`);
+      const pythonResults = await runPythonMatchAnalysis(cvText, profile, scoreCandidates);
+      const configuredCoverageThreshold = process.env.PYTHON_MATCH_LLM_FALLBACK_COVERAGE === undefined
+        ? 0.65
+        : Number(process.env.PYTHON_MATCH_LLM_FALLBACK_COVERAGE);
+      const coverageThreshold = Number.isFinite(configuredCoverageThreshold)
+        ? Math.max(0, Math.min(1, configuredCoverageThreshold))
+        : 0.65;
+      const llmFallbackLimit = Math.max(0, Number(process.env.PYTHON_MATCH_LLM_FALLBACK_LIMIT) || 10);
+      const byCoverage = pythonResults
+        .map((result) => ({ result, posting: scoreCandidates[result.index] }))
+        .filter((entry): entry is { result: PythonMatchAnalysis; posting: RawPosting } => Boolean(entry.posting));
+      pythonCoverage = byCoverage.map(({ result }) => result.signalCoverage);
+      for (const { result, posting } of byCoverage) {
+        scoredMatches.push({
+          posting,
+          fitScore: result.score,
+          compFitLabel: "unknown",
+          reasoningText: `Rule-based match; signal coverage ${(result.signalCoverage * 100).toFixed(0)}%. ${result.reasons.join(" ")}`.slice(0, 1200),
+        });
+      }
+
+      const uncertain = byCoverage
+        .filter(({ result }) => result.signalCoverage < coverageThreshold)
+        .sort((a, b) => b.result.score - a.result.score)
+        .slice(0, llmFallbackLimit);
+      llmCandidates = uncertain.map(({ posting }) => posting);
+      const skippedLowCoverage = byCoverage.filter(({ result }) => result.signalCoverage < coverageThreshold).length - uncertain.length;
+      onProgress("scoring_python_complete", `Python scored ${byCoverage.length} postings; ${llmCandidates.length} low-coverage postings queued for LLM review${skippedLowCoverage ? ` (${skippedLowCoverage} beyond the configured fallback limit)` : ""}.`);
     } catch (err) {
-      console.warn(`[match-shadow] Python analysis unavailable; continuing with existing LLM scoring (${(err as Error).message}).`);
+      pythonFallback = true;
+      console.warn(`[match-python] Python scoring unavailable; using the bounded LLM fallback (${(err as Error).message}).`);
+      scoredMatches.length = 0;
+      const fallbackLimit = Math.max(1, Number(process.env.PYTHON_MATCH_FAILURE_FALLBACK_LIMIT) || 30);
+      llmCandidates = selectScheduledCandidates(scoreCandidates, {
+        yearsOfExperience: computeYearsOfExperience(profile.careerStartDate),
+        limit: fallbackLimit,
+      }).candidates;
     }
   }
 
+  onProgress("scoring", patient
+    ? pythonFallback
+      ? `Python analysis was unavailable; using bounded LLM fallback for ${llmCandidates.length} postings.`
+      : `Using LLM fallback for ${llmCandidates.length} low-coverage postings.`
+    : `Scoring ${scoreCandidates.length} postings against CV via AI fallback chain (Groq -> Mistral -> Gemini -> GitHub Models -> OpenRouter -> Cerebras)...`);
+
+  const totalPostings = llmCandidates.length;
+  const totalBatches = Math.ceil(totalPostings / batchSize);
+  let failedBatches = 0;
+
   for (let i = 0; i < totalPostings; i += batchSize) {
     const currentBatchNum = Math.floor(i / batchSize) + 1;
-    const batch = scoreCandidates.slice(i, i + batchSize);
+    const batch = llmCandidates.slice(i, i + batchSize);
     onProgress("scoring", `Scoring batch ${currentBatchNum}/${totalBatches} (${batch.length} postings)...`);
 
     let provider = "none";
     try {
       const scored = await scoreAll(cvText, profile, batch, batch.length, retryOptions);
       provider = scored.provider;
+      const rescoredPostings = new Set(scored.results.map((result) => result.posting));
+      for (let index = scoredMatches.length - 1; index >= 0; index--) {
+        if (rescoredPostings.has(scoredMatches[index].posting)) scoredMatches.splice(index, 1);
+      }
       scoredMatches.push(...scored.results);
     } catch (err) {
       failedBatches++;
@@ -331,12 +321,15 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
 
   // Sort matches by descending fit score
   scoredMatches.sort((a, b) => b.fitScore - a.fitScore);
-  if (pythonShadowScores) {
-    compareShadowScoresWithCandidates(scoredMatches, scoreCandidates, pythonShadowScores);
+  if (pythonCoverage.length > 0) {
+    const averageCoverage = pythonCoverage.reduce((total, coverage) => total + coverage, 0) / pythonCoverage.length;
+    console.info(`[match-python] Scored ${pythonCoverage.length} candidates; average signal coverage=${averageCoverage.toFixed(2)}; LLM fallback=${pythonFallback ? "worker-failure" : llmCandidates.length}.`);
   }
   
   if (failedBatches) {
-    onProgress("scoring_partial", `Scoring stopped after provider capacity was exhausted. Saved ${scoredMatches.length} of ${totalPostings} attempted postings; existing matches remain available for digests.`);
+    onProgress("scoring_partial", patient
+      ? `LLM fallback stopped after provider capacity was exhausted. Retained ${scoredMatches.length} Python/LLM scores; some low-coverage jobs keep their Python score.`
+      : `Scoring stopped after provider capacity was exhausted. Saved ${scoredMatches.length} of ${totalPostings} attempted postings; existing matches remain available for digests.`);
   }
   onProgress("complete", failedBatches
     ? `Scoring completed with a quota warning: ${scoredMatches.length} postings saved.`

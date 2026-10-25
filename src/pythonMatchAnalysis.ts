@@ -6,7 +6,7 @@ import type { RawPosting } from "./scrapers.js";
 export interface PythonMatchAnalysis {
   index: number;
   score: number;
-  confidence: number;
+  signalCoverage: number;
   components: Record<string, number>;
   matchedSkills: string[];
   unmatchedMentionedSkills: string[];
@@ -26,6 +26,28 @@ export function runPythonMatchAnalysis(
   profile: Profile,
   postings: RawPosting[],
   timeoutMs = 8_000,
+): Promise<PythonMatchAnalysis[]> {
+  return (async () => {
+    const results: PythonMatchAnalysis[] = [];
+    const chunkSize = 50;
+    for (let start = 0; start < postings.length; start += chunkSize) {
+      const chunkResults = await runPythonMatchAnalysisChunk(
+        cvText,
+        profile,
+        postings.slice(start, start + chunkSize),
+        timeoutMs,
+      );
+      results.push(...chunkResults.map((result) => ({ ...result, index: result.index + start })));
+    }
+    return results;
+  })();
+}
+
+function runPythonMatchAnalysisChunk(
+  cvText: string,
+  profile: Profile,
+  postings: RawPosting[],
+  timeoutMs: number,
 ): Promise<PythonMatchAnalysis[]> {
   if (postings.length === 0) return Promise.resolve([]);
 
@@ -91,7 +113,7 @@ export function runPythonMatchAnalysis(
         }
         const valid = output.results.every((result, index) =>
           result && result.index === index && Number.isFinite(result.score) && result.score >= 0 && result.score <= 100 &&
-          Number.isFinite(result.confidence) && result.confidence >= 0 && result.confidence <= 1 &&
+          Number.isFinite(result.signalCoverage) && result.signalCoverage >= 0 && result.signalCoverage <= 1 &&
           result.components && typeof result.components === "object" &&
           Array.isArray(result.matchedSkills) && Array.isArray(result.unmatchedMentionedSkills) && Array.isArray(result.reasons));
         if (!valid) throw new Error("worker returned invalid score fields");

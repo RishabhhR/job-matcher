@@ -1,16 +1,19 @@
-# Python match analysis shadow mode
+# Python match analysis in scheduled matching
 
-The hourly GitHub Actions worker runs `scripts/match_analysis.py` on the same
-fresh candidate set that the TypeScript LLM scorer receives. TypeScript keeps
+The scheduled GitHub Actions worker runs `scripts/match_analysis.py` for each
+due user's saved CV/profile and every new shortlisted posting. TypeScript keeps
 ownership of scraping, filtering, scheduling, persistence, and user-facing
-scores. Python results are comparison-only and are never written to Turso or
-shown to users while shadow mode is active.
+results. The Python score is saved through the existing match persistence path.
+Only low signal-coverage cases are sent to the LLM for review; those LLM results
+replace the Python score when available. If the Python worker fails, a bounded
+LLM fallback scores up to 30 candidates so the cron can still make progress.
+Interactive matching continues to use the existing LLM scoring path.
 
 The worker reads a JSON request from stdin and writes a versioned JSON response
 to stdout. CV/profile/job content is passed through a local process pipe; the
 worker does not make network requests, create files, or log content. The
-TypeScript adapter enforces an 8-second timeout, validates the response, and
-continues the existing scoring flow if Python is unavailable.
+TypeScript adapter processes postings in chunks of 50, enforces an 8-second
+timeout per chunk, and validates each response.
 
 The initial score is explainable and rule-based:
 
@@ -19,14 +22,15 @@ The initial score is explainable and rule-based:
 - experience requirement and seniority fit: up to 20
 - location preference fit: up to 5
 
-The worker also returns confidence, component scores, matched skills, unmatched
-skills mentioned in each posting, and short reason strings. Mentioned skills are
-not treated as confirmed requirements. The cron logs only aggregate comparison measures: paired score
-count, Spearman rank correlation, top-10 overlap, and mean absolute score
-difference. These measures help decide whether the rules rank jobs similarly
-to the current scorer; they do not establish that either ranking predicts
-application success. Weight changes should be evaluated against user outcomes
-such as saved and applied jobs before Python scores replace LLM scores.
+The worker also returns a signal-coverage estimate, component scores, matched
+skills, unmatched skills mentioned in each posting, and short reason strings.
+Signal coverage measures available input signals; it is not a calibrated
+probability that a match is correct. Mentioned skills are not treated as
+confirmed requirements. LLM fallback defaults to signal coverage below 0.65,
+with a limit of 10 candidates per user/run. Override these limits with
+`PYTHON_MATCH_LLM_FALLBACK_COVERAGE` and `PYTHON_MATCH_LLM_FALLBACK_LIMIT`.
+If Python is unavailable, `PYTHON_MATCH_FAILURE_FALLBACK_LIMIT` controls the
+bounded fallback and defaults to 30.
 
 The worker can be run locally with:
 

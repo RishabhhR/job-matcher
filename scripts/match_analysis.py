@@ -206,12 +206,12 @@ def score_job(profile: dict[str, Any], cv_text: str, job: dict[str, Any]) -> dic
 
     score = max(0, min(100, round(sum(components.values()))))
     has_description = len(description) >= 160
-    confidence = 0.3 + (0.2 if target_family and job_family else 0.0) + (0.15 if candidate_skills else 0.0) + (0.15 if job_skills else 0.0) + (0.1 if has_description else 0.0) + (0.1 if years is not None else 0.0)
-    confidence = round(min(1.0, confidence), 2)
+    signal_coverage = 0.3 + (0.2 if target_family and job_family else 0.0) + (0.15 if candidate_skills else 0.0) + (0.15 if job_skills else 0.0) + (0.1 if has_description else 0.0) + (0.1 if years is not None else 0.0)
+    signal_coverage = round(min(1.0, signal_coverage), 2)
     return {
         "index": job.get("index"),
         "score": score,
-        "confidence": confidence,
+        "signalCoverage": signal_coverage,
         "components": components,
         "matchedSkills": matched,
         # These are skills mentioned in the posting, not asserted requirements.
