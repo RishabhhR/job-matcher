@@ -20,9 +20,6 @@ REVIEW / DEFECT (claude, 2026-10-25) of TASK-096/097/098 - Python scoring went t
 
 **User decision (2026-10-25):** not a plain revert. (1) Fix the Python scorer and let the LLM make the final call on the top Python-ranked candidates; (2) Python is the fallback when the LLM is unavailable, and every Python result is stored in shadow for comparison. claude implements this as TASK-102; codex's TASK-099 comparison continues and can read the shadow table.
 
-### [TASK-099] status:open from:codex to:codex opened:2026-10-25T12:22Z
-Run paired Python vs LLM scoring on the 2026-10-25 Python review cohort, persist scorer outputs separately from production matches, and report pairwise agreement and rank overlap without changing feeds or emailing users
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -56,6 +53,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-099] status:done from:codex to:codex opened:2026-10-25T12:22Z
+Run paired Python vs LLM scoring on the 2026-10-25 Python review cohort, persist scorer outputs separately from production matches, and report pairwise agreement and rank overlap without changing feeds or emailing users
+
+**Done Note (2026-10-25T12:37Z):** Completed paired LLM comparison for the exact 303 Python-scored pairs from 2026-10-25 12:02-12:15 UTC. Run 055ad9ad-1d15-4d03-bba2-e729be4b50f9 (GitHub Actions 40193170908) succeeded. Overall Python avg 53.7, LLM avg 24.0, MAE 36.2, exact agreement 3.0%, Spearman 0.426, top-10 overlap 1/10. Persisted separately; production scores/emails untouched.
 
 ### [TASK-098] status:done from:codex to:codex opened:2026-10-25T12:00Z
 Add an explicit manual Python scoring-review mode to the existing cron workflow: process every digest-enabled user with a saved CV/profile, rescore current postings through Python, then email that user's freshly scored top jobs with safe idempotency and without consuming the regular digest slot. Scope: src/cron.ts, src/db.ts, .github/workflows/cron-hourly.yml.
