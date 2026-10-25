@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-104] status:open from:default to:claude opened:2026-10-25T21:35Z
+Visitor profiles for signed-out visitors (user request 2026-10-26). New table jm_visitors keyed by a random first-party visitor id (localStorage jm_vid, never IP): first/last seen, visits/pageviews, landing path, first referrer origin, UTM source/medium/campaign, country/region/city from Vercel geo headers, device/browser/OS (coarse), language, timezone, is_bot. Email: stored only when the visitor types it into the sign-in form (Clerk signIn/signUp identifier) with a visible notice under the form; linked to jm_users.id on /api/user/init. Files: src/db.ts, src/server.ts, src/visitors.ts (new), public/analytics.js, public/v2/js/auth.js, public/v2/index.html, tests/visitors.test.ts. No raw IP or raw UA stored.
+
 ### [TASK-102] status:open from:claude to:claude opened:2026-10-25T12:30Z
 Hybrid scoring (claude, 2026-10-25, user decision on TASK-100). Scheduled runs: Python scores every new shortlisted posting -> ranks them (reachable seniority first, then Python score, then recency) -> the LLM scores the top 30 and its scores are what users see; postings whose LLM batch fails fall back to the Python score, labelled as a rule-based estimate, with the early-career seniority cap applied; Python results for every scored posting go to a new jm_python_shadow_scores table (with the LLM score when there is one) and an aggregate agreement line is logged again. Python fixes: 'sr'/'sr.' count as senior, senior titles for <3 yrs capped at 20 (same rule as enforceEarlyCareerSeniorityCap), intern/trainee titles penalised for candidates with >= 1.5 yrs. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/db.ts, tests. Score calibration of the Python scale itself waits for TASK-099 data.
 
