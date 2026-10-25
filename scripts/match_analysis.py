@@ -68,8 +68,17 @@ ROLE_FAMILIES: dict[str, tuple[str, ...]] = {
     "sales": ("account executive", "sales manager", "business development", "sales representative"),
 }
 
-SENIOR_TERMS = {"senior", "staff", "lead", "principal", "group", "director", "vp", "head"}
+SENIOR_TERMS = {"senior", "sr", "staff", "lead", "principal", "group", "director", "vp", "head"}
 JUNIOR_TERMS = {"intern", "trainee", "junior", "entry", "associate", "apm"}
+INTERN_TERMS = {"intern", "internship", "trainee"}
+# Same rule as enforceEarlyCareerSeniorityCap in src/match.ts (TASK-060/102).
+EARLY_CAREER_YEARS = 3
+SENIOR_CAP_FOR_EARLY_CAREER = 20
+# Internships rarely fit someone who already has this much experience (TASK-102).
+INTERN_OVERQUALIFIED_YEARS = 1.5
+INTERN_CAP_FOR_EXPERIENCED = 35
+# A different role family (e.g. engineering for a PM target) cannot rank as a good fit.
+OTHER_FAMILY_CAP = 30
 
 
 def normalized(value: Any) -> str:
@@ -205,6 +214,18 @@ def score_job(profile: dict[str, Any], cv_text: str, job: dict[str, Any]) -> dic
     components["location"] = location_score
 
     score = max(0, min(100, round(sum(components.values()))))
+    title_words = set(re.findall(r"[a-z]+", job_title))
+    caps: list[str] = []
+    if target_family and job_family and target_family != job_family and score > OTHER_FAMILY_CAP:
+        score = OTHER_FAMILY_CAP
+        caps.append("other_role_family")
+    if senior_job and years is not None and years < EARLY_CAREER_YEARS and score > SENIOR_CAP_FOR_EARLY_CAREER:
+        score = SENIOR_CAP_FOR_EARLY_CAREER
+        caps.append("early_career_senior")
+    if title_words & INTERN_TERMS and years is not None and years >= INTERN_OVERQUALIFIED_YEARS and score > INTERN_CAP_FOR_EXPERIENCED:
+        score = INTERN_CAP_FOR_EXPERIENCED
+        caps.append("overqualified_intern")
+        reasons.append(f"Internship-level role; the profile already has {years:.1f} years of experience.")
     has_description = len(description) >= 160
     signal_coverage = 0.3 + (0.2 if target_family and job_family else 0.0) + (0.15 if candidate_skills else 0.0) + (0.15 if job_skills else 0.0) + (0.1 if has_description else 0.0) + (0.1 if years is not None else 0.0)
     signal_coverage = round(min(1.0, signal_coverage), 2)
@@ -217,6 +238,7 @@ def score_job(profile: dict[str, Any], cv_text: str, job: dict[str, Any]) -> dic
         # These are skills mentioned in the posting, not asserted requirements.
         "unmatchedMentionedSkills": missing[:12],
         "reasons": reasons[:5],
+        "caps": caps,
     }
 
 

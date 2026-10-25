@@ -100,6 +100,21 @@ const SCHEMA = [
     last_error_code TEXT,
     PRIMARY KEY (user_id, source)
   )`,
+  // Python shadow scores (TASK-102): every Python result from scheduled runs, with the
+  // LLM score for the same posting when the LLM scored it. Never shown to users.
+  `CREATE TABLE IF NOT EXISTS jm_python_shadow_scores (
+    user_id TEXT NOT NULL REFERENCES jm_users(id),
+    posting_hash TEXT NOT NULL,
+    source TEXT,
+    python_score INTEGER NOT NULL,
+    signal_coverage REAL,
+    caps TEXT,
+    llm_score INTEGER,
+    llm_provider TEXT,
+    used_as_fallback INTEGER NOT NULL DEFAULT 0,
+    scored_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, posting_hash)
+  )`,
   // Referrals (TASK-089): one row per referred account; reward logic is decided later.
   `CREATE TABLE IF NOT EXISTS jm_user_referrals (
     referred_user_id TEXT PRIMARY KEY REFERENCES jm_users(id),
@@ -511,6 +526,9 @@ export async function getTopMatchesForUser(userId: string, limit = 20) {
           JOIN jm_job_postings jp ON jp.id = m.job_posting_id
           WHERE m.user_id = ?
             AND m.emailed_at IS NULL
+            -- Only scored rows: pending (fit_score -1) rows must never reach a digest (TASK-102).
+            AND m.status IN ('new', 'scored')
+            AND m.fit_score >= 0
           ORDER BY m.fit_score DESC
           LIMIT ?`,
     args: [userId, limit],
@@ -739,6 +757,9 @@ export async function getRecentlyScoredPostingHashes(userId: string, maxAgeDays 
           FROM jm_user_job_matches m JOIN jm_job_postings p ON p.id = m.job_posting_id
           WHERE m.user_id = ?
             AND m.status IN ('new', 'scored')
+            -- Rule-based (Python) scores are provisional: the LLM should still get them (TASK-102).
+            AND coalesce(m.reasoning_text, '') NOT LIKE 'Rule-based match%'
+            AND coalesce(m.reasoning_text, '') NOT LIKE 'Estimated by rules%'
             AND m.matched_at >= datetime('now', ?)
             AND m.matched_at >= COALESCE((SELECT MAX(updated_at) FROM jm_user_profiles WHERE user_id = ?), '')
             AND m.matched_at >= COALESCE((SELECT MAX(created_at) FROM jm_cvs WHERE user_id = ? AND is_active = 1), '')`,
@@ -826,6 +847,33 @@ export async function getReferralSummary(userId: string): Promise<{ code: string
   const code = await getOrCreateReferralCode(userId);
   const count = await client.execute({ sql: "SELECT COUNT(*) AS n FROM jm_user_referrals WHERE referrer_user_id = ?", args: [userId] });
   return { code, referredCount: Number(count.rows[0]?.n ?? 0) };
+}
+
+export interface PythonShadowRow {
+  postingHash: string;
+  source: string;
+  pythonScore: number;
+  signalCoverage: number;
+  caps: string[];
+  llmScore: number | null;
+  llmProvider: string | null;
+  usedAsFallback: boolean;
+}
+
+/** Upsert one scheduled run's Python results for a user (TASK-102); latest scoring wins. */
+export async function recordPythonShadowScores(userId: string, rows: PythonShadowRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const stmts = rows.map((r) => ({
+    sql: `INSERT INTO jm_python_shadow_scores (user_id, posting_hash, source, python_score, signal_coverage, caps, llm_score, llm_provider, used_as_fallback, scored_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(user_id, posting_hash) DO UPDATE SET
+            source = excluded.source, python_score = excluded.python_score, signal_coverage = excluded.signal_coverage,
+            caps = excluded.caps, llm_score = excluded.llm_score, llm_provider = excluded.llm_provider,
+            used_as_fallback = excluded.used_as_fallback, scored_at = excluded.scored_at`,
+    args: [userId, r.postingHash, r.source, Math.round(r.pythonScore), r.signalCoverage, r.caps.join(",") || null,
+      r.llmScore === null ? null : Math.round(r.llmScore), r.llmProvider, r.usedAsFallback ? 1 : 0],
+  }));
+  for (let i = 0; i < stmts.length; i += 100) await client.batch(stmts.slice(i, i + 100), "write");
 }
 
 export async function deletePendingMatches(userId: string): Promise<void> {
