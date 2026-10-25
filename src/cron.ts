@@ -2,10 +2,11 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, repairSeniorityCaps, recordCronHeartbeat, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, markUserPostingsAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, recordCronHeartbeat, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, markUserPostingsAsSent, claimEmailSend, logEmailSend, getDueEmailLeads, getRecentJobsForKeywords, markEmailLeadSent } from "./db.js";
+import { runLeadEmails } from "./leads.js";
 import { runJobMatcher } from "./runner.js";
 import { saveScoredMatches } from "./saveMatches.js";
-import { sendDigestEmail } from "./mailer.js";
+import { sendDigestEmail, sendLeadEmail } from "./mailer.js";
 import { canonicalizeUrl } from "./normalize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -231,6 +232,10 @@ async function runHourlyCron() {
   if (dueUsers.length > 0 && successfulSends === 0 && emptySends === 0 && sendFailures === dueUsers.length) {
     throw new Error(`All ${sendFailures} due user digest send(s) failed.`);
   }
+
+  // Weekly opt-in emails for signed-out visitors (TASK-105). runLeadEmails never throws.
+  const leads = await runLeadEmails({ getDueEmailLeads, getRecentJobsForKeywords, markEmailLeadSent, send: sendLeadEmail });
+  console.log(`[cron-hourly] Lead emails. Due: ${leads.due}, Sent: ${leads.sent}, Nothing new: ${leads.empty}, Failed: ${leads.failed}.`);
 
   // Heartbeat for GET /api/health/cron (TASK-086): an external monitor alerts when this
   // goes stale, whatever stopped the runs (scheduler disabled, token expired, crash).

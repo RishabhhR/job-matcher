@@ -37,6 +37,8 @@ import {
   getDailyVisitorStats,
   upsertVisitor,
   linkVisitorToUser,
+  upsertEmailLead,
+  unsubscribeEmailLead,
   seedCandidateMatchesFromPool,
   getPendingMatchesForUser,
   getPendingMatchCountForUser,
@@ -51,6 +53,7 @@ import { locationPatterns } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
 import { cleanVisitorId, visitorPingFrom } from "./visitors.js";
+import { cleanLeadEmail, cleanRole, LEAD_CONSENT_TEXT } from "./leads.js";
 import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
@@ -193,6 +196,47 @@ app.post("/api/analytics/visit", async (req, res) => {
     res.status(204).end();
   }
 });
+
+// Opt-in job emails (TASK-105). The visitor typed their email into a form that says
+// what they will receive; the hidden "website" field catches simple bots.
+app.post("/api/leads", async (req, res) => {
+  const email = cleanLeadEmail(req.body?.email);
+  if (!email) {
+    res.status(400).json({ error: "Enter a valid email address." });
+    return;
+  }
+  if (typeof req.body?.website === "string" && req.body.website.trim()) {
+    res.json({ ok: true });
+    return;
+  }
+  try {
+    const sourcePath = typeof req.body?.source === "string" ? req.body.source.replace(/[^\w-]/g, "").slice(0, 40) || null : null;
+    await upsertEmailLead({ email, role: cleanRole(req.body?.role), visitorId: cleanVisitorId(req.body?.visitorId), sourcePath, consentText: LEAD_CONSENT_TEXT });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Failed to save email lead:", (error as Error).message);
+    res.status(500).json({ error: "Could not save your email. Please try again." });
+  }
+});
+
+// GET from the email link; POST from mail clients' one-click unsubscribe (RFC 8058).
+const unsubscribeLead = async (req: express.Request, res: express.Response) => {
+  const token = typeof req.query.token === "string" ? req.query.token.slice(0, 64) : "";
+  let done = false;
+  try {
+    if (token) done = await unsubscribeEmailLead(token);
+  } catch (error) {
+    console.error("Failed to unsubscribe lead:", (error as Error).message);
+  }
+  if (req.method === "POST") {
+    res.status(done ? 200 : 404).end();
+    return;
+  }
+  const message = done ? "You're unsubscribed. JobMatcher won't email you new openings again." : "This unsubscribe link isn't valid. If you keep getting emails, reply to one and we'll remove you.";
+  res.status(done ? 200 : 404).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Unsubscribe · JobMatcher</title><link rel="stylesheet" href="/v2/css/tokens.css"><link rel="stylesheet" href="/v2/css/base.css"><link rel="stylesheet" href="/v2/css/landing.css"></head><body><main class="public-jobs"><section class="public-jobs-intro"><h1>${done ? "Unsubscribed" : "Link not recognised"}</h1><p>${message}</p><a class="btn btn-primary" href="/">Back to JobMatcher</a></section></main></body></html>`);
+};
+app.get("/api/leads/unsubscribe", unsubscribeLead);
+app.post("/api/leads/unsubscribe", unsubscribeLead);
 
 app.get("/api/analytics/daily-visitors", async (req, res) => {
   try {

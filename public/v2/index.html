@@ -48,6 +48,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <script src="/analytics.js"></script>
+  <script src="/leads.js" defer></script>
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
   <script defer src="/_vercel/insights/script.js"></script>
   <script>
@@ -173,6 +174,19 @@
           <details><summary>Does JobMatcher apply to jobs for me?</summary><p>No. You review each role and choose whether to open the original listing and apply.</p></details>
           <details><summary>Can I choose when to receive emails?</summary><p>Yes. After setting up your profile, you can choose a daily digest hour in your local timezone. Delivery may vary when a source or email provider is delayed.</p></details>
         </div>
+      </section>
+
+      <section class="landing-section landing-leads" aria-labelledby="landing-leads-title" data-analytics-section="lead_form">
+        <form class="lead-form" data-lead-form data-lead-source="landing" novalidate>
+          <div class="lead-form-copy"><h2 id="landing-leads-title">Not ready to upload a CV?</h2><p>One email a week with new openings for your role. Unsubscribe in one click.</p></div>
+          <div class="lead-form-fields">
+            <label class="sr-only" for="lead-email-landing">Email</label><input id="lead-email-landing" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+            <label class="sr-only" for="lead-role-landing">Role</label><input id="lead-role-landing" name="role" type="text" placeholder="Role, e.g. Product Manager" maxlength="60">
+            <input name="website" type="text" tabindex="-1" autocomplete="off" class="lead-form-trap" aria-hidden="true">
+            <button class="btn btn-primary" type="submit" data-analytics-id="lead_submit_landing">Email me new jobs</button>
+          </div>
+          <p class="lead-form-status" role="status" hidden></p>
+        </form>
       </section>
 
       <section class="landing-final" aria-labelledby="landing-final-title"><p class="landing-kicker">Ready when you are</p><h2 id="landing-final-title">Make your next search more focused.</h2><p>Bring your CV. We’ll help you see the roles worth reviewing.</p><button class="btn btn-primary" type="button" data-landing-signin data-analytics-id="landing_final_start">Start matching <span aria-hidden="true">→</span></button></section>

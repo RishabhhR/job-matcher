@@ -120,6 +120,7 @@
   .landing-final { margin: 0 16px 38px; padding: 38px 18px; }
   .landing-footer { padding-inline: 16px; }
   .public-jobs { padding-inline: 16px; }
+  .public-jobs-head { flex-wrap: wrap; row-gap: 8px; padding-block: 12px; }
   .public-jobs-head nav { gap: 10px; }
   .public-jobs-head nav a { font-size: 12px; }
   .public-jobs-cta { flex-direction: column; align-items: stretch; padding: 18px; gap: 16px; }
@@ -130,3 +131,17 @@
   .public-job-card { flex-direction: column; align-items: stretch; padding: 20px; }
   .public-job-description { padding: 20px; }
 }
+
+/* "Email me new jobs" form (TASK-105), shared by the landing and public /jobs pages. */
+.lead-form { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 24px; padding: 22px 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.lead-form-copy { flex: 1 1 280px; }
+.lead-form-copy h2, .lead-form-copy strong { display: block; margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--text); }
+.lead-form-copy p { margin: 0; font-size: 13.5px; color: var(--text-2); line-height: 1.5; }
+.lead-form-fields { display: flex; flex: 1 1 420px; flex-wrap: wrap; gap: 8px; }
+.lead-form-fields input { flex: 1 1 160px; min-width: 0; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.lead-form-fields .btn { flex: 0 0 auto; }
+.lead-form-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.lead-form-status { flex-basis: 100%; margin: 0; font-size: 14px; font-weight: 600; color: var(--good); }
+.lead-form-status.is-error { color: var(--danger); }
+.public-jobs .lead-form { margin: 24px 0; }
+@media (max-width: 560px) { .lead-form-fields .btn { flex-basis: 100%; } }

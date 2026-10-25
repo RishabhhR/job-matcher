@@ -208,6 +208,20 @@ const SCHEMA = [
     user_id TEXT,
     linked_at TEXT
   )`,
+  // Opt-in job emails for signed-out visitors (TASK-105). consent_text records what
+  // they agreed to; unsubscribe_token is the only key the email links carry.
+  `CREATE TABLE IF NOT EXISTS jm_email_leads (
+    email TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    visitor_id TEXT,
+    source_path TEXT,
+    consent_text TEXT NOT NULL,
+    unsubscribe_token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    unsubscribed_at TEXT,
+    last_sent_at TEXT
+  )`,
 ];
 
 export async function migrate() {
@@ -1411,6 +1425,60 @@ export async function recordDailyVisit(
 }
 
 // A new visit starts after 30 minutes without a page view, like most analytics tools.
+/** Signing up again with the same email updates the role and re-subscribes. */
+export async function upsertEmailLead(lead: { email: string; role: string; visitorId: string | null; sourcePath: string | null; consentText: string }): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO jm_email_leads (email, role, visitor_id, source_path, consent_text, unsubscribe_token)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(email) DO UPDATE SET
+            role = excluded.role,
+            visitor_id = coalesce(excluded.visitor_id, jm_email_leads.visitor_id),
+            consent_text = excluded.consent_text,
+            unsubscribed_at = NULL,
+            updated_at = datetime('now')`,
+    args: [lead.email, lead.role, lead.visitorId, lead.sourcePath, lead.consentText, randomBytes(24).toString("base64url")],
+  });
+}
+
+export async function unsubscribeEmailLead(token: string): Promise<boolean> {
+  const result = await client.execute({
+    sql: `UPDATE jm_email_leads SET unsubscribed_at = coalesce(unsubscribed_at, datetime('now')) WHERE unsubscribe_token = ?`,
+    args: [token],
+  });
+  return result.rowsAffected > 0;
+}
+
+export async function getDueEmailLeads(intervalDays: number): Promise<Array<{ email: string; role: string; token: string; lastSentAt: string | null }>> {
+  const result = await client.execute({
+    sql: `SELECT email, role, unsubscribe_token, last_sent_at FROM jm_email_leads
+          WHERE unsubscribed_at IS NULL
+            AND (last_sent_at IS NULL OR last_sent_at <= datetime('now', ?))
+          ORDER BY created_at ASC LIMIT 200`,
+    args: [`-${intervalDays} days`],
+  });
+  return result.rows.map((r: any) => ({ email: String(r.email), role: String(r.role), token: String(r.unsubscribe_token), lastSentAt: r.last_sent_at ? String(r.last_sent_at) : null }));
+}
+
+/** Recent public-quality postings whose title contains every keyword, newest first. */
+export async function getRecentJobsForKeywords(keywords: string[], since: string, limit: number) {
+  const titleClauses = keywords.map(() => "lower(title) LIKE ?").join(" AND ");
+  const result = await client.execute({
+    sql: `SELECT title, company_name, location, source, apply_url FROM jm_job_postings
+          WHERE scraped_at >= ?
+            AND source IN ('greenhouse', 'lever', 'ashby', 'linkedin', 'naukri')
+            AND length(trim(coalesce(company_name, ''))) > 0
+            AND apply_url LIKE 'https://%'
+            ${titleClauses ? `AND ${titleClauses}` : ""}
+          ORDER BY scraped_at DESC LIMIT ?`,
+    args: [since, ...keywords.map((k) => `%${k.replace(/[%_]/g, "")}%`), limit],
+  });
+  return result.rows.map((r: any) => ({ title: String(r.title), company: String(r.company_name), location: String(r.location || ""), source: String(r.source), applyUrl: String(r.apply_url) }));
+}
+
+export async function markEmailLeadSent(email: string): Promise<void> {
+  await client.execute({ sql: `UPDATE jm_email_leads SET last_sent_at = datetime('now') WHERE email = ?`, args: [email] });
+}
+
 export async function upsertVisitor(v: VisitorPing): Promise<void> {
   await client.execute({
     sql: `INSERT INTO jm_visitors (visitor_id, pageviews, landing_path, first_referrer, utm_source, utm_medium, utm_campaign,

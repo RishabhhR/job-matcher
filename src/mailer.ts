@@ -149,6 +149,25 @@ export async function sendDigestEmail(
   return data?.id ?? "unknown";
 }
 
+/** Weekly opt-in email (TASK-105); carries one-click unsubscribe headers. */
+export async function sendLeadEmail(toEmail: string, subject: string, html: string, unsubscribeUrl: string): Promise<string> {
+  const headers = { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" };
+  if (mailProvider() === "gmail") {
+    try {
+      const info = await getGmail().sendMail({ from: { name: "JobMatcher", address: process.env.GMAIL_USER!.trim() }, to: toEmail, subject, html, headers });
+      return info.messageId || "unknown";
+    } catch (err) {
+      throw new Error(`Gmail send failed: ${safeGmailError(err)}`);
+    }
+  }
+  const { data, error } = await getResend().emails.send({
+    from: process.env.RESEND_FROM_EMAIL?.trim() || "Job Matcher <onboarding@resend.dev>",
+    to: toEmail, subject, html, headers,
+  });
+  if (error) throw new Error(`Resend send failed: ${safeResendError(error.message)}`);
+  return data?.id ?? "unknown";
+}
+
 export async function sendServiceUpdateEmail(
   toEmail: string,
   userName: string,
