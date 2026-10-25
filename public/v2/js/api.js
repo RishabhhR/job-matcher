@@ -48,7 +48,7 @@ const post = (url, data, options = {}) => authFetch(url, { ...options, method: "
 const get = (url) => authFetch(url).then(json);
 
 /** Create or load the signed-in account: { userId, profile, cvText, companies, digestSettings }. */
-export const initUser = () => post("/api/user/init", {}, { timeoutMs: 15000 });
+export const initUser = () => post("/api/user/init", { visitorId: window.JobMatcherAnalytics?.visitorId?.() || null }, { timeoutMs: 15000 });
 
 /** Totals and per-tab counts: { totalScored, newSinceLastDigest, newCount, savedCount, appliedCount, dismissedCount, allCount, ... }. */
 export const getStats = (userId) => get(`/api/user/stats?userId=${encodeURIComponent(userId)}`);

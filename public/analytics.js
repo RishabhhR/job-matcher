@@ -54,6 +54,29 @@
     capture("$pageleave", properties, unload);
   }
 
+  // Random first-party id for this browser (TASK-104); never derived from IP or device.
+  let visitorIdValue = null;
+  function visitorId() {
+    if (visitorIdValue) return visitorIdValue;
+    try { visitorIdValue = localStorage.getItem("jm_vid"); } catch (_) {}
+    if (!visitorIdValue || !/^[a-z0-9-]{16,40}$/i.test(visitorIdValue)) {
+      visitorIdValue = crypto.randomUUID ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+      try { localStorage.setItem("jm_vid", visitorIdValue); } catch (_) {}
+    }
+    return visitorIdValue;
+  }
+
+  // Campaign tags from the landing URL; the server keeps only the first ones it sees.
+  const landingParams = new URLSearchParams(location.search);
+  const utm = { source: landingParams.get("utm_source"), medium: landingParams.get("utm_medium"), campaign: landingParams.get("utm_campaign") };
+
+  function sendJson(url, body) {
+    const payload = JSON.stringify(body);
+    if (navigator.sendBeacon && navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }))) return;
+    fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: payload, credentials: "omit", keepalive: true }).catch(() => {});
+  }
+
   function recordVisitPing(customPath) {
     try {
       const path = typeof customPath === "string" ? customPath : location.pathname + (location.hash || "");
@@ -64,18 +87,9 @@
           ref = refUrl.origin;
         } catch (_) {}
       }
-      const payload = JSON.stringify({ path, referrer: ref });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon("/api/analytics/visit", new Blob([payload], { type: "application/json" }));
-      } else {
-        fetch("/api/analytics/visit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          credentials: "omit",
-          keepalive: true,
-        }).catch(() => {});
-      }
+      let timezone = null;
+      try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (_) {}
+      sendJson("/api/analytics/visit", { path, referrer: ref, visitorId: visitorId(), utm, language: navigator.language || null, timezone });
     } catch (_) {}
   }
 
@@ -208,7 +222,7 @@
     scheduleSections();
   });
 
-  window.JobMatcherAnalytics = { trackPage, capture: (event, properties = {}) => capture(event, properties), recordVisit: recordVisitPing };
+  window.JobMatcherAnalytics = { trackPage, capture: (event, properties = {}) => capture(event, properties), recordVisit: recordVisitPing, visitorId };
   recordVisitPing();
   fetch("/api/analytics-config", { credentials: "omit" })
     .then((response) => response.ok ? response.json() : null)

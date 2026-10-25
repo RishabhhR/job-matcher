@@ -35,6 +35,8 @@ import {
   saveUserProfileData,
   recordDailyVisit,
   getDailyVisitorStats,
+  upsertVisitor,
+  linkVisitorToUser,
   seedCandidateMatchesFromPool,
   getPendingMatchesForUser,
   getPendingMatchCountForUser,
@@ -48,6 +50,7 @@ import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
+import { cleanVisitorId, visitorPingFrom } from "./visitors.js";
 import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
@@ -179,7 +182,11 @@ app.post("/api/analytics/visit", async (req, res) => {
       .slice(0, 32);
 
     const today = new Date().toISOString().slice(0, 10);
-    await recordDailyVisit(today, visitorHash, cleanPath, cleanReferrer);
+    const visitor = visitorPingFrom(req.body, req.headers, cleanPath, cleanReferrer);
+    await Promise.all([
+      recordDailyVisit(today, visitorHash, cleanPath, cleanReferrer),
+      visitor ? upsertVisitor(visitor) : null,
+    ]);
     res.status(204).end();
   } catch {
     // Visitor pings must never throw or disrupt page loads
@@ -330,12 +337,15 @@ app.post("/api/user/init", async (req, res) => {
     // to the caller-supplied email, which could point at another user's record.
     const identity = await getVerifiedClerkIdentity(req.verifiedClerkUserId);
     const userId = await upsertUser(identity.email, identity.name, identity.clerkId);
+    const visitorId = cleanVisitorId(req.body?.visitorId);
     // Independent reads - run together so the page waits for one DB round trip, not four.
     const [profile, cvText, digestSettings, savedCompanies] = await Promise.all([
       getUserProfileRow(userId),
       getActiveCvText(userId),
       getUserDigestSettings(userId),
       getUserCompanies(userId),
+      // Awaited with the reads: serverless functions may freeze once the response is sent.
+      visitorId ? linkVisitorToUser(visitorId, userId).catch((error) => console.error("Failed to link visitor:", error.message)) : null,
     ]);
     const companies = savedCompanies ?? JSON.parse(readFileSync(path.join(dataDir, "companies.json"), "utf-8"));
 

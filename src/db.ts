@@ -1,6 +1,7 @@
 import { createClient } from "@libsql/client";
 import { randomBytes, randomUUID } from "node:crypto";
 import { captureTelemetryEvent } from "./telemetry.js";
+import type { VisitorPing } from "./visitors.js";
 
 let _client: any;
 export const client = new Proxy({} as any, {
@@ -181,6 +182,32 @@ const SCHEMA = [
     last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (visit_date, visitor_hash, path)
   )`,
+  // One row per browser (TASK-104), keyed by a random first-party id. First-touch
+  // fields (landing, referrer, UTM) are kept; device and geo show the latest visit.
+  // No email here: user_id is set only by /api/user/init after Clerk verifies the account.
+  `CREATE TABLE IF NOT EXISTS jm_visitors (
+    visitor_id TEXT PRIMARY KEY,
+    first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    visits INTEGER NOT NULL DEFAULT 1,
+    pageviews INTEGER NOT NULL DEFAULT 0,
+    landing_path TEXT,
+    first_referrer TEXT,
+    utm_source TEXT,
+    utm_medium TEXT,
+    utm_campaign TEXT,
+    country TEXT,
+    region TEXT,
+    city TEXT,
+    device TEXT,
+    browser TEXT,
+    os TEXT,
+    language TEXT,
+    timezone TEXT,
+    is_bot INTEGER NOT NULL DEFAULT 0,
+    user_id TEXT,
+    linked_at TEXT
+  )`,
 ];
 
 export async function migrate() {
@@ -213,6 +240,8 @@ export async function migrate() {
   const finalStatements = [
     "CREATE UNIQUE INDEX IF NOT EXISTS jm_users_clerk_id_idx ON jm_users(clerk_id)",
     "CREATE INDEX IF NOT EXISTS jm_daily_visitors_date_idx ON jm_daily_visitors(visit_date)",
+    "CREATE INDEX IF NOT EXISTS jm_visitors_last_seen_idx ON jm_visitors(last_seen_at)",
+    "CREATE INDEX IF NOT EXISTS jm_visitors_user_idx ON jm_visitors(user_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS jm_users_referral_code_idx ON jm_users(referral_code)",
     "CREATE INDEX IF NOT EXISTS jm_user_referrals_referrer_idx ON jm_user_referrals(referrer_user_id)",
   ];
@@ -1378,6 +1407,42 @@ export async function recordDailyVisit(
             last_seen_at = datetime('now'),
             referrer = coalesce(excluded.referrer, jm_daily_visitors.referrer)`,
     args: [visitDate, visitorHash, safePath, safeReferrer],
+  });
+}
+
+// A new visit starts after 30 minutes without a page view, like most analytics tools.
+export async function upsertVisitor(v: VisitorPing): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO jm_visitors (visitor_id, pageviews, landing_path, first_referrer, utm_source, utm_medium, utm_campaign,
+            country, region, city, device, browser, os, language, timezone, is_bot)
+          VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(visitor_id) DO UPDATE SET
+            visits = jm_visitors.visits + (CASE WHEN jm_visitors.last_seen_at < datetime('now', '-30 minutes') THEN 1 ELSE 0 END),
+            pageviews = jm_visitors.pageviews + 1,
+            last_seen_at = datetime('now'),
+            first_referrer = coalesce(jm_visitors.first_referrer, excluded.first_referrer),
+            utm_source = coalesce(jm_visitors.utm_source, excluded.utm_source),
+            utm_medium = coalesce(jm_visitors.utm_medium, excluded.utm_medium),
+            utm_campaign = coalesce(jm_visitors.utm_campaign, excluded.utm_campaign),
+            country = coalesce(excluded.country, jm_visitors.country),
+            region = coalesce(excluded.region, jm_visitors.region),
+            city = coalesce(excluded.city, jm_visitors.city),
+            device = excluded.device,
+            browser = coalesce(excluded.browser, jm_visitors.browser),
+            os = coalesce(excluded.os, jm_visitors.os),
+            language = coalesce(excluded.language, jm_visitors.language),
+            timezone = coalesce(excluded.timezone, jm_visitors.timezone),
+            is_bot = max(jm_visitors.is_bot, excluded.is_bot)`,
+    args: [v.visitorId, v.path, v.referrer, v.utmSource, v.utmMedium, v.utmCampaign, v.country, v.region, v.city,
+      v.device, v.browser, v.os, v.language, v.timezone, v.isBot ? 1 : 0],
+  });
+}
+
+/** Only updates a visitor the page has already pinged, so random ids cannot create rows. */
+export async function linkVisitorToUser(visitorId: string, userId: string): Promise<void> {
+  await client.execute({
+    sql: `UPDATE jm_visitors SET user_id = ?, linked_at = coalesce(linked_at, datetime('now')) WHERE visitor_id = ?`,
+    args: [userId, visitorId],
   });
 }
 
