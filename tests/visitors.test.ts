@@ -15,13 +15,41 @@ test("user agents are reduced to device, browser and OS (TASK-104)", () => {
   assert.equal(parseUserAgent("").device, "unknown");
 });
 
-test("visitor ids and emails are validated", () => {
+test("visitor ids are validated and referrers reduced to their origin", () => {
   assert.equal(cleanVisitorId("3F2504E0-4F89-41D3-9A0C-0305E82C3301"), "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
   assert.equal(cleanVisitorId("short"), null);
   assert.equal(cleanVisitorId("x'; DROP TABLE jm_users; --"), null);
-  assert.equal(cleanEmail("  Someone@Example.COM "), "someone@example.com");
-  assert.equal(cleanEmail("not-an-email"), null);
-  assert.equal(cleanEmail("<a>@b.com"), null);
+  assert.equal(referrerOrigin("https://www.google.com/search?q=jobs+for+me"), "https://www.google.com");
+  assert.equal(referrerOrigin("javascript:alert(1)"), null);
+  assert.equal(referrerOrigin("not a url"), null);
+});
+
+// DEC-008 data contract: no email is sent or stored from an unverified sign-in attempt,
+// the account link happens only in /api/user/init after Clerk verification, and
+// PostHog never receives jm_vid.
+test("no visitor email capture exists anywhere (DEC-008)", async () => {
+  const read = (file: string) => readFile(new URL(`../${file}`, import.meta.url), "utf8");
+  const [server, analytics, auth, html] = await Promise.all([
+    read("src/server.ts"), read("public/analytics.js"), read("public/v2/js/auth.js"), read("public/v2/index.html"),
+  ]);
+  assert.doesNotMatch(server, /visitor-email|recordVisitorEmail/);
+  assert.doesNotMatch(analytics, /recordEmail|visitor-email/);
+  assert.doesNotMatch(auth, /watchSignInEmail|recordEmail/);
+  assert.doesNotMatch(html, /save the email/i);
+  assert.match(html, /links this browser's visit history to your account/);
+
+  // jm_vid only goes to our own endpoints, never into a PostHog capture/identify/register call.
+  assert.doesNotMatch(analytics, /posthog\.(capture|identify|register|setPersonProperties)\([^)]*visitorId/);
+  const captureBody = analytics.slice(analytics.indexOf("function capture("), analytics.indexOf("function leavePage"));
+  assert.doesNotMatch(captureBody, /visitorId|jm_vid/);
+
+  // The only caller of linkVisitorToUser is /api/user/init, after getVerifiedClerkIdentity.
+  const linkCalls = [...server.matchAll(/linkVisitorToUser\(/g)];
+  assert.equal(linkCalls.length, 1);
+  const init = server.slice(server.indexOf('app.post("/api/user/init"'));
+  const linkAt = init.indexOf("linkVisitorToUser(");
+  assert.ok(linkAt > init.indexOf("getVerifiedClerkIdentity("), "link must follow Clerk verification");
+  assert.ok(linkAt < init.indexOf("\napp."), "link must stay inside /api/user/init");
 });
 
 test("pings carry Vercel geo headers and first-touch UTM tags", () => {
@@ -50,7 +78,7 @@ after(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-test("visitor rows keep first-touch data, count views, and take email only for known visitors", async () => {
+test("visitor rows keep first-touch data, count views, store no email, and link to a user", async () => {
   const id = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
   const base = visitorPingFrom({ visitorId: id, utm: { source: "reddit" } }, { "user-agent": IPHONE, "x-vercel-ip-country": "IN" }, "/", "https://www.reddit.com")!;
   await db.upsertVisitor(base);
@@ -63,10 +91,18 @@ test("visitor rows keep first-touch data, count views, and take email only for k
   assert.equal(row.utm_source, "reddit");
   assert.equal(row.country, "IN");
 
-  assert.equal(await db.recordVisitorEmail("00000000-0000-0000-0000-000000000000", "a@b.com", "sign_in_started"), false);
-  assert.equal(await db.recordVisitorEmail(id, "lead@example.com", "sign_in_started"), true);
+  assert.equal(row.user_id, null);
+
+  const columns = (await db.client.execute("PRAGMA table_info(jm_visitors)")).rows.map((c: any) => String(c.name));
+  assert.deepEqual(columns.filter((name) => /email|ip|user_agent|^ua$|referrer_url/i.test(name)), []);
+  assert.equal("recordVisitorEmail" in db, false);
+
   const userId = await db.upsertUser("lead@example.com", "Lead", "user_lead_1");
   await db.linkVisitorToUser(id, userId);
-  const linked = (await db.client.execute({ sql: "SELECT email, email_source, user_id FROM jm_visitors WHERE visitor_id = ?", args: [id] })).rows[0] as any;
-  assert.deepEqual([linked.email, linked.email_source, linked.user_id], ["lead@example.com", "sign_in_started", userId]);
+  await db.linkVisitorToUser("00000000-0000-0000-0000-000000000000", userId);
+  const linked = (await db.client.execute({ sql: "SELECT user_id, linked_at FROM jm_visitors WHERE visitor_id = ?", args: [id] })).rows[0] as any;
+  assert.equal(linked.user_id, userId);
+  assert.ok(linked.linked_at);
+  const count = (await db.client.execute("SELECT count(*) AS n FROM jm_visitors")).rows[0] as any;
+  assert.equal(Number(count.n), 1, "linking an unknown id must not create a row");
 });
