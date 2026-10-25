@@ -95,3 +95,18 @@ test("digests skip pending rows; Python-only scores stay eligible for the LLM", 
   assert.ok(skip.has("https://jobs.example.com/df-llm"));
   assert.ok(!skip.has("https://jobs.example.com/df-py"), "Python-only scores must not block LLM scoring");
 });
+
+test("re-scoring a pending match makes it visible again", async () => {
+  const userId = await db.upsertUser("pending-rescore@example.com", "P", "user_pending_rescore_1");
+  const id = await db.upsertJobPosting({ source: "greenhouse", sourceJobId: "pr", company: "Co", title: "PM pr", location: "Bengaluru",
+    applyUrl: "https://jobs.example.com/pr", descriptionText: "", dedupHash: "https://jobs.example.com/pr" });
+  await db.upsertUserMatch(userId, id, 55, "unknown", "Rule-based match; signal coverage 85%.");
+  await db.client.execute({ sql: "UPDATE jm_user_job_matches SET status = 'pending', fit_score = -1 WHERE user_id = ?", args: [userId] });
+  await db.upsertUserMatch(userId, id, 72, "lateral", "LLM reasoning");
+  const row = (await db.client.execute({ sql: "SELECT status, fit_score FROM jm_user_job_matches WHERE user_id = ?", args: [userId] })).rows[0] as any;
+  assert.deepEqual([row.status, row.fit_score], ["new", 72]);
+  // A user-facing status like 'scored' is left alone.
+  await db.client.execute({ sql: "UPDATE jm_user_job_matches SET status = 'scored' WHERE user_id = ?", args: [userId] });
+  await db.upsertUserMatch(userId, id, 60, "lateral", "LLM again");
+  assert.equal(((await db.client.execute({ sql: "SELECT status FROM jm_user_job_matches WHERE user_id = ?", args: [userId] })).rows[0] as any).status, "scored");
+});

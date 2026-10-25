@@ -509,6 +509,9 @@ export async function upsertUserMatch(
         fit_score = excluded.fit_score,
         comp_fit_label = excluded.comp_fit_label,
         reasoning_text = excluded.reasoning_text,
+        -- A row that was pending (unscored) becomes visible once it has a real score;
+        -- before TASK-102 it stayed 'pending' and was hidden from feed and digests.
+        status = CASE WHEN jm_user_job_matches.status = 'pending' THEN 'new' ELSE jm_user_job_matches.status END,
         matched_at = datetime('now')`,
     args: [randomUUID(), userId, jobPostingId, fitScore, compFitLabel, reasoningText],
   });
