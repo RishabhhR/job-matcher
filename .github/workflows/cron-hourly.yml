@@ -10,6 +10,12 @@ on:
     - cron: "15 * * * *"
     - cron: "45 * * * *"
   workflow_dispatch:
+    inputs:
+      python_review:
+        description: Re-score current jobs with Python and email each eligible user a review
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,4 +58,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+          PYTHON_REVIEW_RUN: ${{ inputs.python_review }}
         run: npm run cron-hourly

@@ -2,16 +2,19 @@ import "dotenv/config";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { client, ensureMigrated, repairSeniorityCaps, recordCronHeartbeat, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, claimEmailSend, logEmailSend } from "./db.js";
+import { client, ensureMigrated, repairSeniorityCaps, recordCronHeartbeat, getRecentlyScoredPostingHashes, getActiveCvText, getUserProfileRow, getUserCompanies, getTopMatchesForUser, markMatchesAsSent, markUserPostingsAsSent, claimEmailSend, logEmailSend } from "./db.js";
 import { runJobMatcher } from "./runner.js";
 import { saveScoredMatches } from "./saveMatches.js";
 import { sendDigestEmail } from "./mailer.js";
+import { canonicalizeUrl } from "./normalize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
 
 async function runHourlyCron() {
   console.log("[cron-hourly] Starting hourly cron execution...");
+  const pythonReviewRun = process.env.PYTHON_REVIEW_RUN === "true";
+  if (pythonReviewRun) console.log("[cron-hourly] Manual Python scoring review mode enabled.");
   await ensureMigrated();
   await repairSeniorityCaps();
 
@@ -42,6 +45,7 @@ async function runHourlyCron() {
     userLogId: string;
     email: string;
     localHour: number;
+    localDate: string;
     slot: string;
     cvText: string;
     profile: Awaited<ReturnType<typeof getUserProfileRow>>;
@@ -90,7 +94,7 @@ async function runHourlyCron() {
     // (observed gaps of 3-4+ hours between runs), so an exact match can skip a user's window
     // entirely for the whole day. The per-day dedup below still guarantees at most one send
     // per user per local day.
-    if (localHour >= digestHour && digestHour >= 0 && digestHour <= 23) {
+    if (pythonReviewRun || (localHour >= digestHour && digestHour >= 0 && digestHour <= 23)) {
       // Disabled/test accounts can have digests enabled without ever completing setup.
       // Check readiness before claiming the daily slot or attempting delivery so these
       // rows do not turn every hourly workflow into a failed run.
@@ -115,13 +119,17 @@ async function runHourlyCron() {
       // sendDate now uses the user's own local calendar date (see above) so the
       // catch-up window and the "already sent today" check agree on what "today" means.
       const sendDate = localDate;
-      const slot = `hour-${digestHour}`;
+      const slot = pythonReviewRun ? "python-review" : `hour-${digestHour}`;
       if (!(await claimEmailSend(userId, sendDate, slot))) {
         console.log(`[cron-hourly] Already attempted today's digest for user ${userLogId}, skipping.`);
         continue;
       }
 
-      dueUsers.push({ userId, userLogId, email, localHour, slot, cvText, profile: dbProfile });
+      dueUsers.push({ userId, userLogId, email, localHour, localDate, slot, cvText, profile: dbProfile });
+      if (pythonReviewRun) {
+        console.log(`[cron-hourly] User ${userLogId} queued for scoring review email.`);
+        continue;
+      }
       try {
         console.log(`[cron-hourly] Time matches for user ${userLogId}. Sending from stored matches...`);
         const topMatches = await getTopMatchesForUser(userId, 15);
@@ -159,7 +167,7 @@ async function runHourlyCron() {
       const profile = { ...due.profile, notifyEmail: due.email };
       const userCompanies = await getUserCompanies(due.userId) ?? companies;
       console.log(`[cron-hourly] Scraping and scoring jobs for user ${due.userLogId}...`);
-      const alreadyScored = await getRecentlyScoredPostingHashes(due.userId);
+      const alreadyScored = pythonReviewRun ? new Set<string>() : await getRecentlyScoredPostingHashes(due.userId);
       const scored = await runJobMatcher({
         userId: due.userId,
         cvText: due.cvText,
@@ -174,9 +182,43 @@ async function runHourlyCron() {
       console.log(`[cron-hourly] Saving matches for user ${due.userLogId}...`);
       await saveScoredMatches(due.userId, scored);
       scrapeSuccesses++;
+      if (pythonReviewRun) {
+        const reviewMatches = scored.slice(0, 15).map((match) => ({
+          title: match.posting.title,
+          company_name: match.posting.company,
+          location: match.posting.location,
+          apply_url: match.posting.applyUrl,
+          source: match.posting.source,
+          fit_score: match.fitScore,
+          comp_fit_label: match.compFitLabel,
+          reasoning_text: match.reasoningText,
+        }));
+        const pythonCount = reviewMatches.filter((match) => match.reasoning_text.startsWith("Rule-based match;")).length;
+        console.log(`[cron-hourly] Scoring review for user ${due.userLogId}: ${scored.length} total scores, ${pythonCount} Python-only scores, ${scored.length - pythonCount} LLM-reviewed scores.`);
+        if (reviewMatches.length === 0) {
+          await logEmailSend(due.userId, due.localDate, due.slot, "empty", undefined, "No current scored jobs were available for the Python scoring review.");
+          emptySends++;
+          continue;
+        }
+        const displaySlot = due.localHour < 12 ? "am" : "pm";
+        const messageId = await sendDigestEmail(
+          due.email,
+          reviewMatches,
+          displaySlot,
+          `job-matcher/${due.userId}/${due.localDate}/python-review`,
+        );
+        await logEmailSend(due.userId, due.localDate, due.slot, "sent", messageId);
+        await markUserPostingsAsSent(due.userId, reviewMatches.map((match) => canonicalizeUrl(match.apply_url)));
+        console.log(`[cron-hourly] Python scoring review email sent to user ${due.userLogId} (messageId: ${messageId}).`);
+        successfulSends++;
+      }
     } catch (err) {
       scrapeFailures++;
-      console.error(`[cron-hourly] Post-digest scrape failed for user ${due.userLogId}:`, err);
+      console.error(`[cron-hourly] ${pythonReviewRun ? "Scoring review" : "Post-digest scrape"} failed for user ${due.userLogId}:`, err);
+      if (pythonReviewRun) {
+        sendFailures++;
+        await logEmailSend(due.userId, due.localDate, due.slot, "failed", undefined, (err as Error).message).catch(() => {});
+      }
     }
   }
 

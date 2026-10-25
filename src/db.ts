@@ -505,6 +505,22 @@ export async function markMatchesAsSent(matchIds: string[]): Promise<void> {
   });
 }
 
+// Mark the exact postings included by a manual scoring review email. The score
+// run can upsert existing match rows, so match IDs should be resolved from the
+// stable posting hashes rather than relying on IDs returned by the insert path.
+export async function markUserPostingsAsSent(userId: string, dedupHashes: string[]): Promise<void> {
+  const hashes = [...new Set(dedupHashes.filter(Boolean))];
+  if (hashes.length === 0) return;
+  const placeholders = hashes.map(() => "?").join(", ");
+  await client.execute({
+    sql: `UPDATE jm_user_job_matches SET emailed_at = datetime('now')
+          WHERE user_id = ? AND job_posting_id IN (
+            SELECT id FROM jm_job_postings WHERE dedup_hash IN (${placeholders})
+          )`,
+    args: [userId, ...hashes],
+  });
+}
+
 // slot is a free-form dedup key: "am"/"pm" for the original fixed-time cron,
 // "hour-N" for the per-user hourly cron (src/cron.ts) - any mechanism sharing
 // this table dedupes against the others as long as slot values don't collide.
