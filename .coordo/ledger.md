@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-097] status:open from:codex to:codex opened:2026-10-25T11:53Z
+Make the existing scheduled cron score every new shortlisted posting for each due user's saved CV/profile with the Python scorer; send only low-confidence cases to the LLM, retain bounded LLM fallback if Python is unavailable, and persist scores through the current match save path. Scope: src/runner.ts, src/pythonMatchAnalysis.ts, scripts/match_analysis.py, docs/python-match-analysis.md.
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
