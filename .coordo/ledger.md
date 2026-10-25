@@ -41,6 +41,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 
 ## Resolved / Log
 
+### [TASK-095] status:done from:default to:antigravity opened:2026-10-25T10:05Z
+Add CV upload, sign-in, and digest creation CTAs to public /jobs and /jobs/:id pages
+
+**Done Note (2026-10-25T10:08Z):** Added prominent 'Match your CV' nav button, hero upload CV & create digest card, footer conversion section, and inline job fit CTAs on /jobs and /jobs/:id, with auto-opening sign-in flow on /?signin=1. Verified with 64 tests.
+
 ### [TASK-093] status:done from:codex to:codex opened:2026-10-23T23:26Z
 Close TASK-092 release gaps: wire background feed hydration to the UI, make pending-score claims concurrency-safe with stale-claim recovery, propagate scrape cancellation to Naukri, add regression coverage, verify and deploy
 

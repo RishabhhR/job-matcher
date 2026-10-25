@@ -55,22 +55,29 @@ function renderAccount() {
 async function main() {
   captureReferralFromUrl();
   const authPromise = initAuth();
+  const triggerSignIn = async () => {
+    showLandingStatus("Connecting to sign-in…");
+    try {
+      const user = await authPromise;
+      if (user) return;
+      showLandingStatus("");
+      const section = document.getElementById("sign-in");
+      section.hidden = false;
+      mountSignIn(document.getElementById("auth-root"));
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch {
+      showLandingStatus("Sign-in is temporarily unavailable. Reload the page to try again.");
+    }
+  };
+
   initLanding({
-    onSignIn: async () => {
-      showLandingStatus("Connecting to sign-in…");
-      try {
-        const user = await authPromise;
-        if (user) return;
-        showLandingStatus("");
-        const section = document.getElementById("sign-in");
-        section.hidden = false;
-        mountSignIn(document.getElementById("auth-root"));
-        section.scrollIntoView({ behavior: "smooth", block: "start" });
-      } catch {
-        showLandingStatus("Sign-in is temporarily unavailable. Reload the page to try again.");
-      }
-    },
+    onSignIn: triggerSignIn,
   });
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("signin") === "1" || window.location.hash === "#signin") {
+    triggerSignIn();
+  }
   window.JobMatcherAnalytics?.trackPage("landing");
 
   let clerkUser;

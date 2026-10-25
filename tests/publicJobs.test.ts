@@ -55,3 +55,15 @@ test("public pages escape untrusted text and reject unsafe links", () => {
   assert.ok(!page.includes('type="application/ld+json"'));
   assert.equal(safeApplyUrl("javascript:alert(1)"), null);
 });
+
+test("public jobs and job detail pages include prominent CV matching CTAs (TASK-095)", () => {
+  const index = renderJobsIndex([job]);
+  assert.ok(index.includes('href="/?signin=1"'));
+  assert.ok(index.includes("Match your CV"));
+  assert.ok(index.includes("Upload CV &amp; Create Digest"));
+
+  const detail = renderJobDetail(job);
+  assert.ok(detail.includes('href="/?signin=1"'));
+  assert.ok(detail.includes("Check My CV Fit"));
+});
+
