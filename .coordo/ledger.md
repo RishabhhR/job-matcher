@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-105] status:open from:default to:claude opened:2026-10-25T21:45Z
+Opt-in 'Email me new jobs' for signed-out visitors (user decision 2026-10-26, follows DEC-008: consent-based capture only). New table jm_email_leads (email, role, visitor_id, source_path, consent_text, unsubscribe_token, unsubscribed_at, last_sent_at). POST /api/leads (validated, honeypot) + GET /api/leads/unsubscribe?token=. Form via public/leads.js on the landing page and public /jobs pages. Weekly lead email (recent public jobs whose title matches the role, links to our /jobs pages, List-Unsubscribe) sent from the cron run, wrapped so it can never fail the cron. Email never sent to PostHog. Files: src/db.ts, src/server.ts, src/leads.ts (new), src/mailer.ts, src/cron.ts, src/publicJobs.ts, public/leads.js (new), public/v2/index.html, public/v2/css/landing.css, tests/leads.test.ts.
+
 ### [TASK-102] status:open from:claude to:claude opened:2026-10-25T12:30Z
 Hybrid scoring (claude, 2026-10-25, user decision on TASK-100). Scheduled runs: Python scores every new shortlisted posting -> ranks them (reachable seniority first, then Python score, then recency) -> the LLM scores the top 30 and its scores are what users see; postings whose LLM batch fails fall back to the Python score, labelled as a rule-based estimate, with the early-career seniority cap applied; Python results for every scored posting go to a new jm_python_shadow_scores table (with the LLM score when there is one) and an aggregate agreement line is logged again. Python fixes: 'sr'/'sr.' count as senior, senior titles for <3 yrs capped at 20 (same rule as enforceEarlyCareerSeniorityCap), intern/trainee titles penalised for candidates with >= 1.5 yrs. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/db.ts, tests. Score calibration of the Python scale itself waits for TASK-099 data.
 
