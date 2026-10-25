@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-096] status:open from:codex to:codex opened:2026-10-25T11:46Z
+Add a deterministic Python match-analysis worker and scheduled shadow comparison against current LLM scores; preserve TypeScript scraping and production scores. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/match.ts. Worker reads JSON on stdin, emits structured deterministic scores/components/confidence to stdout without persisting CV/job content; scheduled pipeline logs only aggregate comparison metrics. Implement bounded timeout/fallback and keep shadow results out of user-facing matches.
+
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
