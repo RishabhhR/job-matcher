@@ -1,0 +1,57 @@
+name: Manual production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production_deploy:
+        description: Type DEPLOY to create a production deployment from main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-matcher-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && inputs.confirm_production_deploy == 'DEPLOY'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: team_c7SKpZt3mWDCT5qGk46SMti0
+      VERCEL_PROJECT_ID: prj_0HIDKSp0K2qGzL8FrApWuHCcVbhP
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Require Vercel token
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "Add the VERCEL_TOKEN GitHub Actions secret before running this workflow."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@52.0.0
+
+      - name: Pull production settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build production artifacts
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy production artifacts
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

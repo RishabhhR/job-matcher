@@ -21,6 +21,10 @@ Claude's default lane in this project is verification and release: verify, test,
 Before ending a session (or after a handoff-worthy change), run `coordo checkpoint --as antigravity`.
 <!-- coordo:end -->
 
+## Production deployment guardrail
+
+Read [DEPLOYMENT_POLICY.md](DEPLOYMENT_POLICY.md) before any deployment work. Production deploys require a clear user request; commits, verification, and routine agent work do not authorize a deploy.
+
 ## Multi-Agent Development Workflow Rules
 - **Before Picking Any Development**:
   1. Always run `coordo status` and read the ledger first to identify what other agents are working on.
