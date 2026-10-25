@@ -32,6 +32,18 @@ with a limit of 10 candidates per user/run. Override these limits with
 If Python is unavailable, `PYTHON_MATCH_FAILURE_FALLBACK_LIMIT` controls the
 bounded fallback and defaults to 30.
 
+## Paired scorer evaluation
+
+The manual `Paired Python vs LLM Score Comparison` GitHub Actions workflow
+evaluates the same persisted Python-scored user/job pairs with the LLM scorer.
+It writes comparison rows to `jm_score_comparisons`, keyed by a run ID, without
+changing `jm_user_job_matches` or sending email. The run stores only numeric
+scores, Python signal coverage, and the LLM provider; it does not store CV text,
+job descriptions, or LLM reasoning. Aggregate output includes mean absolute
+score difference, exact score agreement, Spearman rank correlation, and top-10
+ranking overlap per profile. Signal coverage describes input completeness, not
+score accuracy.
+
 The worker can be run locally with:
 
 ```sh

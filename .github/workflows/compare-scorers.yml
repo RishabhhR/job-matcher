@@ -1,0 +1,61 @@
+name: Paired Python vs LLM Score Comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      cohort_start:
+        description: Start of the Python scoring cohort (UTC, YYYY-MM-DD HH:mm:ss)
+        required: true
+        type: string
+        default: "2026-10-25 12:02:00"
+      cohort_end:
+        description: End of the Python scoring cohort (UTC, YYYY-MM-DD HH:mm:ss)
+        required: true
+        type: string
+        default: "2026-10-25 12:15:00"
+      expected_pairs:
+        description: Expected number of intact Python-scored user-job pairs
+        required: true
+        type: number
+        default: 303
+
+permissions:
+  contents: read
+  models: read
+
+# Serialize against the scheduled cron because that cron can update the same
+# production match rows while this workflow reads its Python-scored cohort.
+concurrency:
+  group: job-matcher-hourly-digest
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run paired scorer comparison
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_MODELS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SCORE_COMPARISON_SINCE: ${{ inputs.cohort_start }}
+          SCORE_COMPARISON_UNTIL: ${{ inputs.cohort_end }}
+          SCORE_COMPARISON_EXPECTED_PAIRS: ${{ inputs.expected_pairs }}
+        run: npm run compare-scorers

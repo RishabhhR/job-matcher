@@ -124,6 +124,31 @@ const SCHEMA = [
     error_text TEXT,
     UNIQUE(user_id, send_date, slot)
   )`,
+  // Paired scorer evaluation (TASK-099): keep comparison scores out of the
+  // production match row so an evaluation can never alter a user's feed.
+  `CREATE TABLE IF NOT EXISTS jm_score_comparison_runs (
+    id TEXT PRIMARY KEY,
+    cohort_start TEXT NOT NULL,
+    cohort_end TEXT NOT NULL,
+    status TEXT NOT NULL,
+    pair_count INTEGER NOT NULL DEFAULT 0,
+    completed_pair_count INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT,
+    error_code TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS jm_score_comparisons (
+    run_id TEXT NOT NULL REFERENCES jm_score_comparison_runs(id),
+    user_id TEXT NOT NULL REFERENCES jm_users(id),
+    job_posting_id TEXT NOT NULL REFERENCES jm_job_postings(id),
+    python_score INTEGER NOT NULL,
+    python_signal_coverage REAL,
+    llm_score INTEGER,
+    llm_comp_fit_label TEXT,
+    llm_provider TEXT,
+    scored_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (run_id, user_id, job_posting_id)
+  )`,
   `CREATE TABLE IF NOT EXISTS jm_user_companies (
     user_id TEXT PRIMARY KEY REFERENCES jm_users(id),
     greenhouse_json TEXT NOT NULL,

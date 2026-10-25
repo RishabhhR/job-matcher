@@ -11,7 +11,8 @@
     "send-service-update": "tsx src/send-service-update.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "manual-digest": "tsx src/manualDigest.ts"
+    "manual-digest": "tsx src/manualDigest.ts",
+    "compare-scorers": "tsx src/scoreComparison.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.10.0",
