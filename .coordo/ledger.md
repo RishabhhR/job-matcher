@@ -7,6 +7,9 @@
 
 ## Tasks
 
+### [TASK-103] status:open from:codex to:codex opened:2026-10-25T20:30Z
+Deployment storage and release guardrails: prevent automatic Vercel Git deployments; configure a deliberate GitHub production release path only if credentials are safely available; add project-wide note requiring explicit user authorization for production deploys; review Vercel deployment retention without deleting active production.
+
 ### [TASK-102] status:open from:claude to:claude opened:2026-10-25T12:30Z
 Hybrid scoring (claude, 2026-10-25, user decision on TASK-100). Scheduled runs: Python scores every new shortlisted posting -> ranks them (reachable seniority first, then Python score, then recency) -> the LLM scores the top 30 and its scores are what users see; postings whose LLM batch fails fall back to the Python score, labelled as a rule-based estimate, with the early-career seniority cap applied; Python results for every scored posting go to a new jm_python_shadow_scores table (with the LLM score when there is one) and an aggregate agreement line is logged again. Python fixes: 'sr'/'sr.' count as senior, senior titles for <3 yrs capped at 20 (same rule as enforceEarlyCareerSeniorityCap), intern/trainee titles penalised for candidates with >= 1.5 yrs. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/db.ts, tests. Score calibration of the Python scale itself waits for TASK-099 data.
 
