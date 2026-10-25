@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-103] status:open from:codex to:codex opened:2026-10-25T20:30Z
-Deployment storage and release guardrails: prevent automatic Vercel Git deployments; configure a deliberate GitHub production release path only if credentials are safely available; add project-wide note requiring explicit user authorization for production deploys; review Vercel deployment retention without deleting active production.
-
 ### [TASK-102] status:open from:claude to:claude opened:2026-10-25T12:30Z
 Hybrid scoring (claude, 2026-10-25, user decision on TASK-100). Scheduled runs: Python scores every new shortlisted posting -> ranks them (reachable seniority first, then Python score, then recency) -> the LLM scores the top 30 and its scores are what users see; postings whose LLM batch fails fall back to the Python score, labelled as a rule-based estimate, with the early-career seniority cap applied; Python results for every scored posting go to a new jm_python_shadow_scores table (with the LLM score when there is one) and an aggregate agreement line is logged again. Python fixes: 'sr'/'sr.' count as senior, senior titles for <3 yrs capped at 20 (same rule as enforceEarlyCareerSeniorityCap), intern/trainee titles penalised for candidates with >= 1.5 yrs. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/db.ts, tests. Score calibration of the Python scale itself waits for TASK-099 data.
 
@@ -62,6 +59,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-103] status:done from:codex to:codex opened:2026-10-25T20:30Z
+Deployment storage and release guardrails: prevent automatic Vercel Git deployments; configure a deliberate GitHub production release path only if credentials are safely available; add project-wide note requiring explicit user authorization for production deploys; review Vercel deployment retention without deleting active production.
+
+**Done Note (2026-10-25T20:34Z):** Vercel retention policy is now 1 day for canceled, errored, pre-production, and production artifacts. Added git.deploymentEnabled=false, a guarded workflow_dispatch production workflow (main plus exact DEPLOY input), and DEPLOYMENT_POLICY.md; AGENTS.md and CLAUDE.md point agents to the policy. No production deployment was triggered. The Actions workflow requires VERCEL_TOKEN, which is not currently configured; create/store it only after explicit approval because it grants production deployment capability. Policy for all agents: never run vercel --prod, promote, or trigger production workflow without a direct user request; do not load-test production. Verified Vercel dashboard save confirmation, JSON parse, YAML parse, and git diff --check.
 
 ### [TASK-099] status:done from:codex to:codex opened:2026-10-25T12:22Z
 Run paired Python vs LLM scoring on the 2026-10-25 Python review cohort, persist scorer outputs separately from production matches, and report pairwise agreement and rank overlap without changing feeds or emailing users
