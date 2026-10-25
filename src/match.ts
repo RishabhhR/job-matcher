@@ -19,6 +19,8 @@ export interface Profile {
   // If omitted, no location filtering is applied.
   preferredCountry?: string;
   preferredCity?: string;
+  /** Structured skills saved from profile parsing; used by deterministic match analysis. */
+  skills?: string[];
 }
 
 export function computeYearsOfExperience(careerStartDate: string | undefined): number | null {

@@ -7,6 +7,7 @@ import { postingHash, selectScheduledCandidates } from "./candidates.js";
 import { locationPatterns, placesLabel, primaryPlace, splitPlaces } from "./location.js";
 import { upsertScrapeSourceStatuses } from "./db.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
+import { runPythonMatchAnalysis, type PythonMatchAnalysis } from "./pythonMatchAnalysis.js";
 
 // Build location filter patterns from a user's profile preferences.
 // Always includes remote/hybrid/anywhere. If no country or city is set, returns
@@ -24,6 +25,54 @@ function filterByLocation(postings: RawPosting[], profile: Profile): RawPosting[
     if (!loc) return true;
     return patterns.some((re) => re.test(loc));
   });
+}
+
+function averageRanks(values: number[]): number[] {
+  const sorted = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+  const ranks = Array<number>(values.length);
+  for (let start = 0; start < sorted.length;) {
+    let end = start + 1;
+    while (end < sorted.length && sorted[end].value === sorted[start].value) end++;
+    const averageRank = (start + 1 + end) / 2;
+    for (let i = start; i < end; i++) ranks[sorted[i].index] = averageRank;
+    start = end;
+  }
+  return ranks;
+}
+
+function compareShadowScoresWithCandidates(
+  llmScores: ScoredMatch[],
+  candidates: RawPosting[],
+  pythonScores: PythonMatchAnalysis[],
+): void {
+  const pythonByObject = new Map<RawPosting, number>();
+  for (const result of pythonScores) {
+    const posting = candidates[result.index];
+    if (posting) pythonByObject.set(posting, result.score);
+  }
+  const pairs = llmScores.flatMap((match) => {
+    const pythonScore = pythonByObject.get(match.posting);
+    return pythonScore === undefined ? [] : [{ llm: match.fitScore, python: pythonScore }];
+  });
+  if (pairs.length < 2) {
+    console.info(`[match-shadow] comparison skipped: only ${pairs.length} paired scores`);
+    return;
+  }
+  const llmRanks = averageRanks(pairs.map((pair) => pair.llm));
+  const pythonRanks = averageRanks(pairs.map((pair) => pair.python));
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const llmMean = mean(llmRanks);
+  const pythonMean = mean(pythonRanks);
+  const covariance = mean(llmRanks.map((rank, index) => (rank - llmMean) * (pythonRanks[index] - pythonMean)));
+  const llmStd = Math.sqrt(mean(llmRanks.map((rank) => (rank - llmMean) ** 2)));
+  const pythonStd = Math.sqrt(mean(pythonRanks.map((rank) => (rank - pythonMean) ** 2)));
+  const spearman = llmStd && pythonStd ? covariance / (llmStd * pythonStd) : 0;
+  const topCount = Math.min(10, pairs.length);
+  const topLlm = new Set(pairs.map((pair, index) => ({ score: pair.llm, index })).sort((a, b) => b.score - a.score).slice(0, topCount).map((item) => item.index));
+  const topPython = new Set(pairs.map((pair, index) => ({ score: pair.python, index })).sort((a, b) => b.score - a.score).slice(0, topCount).map((item) => item.index));
+  const overlap = [...topLlm].filter((index) => topPython.has(index)).length;
+  const mae = mean(pairs.map((pair) => Math.abs(pair.llm - pair.python)));
+  console.info(`[match-shadow] n=${pairs.length} spearman=${spearman.toFixed(3)} top${topCount}_overlap=${overlap}/${topCount} mean_absolute_score_difference=${mae.toFixed(1)}`);
 }
 
 export interface RunnerOptions {
@@ -238,6 +287,18 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
   const totalBatches = Math.ceil(totalPostings / batchSize);
   const scoredMatches: ScoredMatch[] = [];
   let failedBatches = 0;
+  let pythonShadowScores: PythonMatchAnalysis[] | null = null;
+
+  // Keep shadow analysis on the scheduled worker only: Vercel request handlers
+  // remain Node-only, and this comparison does not affect the scores users see.
+  if (patient) {
+    try {
+      onProgress("scoring_shadow", "Running deterministic Python match analysis in shadow mode...");
+      pythonShadowScores = await runPythonMatchAnalysis(cvText, profile, scoreCandidates);
+    } catch (err) {
+      console.warn(`[match-shadow] Python analysis unavailable; continuing with existing LLM scoring (${(err as Error).message}).`);
+    }
+  }
 
   for (let i = 0; i < totalPostings; i += batchSize) {
     const currentBatchNum = Math.floor(i / batchSize) + 1;
@@ -270,6 +331,9 @@ export async function runJobMatcher(options: RunnerOptions): Promise<ScoredMatch
 
   // Sort matches by descending fit score
   scoredMatches.sort((a, b) => b.fitScore - a.fitScore);
+  if (pythonShadowScores) {
+    compareShadowScoresWithCandidates(scoredMatches, scoreCandidates, pythonShadowScores);
+  }
   
   if (failedBatches) {
     onProgress("scoring_partial", `Scoring stopped after provider capacity was exhausted. Saved ${scoredMatches.length} of ${totalPostings} attempted postings; existing matches remain available for digests.`);
