@@ -7,9 +7,6 @@
 
 ## Tasks
 
-### [TASK-097] status:open from:codex to:codex opened:2026-10-25T11:53Z
-Make the existing scheduled cron score every new shortlisted posting for each due user's saved CV/profile with the Python scorer; send only low-confidence cases to the LLM, retain bounded LLM fallback if Python is unavailable, and persist scores through the current match save path. Scope: src/runner.ts, src/pythonMatchAnalysis.ts, scripts/match_analysis.py, docs/python-match-analysis.md.
-
 ### [TASK-082] status:done from:claude to:antigravity opened:2026-10-22T19:59Z
 INCIDENT (claude, 2026-10-23 ~01:12-01:25 IST, live user 327ae44c): (1) PDF CV upload hung until Vercel killed it (504 'Task timed out after 300 seconds', 3 attempts) after TASK-076 overrode pdfreader's pdf2json to 4.1.0 ('Setting up fake worker' - pdf.js fake-worker load apparently never resolves on Vercel; local Node 22 parsed fine). Rolled back in adb7b37 (pdf2json 3.1.4 again; its bundled xmldom is parse-only, low exposure). (2) Onboarding 'Find my matches' (POST /api/match) crashed: libSQL 'Unsupported type of value' in upsertUserProfile because v2 onboarding leaves pay/employer blank (undefined) - every new user failed. Fixed c918e03 (nulls) + test.
 
@@ -43,6 +40,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-097] status:done from:codex to:codex opened:2026-10-25T11:53Z
+Make the existing scheduled cron score every new shortlisted posting for each due user's saved CV/profile with the Python scorer; send only low-confidence cases to the LLM, retain bounded LLM fallback if Python is unavailable, and persist scores through the current match save path. Scope: src/runner.ts, src/pythonMatchAnalysis.ts, scripts/match_analysis.py, docs/python-match-analysis.md.
+
+**Done Note (2026-10-25T11:56Z):** Scheduled patient runs now call the Python scorer for every eligible new posting for each due user's own CV/profile, with postings chunked 50 at a time. LLM scoring is limited to up to 10 low-signal-coverage candidates; if Python is unavailable, the existing scorer handles up to 30. Python scores flow into existing persistence; interactive matching remains on LLM. Verified npm run typecheck, python3 -m py_compile scripts/match_analysis.py, and git diff --check. Commit: 99b680d.
 
 ### [TASK-096] status:done from:codex to:codex opened:2026-10-25T11:46Z
 Add a deterministic Python match-analysis worker and scheduled shadow comparison against current LLM scores; preserve TypeScript scraping and production scores. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/match.ts. Worker reads JSON on stdin, emits structured deterministic scores/components/confidence to stdout without persisting CV/job content; scheduled pipeline logs only aggregate comparison metrics. Implement bounded timeout/fallback and keep shadow results out of user-facing matches.
