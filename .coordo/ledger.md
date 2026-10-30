@@ -7,8 +7,8 @@
 
 ## Tasks
 
-### [TASK-109] status:open from:default to:claude opened:2026-10-30T20:54Z
-SEO defects in TASK-108 (found 2026-10-31 reviewing it): (1) public/v2/index.html SearchAction targets /jobs?q={search_term_string}, but GET /jobs in src/server.ts ignores query params, so structured data advertises a search that does not exist. (2) Copy calls listings 'verified' (title/description on landing and /jobs), but nothing verifies them and pages tell users to check availability on the original listing. Fix: remove SearchAction or implement q; drop 'verified'.
+### [TASK-110] status:open from:default to:claude opened:2026-10-30T23:33Z
+BUG: production jm_daily_visitors has signed-in-looking visits with no jm_visitors profile (27 Oct and 30 Oct, path /#/matches, referrer is the site itself). A real browser created a profile locally on a throwaway DB, so upsertVisitor may be failing silently in production (the /api/analytics/visit catch returns 204 and hides errors), or the page may have been an old tab running a script without visitorId. Investigate; log the error in that catch at minimum. Note: is_bot rows were cleaned on 2026-10-31 with user approval, so jm_visitors is empty until the next real visit.
 
 ### [TASK-102] status:open from:claude to:claude opened:2026-10-25T12:30Z
 Hybrid scoring (claude, 2026-10-25, user decision on TASK-100). Scheduled runs: Python scores every new shortlisted posting -> ranks them (reachable seniority first, then Python score, then recency) -> the LLM scores the top 30 and its scores are what users see; postings whose LLM batch fails fall back to the Python score, labelled as a rule-based estimate, with the early-career seniority cap applied; Python results for every scored posting go to a new jm_python_shadow_scores table (with the LLM score when there is one) and an aggregate agreement line is logged again. Python fixes: 'sr'/'sr.' count as senior, senior titles for <3 yrs capped at 20 (same rule as enforceEarlyCareerSeniorityCap), intern/trainee titles penalised for candidates with >= 1.5 yrs. Scope: scripts/match_analysis.py, src/pythonMatchAnalysis.ts, src/runner.ts, src/db.ts, tests. Score calibration of the Python scale itself waits for TASK-099 data.
@@ -53,6 +53,11 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 2. Refined `src/cron.ts` failure handling: tracked granular metrics (`successfulSends`, `emptySends`, `sendFailures`, `scrapeSuccesses`, `scrapeFailures`). Individual user soft errors or bounces are recorded to `jm_email_send_log` and do not fail the overall workflow. Process only exits with code 1 if all due users fail (systemic outage), eliminating false-positive failure alert emails from GitHub.
 
 ## Resolved / Log
+
+### [TASK-109] status:done from:default to:claude opened:2026-10-30T20:54Z
+SEO defects in TASK-108 (found 2026-10-31 reviewing it): (1) public/v2/index.html SearchAction targets /jobs?q={search_term_string}, but GET /jobs in src/server.ts ignores query params, so structured data advertises a search that does not exist. (2) Copy calls listings 'verified' (title/description on landing and /jobs), but nothing verifies them and pages tell users to check availability on the original listing. Fix: remove SearchAction or implement q; drop 'verified'.
+
+**Done Note (2026-10-30T23:33Z):** bd58b8c, deployed run 41144911017 on explicit user request. Removed SearchAction and all 'verified' copy from landing and /jobs; test added. Live pages checked: 0 occurrences, structured data parses. 91/91 tests.
 
 ### [TASK-107] status:done from:default to:claude opened:2026-10-30T20:27Z
 Visitor stats overcount: (1) public/analytics.js:226 and :109 both call recordVisitPing per page load, and :109 passes a full URL as the path, so jm_daily_visitors gets two rows per view ('/' and 'https//host/') and hits double. (2) Vercel's post-deploy screenshot bots and preview-deployment hosts are written to jm_daily_visitors with no is_bot or host filter, so deploy days look like real traffic. Fix: send a path not a URL, ping once per view, skip bots and non-production hosts in the daily counter.
