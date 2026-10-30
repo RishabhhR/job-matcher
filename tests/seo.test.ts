@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
 import { clipTitle, jobPostingSchema, renderJobDetail, renderJobsIndex, renderSitemap, type PublicPosting } from "../src/publicJobs.js";
 
 const SITE = "https://job-matcher-ecru.vercel.app";
@@ -59,3 +60,13 @@ test("job detail page includes breadcrumbs navigation (TASK-108)", () => {
   assert.ok(detail.includes('<a href="/jobs">Jobs</a>'));
 });
 
+test("public pages make no claims the product cannot back up (TASK-109)", async () => {
+  const landing = await readFile(new URL("../public/v2/index.html", import.meta.url), "utf8");
+  assert.ok(!landing.includes("SearchAction"), "/jobs has no search, so structured data must not advertise one");
+  for (const html of [landing, renderJobsIndex([job()]), renderJobDetail(job())]) {
+    assert.ok(!/verified/i.test(html));
+  }
+  for (const [, json] of landing.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
+    assert.doesNotThrow(() => JSON.parse(json));
+  }
+});
