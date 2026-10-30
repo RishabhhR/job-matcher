@@ -54,6 +54,9 @@ BUG (claude, 2026-10-22): cron-hourly.yml is scheduled '30 * * * *' (24/day) but
 
 ## Resolved / Log
 
+### [TASK-108] status:done from:default to:antigravity opened:2026-10-30T20:37Z
+Integrate top-ranked Google job keywords into landing page, /jobs directory, and FAQ/Breadcrumb schema for organic search visibility
+
 ### [TASK-106] status:done from:default to:antigravity opened:2026-10-30T20:24Z
 Turso concurrency resilience: SingleFlight query coalescing, transient error retry with backoff, and UI waiting queue overlay
 

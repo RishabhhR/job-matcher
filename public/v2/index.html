@@ -3,45 +3,108 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JobMatcher — AI Job Matching &amp; Automated Job Search Engine</title>
-  <meta name="description" content="AI-powered job matching engine that analyzes your CV and scores real openings across LinkedIn, Greenhouse, Lever, Ashby, and Naukri with daily email digests.">
-  <meta name="keywords" content="job matcher, AI job search, product manager jobs, APM jobs, software engineer jobs, greenhouse jobs, ashby jobs, lever jobs">
+  <title>JobMatcher — Product Manager &amp; Software Engineer Jobs | Remote &amp; India AI Matcher</title>
+  <meta name="description" content="Find verified Product Manager, Software Engineer, and Remote Tech jobs across Greenhouse, Lever, Ashby, LinkedIn, and Naukri. AI matches your CV to live openings with daily alerts.">
+  <meta name="keywords" content="product manager jobs, software engineer jobs, remote tech jobs, tech jobs bangalore, apm jobs, backend engineer jobs, frontend developer jobs, full stack developer jobs, greenhouse jobs, ashby jobs, lever jobs, ai resume matcher, daily job alerts">
   <link rel="canonical" href="https://job-matcher-ecru.vercel.app/">
   <meta name="google-site-verification" content="f4fVedQZIRY6Ds-9YLOASgsaSkYm0Y-3STOHTMCldR8">
 
   <!-- OpenGraph / Social Sharing -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://job-matcher-ecru.vercel.app/">
-  <meta property="og:title" content="JobMatcher — AI Job Matching &amp; Automated Job Search Engine">
-  <meta property="og:description" content="Stop searching job boards manually. Upload your CV and get matched roles scored daily with compensation trajectory insights.">
+  <meta property="og:title" content="JobMatcher — Product Manager &amp; Software Engineer Jobs | Remote &amp; India AI Matcher">
+  <meta property="og:description" content="Discover top Product Manager, Software Engineer, and Remote Tech jobs across Greenhouse, Lever, Ashby, LinkedIn, and Naukri. AI matches your CV to live openings with daily alerts.">
   <meta property="og:image" content="https://job-matcher-ecru.vercel.app/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="JobMatcher: daily job matches from LinkedIn, Naukri and company career pages, scored against your CV">
+  <meta property="og:image:alt" content="JobMatcher: daily job matches from LinkedIn, Greenhouse, Lever, Ashby, and Naukri, scored against your CV">
   <meta property="og:site_name" content="JobMatcher">
 
   <!-- Twitter Cards -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="JobMatcher — AI Job Matching &amp; Automated Job Search Engine">
-  <meta name="twitter:description" content="Automated job search engine that analyzes your CV and scores real openings across LinkedIn, Greenhouse, Lever, Ashby, and Naukri.">
+  <meta name="twitter:title" content="JobMatcher — Product Manager &amp; Software Engineer Jobs | Remote &amp; India AI Matcher">
+  <meta name="twitter:description" content="Discover top Product Manager, Software Engineer, and Remote Tech jobs across Greenhouse, Lever, Ashby, LinkedIn, and Naukri. AI matches your CV to live openings with daily alerts.">
   <meta name="twitter:image" content="https://job-matcher-ecru.vercel.app/og-image.png">
-  <meta name="twitter:image:alt" content="JobMatcher: daily job matches from LinkedIn, Naukri and company career pages, scored against your CV">
+  <meta name="twitter:image:alt" content="JobMatcher: daily job matches from LinkedIn, Greenhouse, Lever, Ashby, and Naukri, scored against your CV">
 
   <!-- Structured Data (JSON-LD) for Search Engines -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "WebApplication",
-    "name": "JobMatcher",
-    "url": "https://job-matcher-ecru.vercel.app",
-    "description": "AI-powered job matching engine that analyzes your CV and scores real openings across LinkedIn, Greenhouse, Lever, Ashby, and Naukri with daily email digests.",
-    "applicationCategory": "BusinessApplication",
-    "operatingSystem": "All",
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    }
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "@id": "https://job-matcher-ecru.vercel.app/#webapp",
+        "name": "JobMatcher",
+        "url": "https://job-matcher-ecru.vercel.app",
+        "description": "AI-powered job matching engine that analyzes your CV and scores real openings across LinkedIn, Greenhouse, Lever, Ashby, and Naukri with daily email digests.",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "All",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://job-matcher-ecru.vercel.app/#website",
+        "url": "https://job-matcher-ecru.vercel.app",
+        "name": "JobMatcher",
+        "description": "Product Manager, Software Engineer, and Remote Tech jobs across Greenhouse, Lever, Ashby, and LinkedIn scored against your CV.",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://job-matcher-ecru.vercel.app/jobs?q={search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://job-matcher-ecru.vercel.app/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How does JobMatcher find Product Manager and Software Engineer jobs?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "JobMatcher automatically tracks public openings directly from company ATS portals including Greenhouse, Lever, and Ashby, alongside listings from LinkedIn and Naukri. We aggregate verified openings for Product Management, Software Engineering, Frontend, Backend, and AI roles into a single feed."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How does AI match jobs to my CV?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "JobMatcher reads your uploaded resume, extracts your key technical skills, years of experience, and role seniority, and evaluates every new opening against your background. Each job receives an estimated fit score (0-100) and a concise summary explaining why it matches."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I search for Remote and India tech jobs (Bengaluru, Hyderabad, Pune)?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. JobMatcher indexes remote-friendly roles across the globe as well as high-growth tech hub positions in Bengaluru (Bangalore), Hyderabad, Pune, Mumbai, and Delhi-NCR."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does JobMatcher automatically apply to jobs for me?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. You maintain complete control over your job applications. JobMatcher surfaces high-signal opportunities with direct links to the official employer application page so you can apply intentionally."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I receive daily job alerts for newly posted roles?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. After creating your profile and setting your target job title, you can schedule a daily email digest delivered at your preferred local time featuring your top-scoring new opportunities."
+            }
+          }
+        ]
+      }
+    ]
   }
   </script>
 
@@ -124,15 +187,15 @@
     <div id="landing-root" class="landing">
       <header class="landing-nav">
         <a class="landing-brand" href="/" aria-label="JobMatcher home"><span class="landing-brand-mark" aria-hidden="true">✦</span>JobMatcher</a>
-        <nav aria-label="Public navigation"><a href="#how-it-works">How it works</a><a href="/jobs">Browse jobs</a><a href="#questions">FAQs</a></nav>
+        <nav aria-label="Public navigation"><a href="#how-it-works">How it works</a><a href="/jobs">Browse jobs</a><a href="#explore-roles">Explore roles</a><a href="#questions">FAQs</a></nav>
         <button class="btn btn-ghost" type="button" data-landing-signin data-analytics-id="landing_nav_signin">Sign in</button>
       </header>
 
       <section class="landing-hero" aria-labelledby="landing-title">
         <div class="landing-hero-copy">
-          <p class="landing-kicker">A calmer way to find your next role</p>
+          <p class="landing-kicker">AI Job Search · Product &amp; Engineering</p>
           <h1 id="landing-title">Jobs that fit your experience, gathered in one place.</h1>
-          <p class="landing-lede">JobMatcher checks public openings across five sources, compares them with your CV and preferences, and helps you focus on roles worth a closer look.</p>
+          <p class="landing-lede">JobMatcher checks live Product Manager, Software Engineer, and Remote Tech openings across Greenhouse, Lever, Ashby, LinkedIn, and Naukri. Compare opportunities against your CV and get scored daily shortlists.</p>
           <div class="landing-actions"><button class="btn btn-primary" type="button" data-landing-signin data-analytics-id="landing_hero_start">Get started free <span aria-hidden="true">→</span></button><a class="btn btn-ghost" href="/jobs" data-analytics-id="landing_hero_jobs">Explore recent jobs</a></div>
           <p id="landing-auth-status" class="landing-status" role="status" hidden></p>
           <p class="landing-small">No automatic applications. You decide where to apply.</p>
@@ -166,13 +229,63 @@
         <ul aria-label="Supported job sources"><li>Greenhouse</li><li>Lever</li><li>Ashby</li><li>LinkedIn</li><li>Naukri</li></ul>
       </section>
 
+      <section class="landing-section landing-directory" id="explore-roles" aria-labelledby="landing-directory-title">
+        <div class="landing-section-head">
+          <p class="landing-kicker">Job Search Directory</p>
+          <h2 id="landing-directory-title">Explore top tech roles and job hubs.</h2>
+          <p>Targeted listings updated daily from verified direct employer portals and career platforms.</p>
+        </div>
+        <div class="landing-directory-grid">
+          <div class="landing-directory-col">
+            <h3>Top Tech Roles</h3>
+            <ul class="landing-directory-list">
+              <li><a href="/jobs">Product Manager Jobs</a></li>
+              <li><a href="/jobs">Associate Product Manager (APM)</a></li>
+              <li><a href="/jobs">Senior Product Manager Jobs</a></li>
+              <li><a href="/jobs">Software Engineer Jobs</a></li>
+              <li><a href="/jobs">Full Stack Developer Jobs</a></li>
+              <li><a href="/jobs">Frontend Engineer Jobs</a></li>
+              <li><a href="/jobs">Backend Engineer Jobs</a></li>
+              <li><a href="/jobs">AI &amp; Machine Learning Engineer</a></li>
+            </ul>
+          </div>
+          <div class="landing-directory-col">
+            <h3>Top Locations &amp; Modes</h3>
+            <ul class="landing-directory-list">
+              <li><a href="/jobs">Remote Tech Jobs (Worldwide)</a></li>
+              <li><a href="/jobs">Tech Jobs in Bengaluru (Bangalore)</a></li>
+              <li><a href="/jobs">Tech Jobs in Hyderabad</a></li>
+              <li><a href="/jobs">Tech Jobs in Pune</a></li>
+              <li><a href="/jobs">Tech Jobs in Delhi-NCR &amp; Gurugram</a></li>
+              <li><a href="/jobs">Tech Jobs in Mumbai</a></li>
+              <li><a href="/jobs">San Francisco &amp; US Tech Jobs</a></li>
+              <li><a href="/jobs">Hybrid Tech Roles</a></li>
+            </ul>
+          </div>
+          <div class="landing-directory-col">
+            <h3>Direct ATS Job Sources</h3>
+            <ul class="landing-directory-list">
+              <li><a href="/jobs">Greenhouse Startup Jobs</a></li>
+              <li><a href="/jobs">Ashby Fast-Growing Startups</a></li>
+              <li><a href="/jobs">Lever Tech Career Openings</a></li>
+              <li><a href="/jobs">LinkedIn Verified Tech Jobs</a></li>
+              <li><a href="/jobs">Naukri High-Growth IT Roles</a></li>
+              <li><a href="/jobs">Early-Stage Tech Ventures</a></li>
+              <li><a href="/jobs">Unicorn &amp; Public Tech Companies</a></li>
+              <li><a href="/jobs">Fresh Tech Postings (Last 72h)</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section class="landing-section landing-faq" id="questions" aria-labelledby="landing-faq-title">
         <div class="landing-section-head"><p class="landing-kicker">Questions, answered</p><h2 id="landing-faq-title">Know what happens before you start.</h2></div>
         <div class="landing-faq-list">
-          <details><summary>How does JobMatcher find jobs?</summary><p>It checks public job listings from Greenhouse, Lever, Ashby, LinkedIn, and Naukri, then brings available openings into one feed. Individual sources may sometimes return fewer results.</p></details>
-          <details><summary>How are jobs matched to my CV?</summary><p>JobMatcher compares your saved CV and preferences with job details and estimates fit. Scores help prioritize your review; they are not a hiring probability.</p></details>
-          <details><summary>Does JobMatcher apply to jobs for me?</summary><p>No. You review each role and choose whether to open the original listing and apply.</p></details>
-          <details><summary>Can I choose when to receive emails?</summary><p>Yes. After setting up your profile, you can choose a daily digest hour in your local timezone. Delivery may vary when a source or email provider is delayed.</p></details>
+          <details><summary>How does JobMatcher find Product Manager and Software Engineer jobs?</summary><p>JobMatcher automatically tracks public openings directly from company ATS portals including Greenhouse, Lever, and Ashby, alongside listings from LinkedIn and Naukri. We aggregate verified openings for Product Management, Software Engineering, Frontend, Backend, and AI roles into a single feed.</p></details>
+          <details><summary>How are jobs matched to my CV with AI?</summary><p>JobMatcher reads your uploaded resume, extracts your key technical skills, years of experience, and role seniority, and evaluates every new opening against your background. Each job receives an estimated fit score (0–100) and a concise summary explaining why it matches.</p></details>
+          <details><summary>Can I search for Remote and India tech jobs (Bengaluru, Hyderabad, Pune)?</summary><p>Yes. JobMatcher indexes remote-friendly roles across the globe as well as high-growth tech hub positions in Bengaluru (Bangalore), Hyderabad, Pune, Mumbai, and Delhi-NCR.</p></details>
+          <details><summary>Does JobMatcher apply to jobs for me?</summary><p>No. You review each role and choose whether to open the original listing and apply. We never submit automated applications on your behalf.</p></details>
+          <details><summary>Can I choose when to receive daily job alerts?</summary><p>Yes. After setting up your profile, you can choose a daily digest hour in your local timezone to receive your highest-fit matches straight to your inbox.</p></details>
         </div>
       </section>
 
@@ -190,7 +303,7 @@
       </section>
 
       <section class="landing-final" aria-labelledby="landing-final-title"><p class="landing-kicker">Ready when you are</p><h2 id="landing-final-title">Make your next search more focused.</h2><p>Bring your CV. We’ll help you see the roles worth reviewing.</p><button class="btn btn-primary" type="button" data-landing-signin data-analytics-id="landing_final_start">Start matching <span aria-hidden="true">→</span></button></section>
-      <footer class="landing-footer"><span>© JobMatcher</span><span>Job listings belong to their respective publishers and employers.</span><a href="/jobs">Recent jobs</a></footer>
+      <footer class="landing-footer"><span>© JobMatcher · AI Job Matching for Product Managers &amp; Software Engineers</span><span>Job listings belong to their respective publishers and employers.</span><div class="landing-footer-links"><a href="/jobs">Browse Jobs</a><a href="#how-it-works">How It Works</a><a href="#explore-roles">Explore Roles</a><a href="#questions">FAQs</a></div></footer>
     </div>
   </main>
 

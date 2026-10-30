@@ -41,3 +41,21 @@ test("clipTitle keeps short titles and cuts long ones at a word", () => {
   assert.equal(clipTitle("PM at Acme"), "PM at Acme");
   assert.equal(clipTitle("one two three four five six seven eight nine ten eleven twelve", 30), "one two three four five six…");
 });
+
+test("jobs index includes ItemList schema, search filter pills, and directory markup (TASK-108)", () => {
+  const index = renderJobsIndex([job()]);
+  assert.ok(index.includes('"@type":"ItemList"'));
+  assert.ok(index.includes('class="public-filter-pill"'));
+  assert.ok(index.includes("Product Manager"));
+  assert.ok(index.includes("Software Engineer"));
+  assert.ok(index.includes("Greenhouse"));
+  assert.ok(index.includes("Explore Tech Jobs by Role, Location &amp; Source"));
+});
+
+test("job detail page includes breadcrumbs navigation (TASK-108)", () => {
+  const detail = renderJobDetail(job());
+  assert.ok(detail.includes('class="public-job-breadcrumbs"'));
+  assert.ok(detail.includes('<a href="/">Home</a>'));
+  assert.ok(detail.includes('<a href="/jobs">Jobs</a>'));
+});
+
