@@ -11,26 +11,61 @@ export class ApiError extends Error {
   }
 }
 
+function notifyQueueStatus(detail) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("jobmatcher:queue-status", { detail }));
+  }
+}
+
 async function authFetch(url, options = {}) {
-  const { timeoutMs = 0, ...fetchOptions } = options;
+  const { timeoutMs = 0, maxRetries = 2, ...fetchOptions } = options;
   const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
-  const controller = timeoutMs ? new AbortController() : null;
-  let timer;
-  const fetchRequest = getToken().then((token) => {
-    if (token) headers.Authorization = `Bearer ${token}`;
-    return fetch(url, { ...fetchOptions, headers, ...(controller ? { signal: controller.signal } : {}) });
-  });
-  if (!timeoutMs) return fetchRequest;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(new ApiError("Loading your account took too long. Check your connection and try again.", 408));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([fetchRequest, timeout]);
-  } finally {
-    clearTimeout(timer);
+
+  let attempt = 0;
+  while (true) {
+    const controller = timeoutMs ? new AbortController() : null;
+    let timer;
+    const fetchRequest = getToken().then((token) => {
+      if (token) headers.Authorization = `Bearer ${token}`;
+      return fetch(url, { ...fetchOptions, headers, ...(controller ? { signal: controller.signal } : {}) });
+    });
+
+    try {
+      let res;
+      if (timeoutMs) {
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new ApiError("Loading your account took too long. Check your connection and try again.", 408));
+          }, timeoutMs);
+        });
+        res = await Promise.race([fetchRequest, timeout]);
+      } else {
+        res = await fetchRequest;
+      }
+
+      if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < maxRetries) {
+        attempt++;
+        const retryAfterSec = Number(res.headers.get("retry-after"));
+        const waitMs = (retryAfterSec && retryAfterSec > 0 && retryAfterSec <= 10)
+          ? retryAfterSec * 1000
+          : 1200 * attempt + Math.floor(Math.random() * 500);
+
+        notifyQueueStatus({ active: true, waitMs, attempt, maxRetries });
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+
+      if (attempt > 0) {
+        notifyQueueStatus({ active: false });
+      }
+      return res;
+    } catch (err) {
+      if (attempt > 0) notifyQueueStatus({ active: false });
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

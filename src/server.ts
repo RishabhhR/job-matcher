@@ -55,6 +55,13 @@ import { parseCvFile } from "./cvParser.js";
 import { cleanVisitorId, visitorPingFrom } from "./visitors.js";
 import { cleanLeadEmail, cleanRole, LEAD_CONSENT_TEXT } from "./leads.js";
 import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
+import { MicroCache, KeyedMicroCache } from "./cache.js";
+
+export const publicJobsSummaryCache = new MicroCache<{ recentCount: number }>(30_000);
+export const sitemapJobsCache = new MicroCache<Array<{ id: string; scrapedAt: string }>>(300_000);
+export const jobsIndexHtmlCache = new MicroCache<string>(30_000);
+export const jobDetailHtmlCache = new KeyedMicroCache<string>(60_000, 500);
+export const dailyVisitorsStatsCache = new KeyedMicroCache<any>(60_000, 20);
 
 // scoreAll returns results SORTED BY SCORE and omits postings whose batch failed,
 // so results must be matched back to their postings by object identity - never by
@@ -241,7 +248,7 @@ app.post("/api/leads/unsubscribe", unsubscribeLead);
 app.get("/api/analytics/daily-visitors", async (req, res) => {
   try {
     const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
-    const stats = await getDailyVisitorStats(days);
+    const stats = await dailyVisitorsStatsCache.getOrFetch(`days:${days}`, () => getDailyVisitorStats(days));
     res.setHeader("Cache-Control", "public, max-age=60");
     res.json({ ok: true, ...stats });
   } catch (error) {
@@ -271,12 +278,15 @@ function publicPosting(row: any): PublicPosting {
 
 app.get("/api/public/jobs/summary", async (_req, res) => {
   try {
-    const result = await client.execute({
-      sql: `SELECT count(*) AS recent_count FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}`,
-      args: [],
+    const data = await publicJobsSummaryCache.getOrFetch(async () => {
+      const result = await client.execute({
+        sql: `SELECT count(*) AS recent_count FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}`,
+        args: [],
+      });
+      return { recentCount: Number(result.rows[0]?.recent_count || 0) };
     });
     res.set("Cache-Control", "public, max-age=60, s-maxage=300");
-    res.json({ recentCount: Number(result.rows[0]?.recent_count || 0) });
+    res.json(data);
   } catch (error) {
     console.error("Public job summary failed:", error);
     res.status(503).json({ error: "Recent job count is temporarily unavailable." });
@@ -288,8 +298,10 @@ app.get("/api/public/jobs/summary", async (_req, res) => {
 app.get("/sitemap.xml", async (_req, res) => {
   let jobs: Array<{ id: string; scrapedAt: string }> = [];
   try {
-    const rows = await client.execute(`SELECT id, scraped_at FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER} ORDER BY scraped_at DESC, id ASC LIMIT 1000`);
-    jobs = rows.rows.map((r: any) => ({ id: String(r.id), scrapedAt: String(r.scraped_at) }));
+    jobs = await sitemapJobsCache.getOrFetch(async () => {
+      const rows = await client.execute(`SELECT id, scraped_at FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER} ORDER BY scraped_at DESC, id ASC LIMIT 1000`);
+      return rows.rows.map((r: any) => ({ id: String(r.id), scrapedAt: String(r.scraped_at) }));
+    });
   } catch (error) {
     console.error("Error building sitemap.xml; serving core pages only:", error);
   }
@@ -299,19 +311,22 @@ app.get("/sitemap.xml", async (_req, res) => {
 
 app.get("/jobs", async (_req, res) => {
   try {
-    await ensureMigrated();
-    const result = await client.execute({
-      sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
-            FROM (
-              SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at,
-                     row_number() OVER (PARTITION BY source ORDER BY scraped_at DESC, id ASC) AS source_rank
-              FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}
-            ) WHERE source_rank <= 6
-            ORDER BY scraped_at DESC, id ASC LIMIT 30`,
-      args: [],
+    const html = await jobsIndexHtmlCache.getOrFetch(async () => {
+      await ensureMigrated();
+      const result = await client.execute({
+        sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
+              FROM (
+                SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at,
+                       row_number() OVER (PARTITION BY source ORDER BY scraped_at DESC, id ASC) AS source_rank
+                FROM jm_job_postings WHERE ${PUBLIC_JOB_FILTER}
+              ) WHERE source_rank <= 6
+              ORDER BY scraped_at DESC, id ASC LIMIT 30`,
+        args: [],
+      });
+      return renderJobsIndex(result.rows.map(publicPosting));
     });
     res.set("Cache-Control", "public, max-age=60, s-maxage=300");
-    res.type("html").send(renderJobsIndex(result.rows.map(publicPosting)));
+    res.type("html").send(html);
   } catch (error) {
     console.error("Public job index failed:", error);
     res.status(503).type("html").send(renderJobsUnavailable());
@@ -319,24 +334,29 @@ app.get("/jobs", async (_req, res) => {
 });
 
 app.get("/jobs/:id", async (req, res) => {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+  const id = req.params.id;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     res.status(404).type("html").send(renderJobNotFound());
     return;
   }
   try {
-    await ensureMigrated();
-    const result = await client.execute({
-      sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
-            FROM jm_job_postings WHERE id = ? AND ${PUBLIC_JOB_FILTER} LIMIT 1`,
-      args: [req.params.id],
+    const html = await jobDetailHtmlCache.getOrFetch(id, async () => {
+      await ensureMigrated();
+      const result = await client.execute({
+        sql: `SELECT id, source, company_name, title, location, description_text, apply_url, posted_at, scraped_at
+              FROM jm_job_postings WHERE id = ? AND ${PUBLIC_JOB_FILTER} LIMIT 1`,
+        args: [id],
+      });
+      const row = result.rows[0];
+      if (!row) return "";
+      return renderJobDetail(publicPosting(row));
     });
-    const row = result.rows[0];
-    if (!row) {
+    if (!html) {
       res.status(404).type("html").send(renderJobNotFound());
       return;
     }
     res.set("Cache-Control", "public, max-age=60, s-maxage=300");
-    res.type("html").send(renderJobDetail(publicPosting(row)));
+    res.type("html").send(html);
   } catch (error) {
     console.error("Public job detail failed:", error);
     res.status(503).type("html").send(renderJobsUnavailable());

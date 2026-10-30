@@ -52,7 +52,43 @@ function renderAccount() {
   document.getElementById("account-email").textContent = maskEmail(user.email);
 }
 
+function wireQueueIndicator() {
+  let banner = null;
+  let countdownTimer = null;
+
+  window.addEventListener("jobmatcher:queue-status", (e) => {
+    const detail = e.detail || {};
+    if (detail.active) {
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.className = "traffic-queue-banner";
+        banner.setAttribute("role", "status");
+        banner.setAttribute("aria-live", "polite");
+        document.body.appendChild(banner);
+      }
+      let remainingSec = Math.ceil((detail.waitMs || 1500) / 1000);
+      banner.innerHTML = `<span class="queue-spinner" aria-hidden="true"></span><span>High traffic surge: You are in line. Connecting in <strong>${remainingSec}s</strong>…</span>`;
+      clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        remainingSec--;
+        if (remainingSec > 0 && banner) {
+          banner.innerHTML = `<span class="queue-spinner" aria-hidden="true"></span><span>High traffic surge: You are in line. Connecting in <strong>${remainingSec}s</strong>…</span>`;
+        } else {
+          clearInterval(countdownTimer);
+        }
+      }, 1000);
+    } else {
+      clearInterval(countdownTimer);
+      if (banner) {
+        banner.remove();
+        banner = null;
+      }
+    }
+  });
+}
+
 async function main() {
+  wireQueueIndicator();
   captureReferralFromUrl();
   const authPromise = initAuth();
   const triggerSignIn = async () => {

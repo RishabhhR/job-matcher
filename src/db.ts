@@ -3,6 +3,46 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { captureTelemetryEvent } from "./telemetry.js";
 import type { VisitorPing } from "./visitors.js";
 
+export function isTransientDbError(error: any): boolean {
+  if (!error) return false;
+  const message = String(error.message || "").toLowerCase();
+  const code = String(error.code || error.rawCode || "").toUpperCase();
+  return (
+    code === "SQLITE_BUSY" ||
+    code === "SQLITE_LOCKED" ||
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "UND_ERR_CONNECT_TIMEOUT" ||
+    message.includes("sqlite_busy") ||
+    message.includes("database is locked") ||
+    message.includes("resource_exhausted") ||
+    message.includes("connection closed") ||
+    message.includes("fetch failed") ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("overloaded") ||
+    message.includes("status 503") ||
+    message.includes("status 429")
+  );
+}
+
+export async function withDbRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (err: any) {
+      attempt++;
+      if (attempt > maxRetries || !isTransientDbError(err)) {
+        throw err;
+      }
+      const backoff = 40 * Math.pow(2, attempt) + Math.floor(Math.random() * 30);
+      console.warn(`[db] Transient error encountered (${err.code || err.message}). Retrying in ${backoff}ms (attempt ${attempt}/${maxRetries})...`);
+      await new Promise((res) => setTimeout(res, backoff));
+    }
+  }
+}
+
 let _client: any;
 export const client = new Proxy({} as any, {
   get(target, prop) {
@@ -14,6 +54,12 @@ export const client = new Proxy({} as any, {
         url: process.env.TURSO_DATABASE_URL,
         authToken: process.env.TURSO_AUTH_TOKEN,
       });
+    }
+    if (prop === "execute") {
+      return (stmt: any) => withDbRetry(() => _client.execute(stmt));
+    }
+    if (prop === "batch") {
+      return (stmts: any, mode?: any) => withDbRetry(() => _client.batch(stmts, mode));
     }
     const value = _client[prop];
     if (typeof value === "function") {
