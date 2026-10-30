@@ -52,8 +52,8 @@ import { nextDigestAt } from "./digestSchedule.js";
 import { locationPatterns } from "./location.js";
 import { captureTelemetryEvent, captureTelemetryError } from "./telemetry.js";
 import { parseCvFile } from "./cvParser.js";
-import { cleanVisitorId, visitorPingFrom } from "./visitors.js";
-import { cleanLeadEmail, cleanRole, LEAD_CONSENT_TEXT } from "./leads.js";
+import { cleanVisitorId, isSiteHost, parseUserAgent, visitPath, visitorPingFrom } from "./visitors.js";
+import { cleanLeadEmail, cleanRole, LEAD_CONSENT_TEXT, SITE } from "./leads.js";
 import { renderJobsIndex, renderJobDetail, renderJobNotFound, renderJobsUnavailable, renderSitemap, type PublicPosting } from "./publicJobs.js";
 import { MicroCache, KeyedMicroCache } from "./cache.js";
 
@@ -175,8 +175,11 @@ app.use("/api", async (_req, res, next) => {
 // Daily visitor tracking and analytics (TASK-087)
 app.post("/api/analytics/visit", async (req, res) => {
   try {
-    const rawPath = typeof req.body?.path === "string" ? req.body.path : "/";
-    const cleanPath = rawPath.replace(/[^\w\-\/\#\.\?=&]/g, "").slice(0, 100) || "/";
+    if (process.env.VERCEL && !isSiteHost(req.headers, SITE)) {
+      res.status(204).end();
+      return;
+    }
+    const cleanPath = visitPath(req.body?.path);
     const rawReferrer = typeof req.body?.referrer === "string" ? req.body.referrer : null;
     const cleanReferrer = rawReferrer ? rawReferrer.slice(0, 200) : null;
 
@@ -194,7 +197,8 @@ app.post("/api/analytics/visit", async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const visitor = visitorPingFrom(req.body, req.headers, cleanPath, cleanReferrer);
     await Promise.all([
-      recordDailyVisit(today, visitorHash, cleanPath, cleanReferrer),
+      // Bots stay out of the daily counts; jm_visitors keeps them, flagged is_bot.
+      parseUserAgent(userAgent).isBot ? null : recordDailyVisit(today, visitorHash, cleanPath, cleanReferrer),
       visitor ? upsertVisitor(visitor) : null,
     ]);
     res.status(204).end();

@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { cleanVisitorId, parseUserAgent, referrerOrigin, visitorPingFrom } from "../src/visitors.js";
+import { cleanVisitorId, isSiteHost, parseUserAgent, referrerOrigin, visitPath, visitorPingFrom } from "../src/visitors.js";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const MAC_CHROME = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
@@ -22,6 +22,27 @@ test("visitor ids are validated and referrers reduced to their origin", () => {
   assert.equal(referrerOrigin("https://www.google.com/search?q=jobs+for+me"), "https://www.google.com");
   assert.equal(referrerOrigin("javascript:alert(1)"), null);
   assert.equal(referrerOrigin("not a url"), null);
+});
+
+test("visit paths drop the origin and unsafe characters (TASK-107)", () => {
+  assert.equal(visitPath("/jobs"), "/jobs");
+  assert.equal(visitPath("/#/matches"), "/#/matches");
+  assert.equal(visitPath("https://job-matcher-ecru.vercel.app/"), "/");
+  assert.equal(visitPath("https://job-matcher-ecru.vercel.app/v2/#/settings"), "/v2/#/settings");
+  assert.equal(visitPath("/<script>"), "/script");
+  assert.equal(visitPath(undefined), "/");
+});
+
+test("only the public site host counts as traffic (TASK-107)", () => {
+  const site = "https://job-matcher-ecru.vercel.app";
+  assert.equal(isSiteHost({ host: "job-matcher-ecru.vercel.app" }, site), true);
+  assert.equal(isSiteHost({ "x-forwarded-host": "JOB-MATCHER-ECRU.vercel.app", host: "internal" }, site), true);
+  assert.equal(isSiteHost({ "x-forwarded-host": "job-matcher-abc123-rishabhs-projects.vercel.app" }, site), false);
+  assert.equal(isSiteHost({}, site), false);
+});
+
+test("deploy screenshot bots are recognised (TASK-107)", () => {
+  assert.equal(parseUserAgent("Mozilla/5.0 (Macintosh) Chrome/141.0.0.0 Safari/537.36 vercel-screenshot/1.0").isBot, true);
 });
 
 // DEC-008 data contract: no email is sent or stored from an unverified sign-in attempt,

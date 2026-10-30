@@ -35,6 +35,26 @@ export function referrerOrigin(value: unknown): string | null {
   }
 }
 
+// Browsers holding an older analytics.js still send a full URL as the path.
+export function visitPath(value: unknown): string {
+  let path = typeof value === "string" ? value : "/";
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      const url = new URL(path);
+      path = url.pathname + url.hash;
+    } catch {
+      path = "/";
+    }
+  }
+  return path.replace(/[^\w\-\/\#\.\?=&]/g, "").slice(0, 100) || "/";
+}
+
+// Each deploy gets its own *.vercel.app host; only the public site counts as traffic.
+export function isSiteHost(headers: Record<string, unknown>, site: string): boolean {
+  const host = headers["x-forwarded-host"] || headers.host;
+  return typeof host === "string" && host.split(",")[0].trim().toLowerCase() === new URL(site).host;
+}
+
 function cleanShort(value: unknown, max = 80): string | null {
   if (typeof value !== "string") return null;
   const text = value.replace(/[^\p{L}\p{N}\s_\-+.,:/@]/gu, "").trim().slice(0, max);

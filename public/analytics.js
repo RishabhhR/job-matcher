@@ -21,10 +21,16 @@
   const queue = [];
   const seenSections = new Set();
   const observed = new WeakSet();
+  // The ping sent on load already counts the first page, so only later routes ping.
+  let firstPageTracked = false;
+
+  function pagePath(name) {
+    const path = surface === "v2" ? (name === "landing" ? "/" : location.pathname.startsWith("/v2") ? "/v2/" : "/") : "/classic";
+    return `${path}${surface === "v2" && ["matches", "profile", "settings", "onboarding"].includes(name) ? `#/${name}` : ""}`;
+  }
 
   function pageUrl(name) {
-    const path = surface === "v2" ? (name === "landing" ? "/" : location.pathname.startsWith("/v2") ? "/v2/" : "/") : "/classic";
-    return `${location.origin}${path}${surface === "v2" && ["matches", "profile", "settings", "onboarding"].includes(name) ? `#/${name}` : ""}`;
+    return `${location.origin}${pagePath(name)}`;
   }
 
   function capture(event, properties, unload = false) {
@@ -106,7 +112,8 @@
     capture("$pageview", properties);
     capture("page_load", properties);
     scheduleSections();
-    recordVisitPing(pageUrl(name));
+    if (firstPageTracked) recordVisitPing(pagePath(name));
+    firstPageTracked = true;
   }
 
   function controlName(element) {
